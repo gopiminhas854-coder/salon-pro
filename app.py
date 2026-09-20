@@ -287,7 +287,6 @@ def invoice_net_paid_amount(invoice):
 def invoice_balance(invoice):
     return round(max(invoice.total - invoice_net_paid_amount(invoice), 0), 2)
 
-@app.context_processor
 def csrf_token():
     token = session.get('_csrf_token')
     if not token:
