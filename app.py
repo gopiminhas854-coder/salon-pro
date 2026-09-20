@@ -1396,6 +1396,18 @@ def add_inventory_sale(id):
                        total=round(quantity * item.sale_price, 2))
     db.session.add(line)
     db.session.flush()
+    db.session.add(InventorySaleLine(
+        inventory_sale_id=sale.id,
+        invoice_item_id=line.id,
+        inventory_item_id=item.id,
+        quantity=quantity,
+        unit_price=item.sale_price
+    ))
+    record_inventory_transaction(
+        item, 'Sale', quantity, item.cost_price,
+        reference=f'invoice:{invoice.id}:item:{line.id}',
+        notes=f'Product sold on invoice #{invoice.id}.'
+    )
     subtotal = sum(i.total for i in invoice.items)
     invoice.amount = round(subtotal, 2)
     recalculate_invoice(invoice)
