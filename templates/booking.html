@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Book Appointment{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7 col-xl-6">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4 p-md-5">
+        <div class="text-center mb-4">
+          <div class="display-6"><i class="bi bi-calendar2-heart"></i></div>
+          <h2 class="mb-1">Book an Appointment</h2>
+          <p class="text-muted mb-0">Choose your service, stylist and preferred time.</p>
+        </div>
+        <form method="POST">
+          <div class="mb-3"><label class="form-label">Your name</label><input name="name" class="form-control form-control-lg" required></div>
+          <div class="mb-3"><label class="form-label">Phone</label><input name="phone" type="tel" class="form-control form-control-lg" required></div>
+          <div class="mb-3"><label class="form-label">Service</label>
+            <select name="service_id" class="form-select form-select-lg" required>
+              <option value="">Choose service</option>
+              {% for s in services %}<option value="{{ s.id }}">{{ s.name }} — ₹{{ '%.2f'|format(s.price) }} · {{ s.duration_minutes }} min</option>{% endfor %}
+            </select>
+          </div>
+          <div class="mb-3"><label class="form-label">Stylist / Staff</label>
+            <select name="staff_id" class="form-select form-select-lg" required>
+              <option value="">Choose staff</option>
+              {% for s in staff_list %}<option value="{{ s.id }}">{{ s.name }}{% if s.specialty %} — {{ s.specialty }}{% endif %}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="row g-3">
+            <div class="col-sm-6"><label class="form-label">Date</label><input name="appointment_date" type="date" class="form-control form-control-lg" min="{{ date.today().isoformat() if date is defined else '' }}" required></div>
+            <div class="col-sm-6"><label class="form-label">Time</label><input name="appointment_time" type="time" class="form-control form-control-lg" required></div>
+          </div>
+          <button class="btn btn-primary btn-lg w-100 mt-4"><i class="bi bi-check2-circle"></i> Confirm Booking</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
