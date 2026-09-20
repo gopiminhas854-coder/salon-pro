@@ -97,6 +97,23 @@ class Invoice(db.Model):
     appointment = db.relationship('Appointment')
     customer = db.relationship('Customer')
 
+class StaffCommission(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), unique=True, nullable=False)
+    commission_rate = db.Column(db.Float, default=0)
+    commission_type = db.Column(db.String(20), default='Percentage')
+    staff = db.relationship('Staff', backref=db.backref('commission_settings', uselist=False))
+
+class StaffAttendance(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
+    attendance_date = db.Column(db.Date, nullable=False)
+    status = db.Column(db.String(20), default='Present')
+    check_in = db.Column(db.String(10))
+    check_out = db.Column(db.String(10))
+    notes = db.Column(db.Text)
+    staff = db.relationship('Staff', backref='attendance_records')
+
 class InvoiceItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
@@ -660,6 +677,214 @@ def delete_invoice_item(id, item_id):
     db.session.commit()
     flash('Invoice item removed.', 'info')
     return redirect(url_for('view_invoice', id=id))
+
+# ==================== STAFF PERFORMANCE ====================
+
+@app.route('/staff/<int:id>/performance')
+@login_required
+def staff_performance(id):
+    member = Staff.query.get_or_404(id)
+    start_text = request.args.get('start', date.today().replace(day=1).isoformat())
+    end_text = request.args.get('end', date.today().isoformat())
+    try:
+        start = datetime.strptime(start_text, '%Y-%m-%d').date()
+        end = datetime.strptime(end_text, '%Y-%m-%d').date()
+    except ValueError:
+        start = date.today().replace(day=1)
+        end = date.today()
+        start_text, end_text = start.isoformat(), end.isoformat()
+
+    appointments = Appointment.query.filter(
+        Appointment.staff_id == id,
+        Appointment.appointment_date >= start,
+        Appointment.appointment_date <= end
+    ).order_by(Appointment.appointment_date.desc(), Appointment.appointment_time.desc()).all()
+
+    completed = [a for a in appointments if a.status == 'Completed']
+    paid_revenue = sum(
+        inv.total for inv in Invoice.query.join(Appointment, Invoice.appointment_id == Appointment.id)
+        .filter(Appointment.staff_id == id, Invoice.payment_status == 'Paid',
+                func.date(Invoice.created_at) >= start, func.date(Invoice.created_at) <= end).all()
+    )
+    settings = StaffCommission.query.filter_by(staff_id=id).first()
+    rate = settings.commission_rate if settings else 0
+    commission = round(paid_revenue * rate / 100, 2)
+    return render_template('staff_performance.html', member=member, appointments=appointments,
+                           completed_count=len(completed), paid_revenue=paid_revenue,
+                           rate=rate, commission=commission, start=start_text, end=end_text)
+
+@app.route('/staff/<int:id>/commission', methods=['POST'])
+@login_required
+def update_staff_commission(id):
+    member = Staff.query.get_or_404(id)
+    try:
+        rate = float(request.form.get('commission_rate', 0))
+        if rate < 0 or rate > 100:
+            raise ValueError
+    except (ValueError, TypeError):
+        flash('Commission rate must be between 0% and 100%.', 'danger')
+        return redirect(url_for('staff_performance', id=id))
+    settings = StaffCommission.query.filter_by(staff_id=member.id).first()
+    if not settings:
+        settings = StaffCommission(staff_id=member.id)
+        db.session.add(settings)
+    settings.commission_rate = rate
+    settings.commission_type = 'Percentage'
+    db.session.commit()
+    flash('Commission settings updated.', 'success')
+    return redirect(url_for('staff_performance', id=id))
+
+# ==================== ATTENDANCE ====================
+
+@app.route('/attendance')
+@login_required
+def attendance():
+    selected = request.args.get('date', date.today().isoformat())
+    try:
+        attendance_date = datetime.strptime(selected, '%Y-%m-%d').date()
+    except ValueError:
+        attendance_date = date.today()
+        selected = attendance_date.isoformat()
+    staff_list = Staff.query.order_by(Staff.name).all()
+    records = {r.staff_id: r for r in StaffAttendance.query.filter_by(attendance_date=attendance_date).all()}
+    return render_template('attendance.html', staff_list=staff_list, records=records, selected=selected)
+
+@app.route('/attendance/mark', methods=['POST'])
+@login_required
+def mark_attendance():
+    try:
+        staff_id = int(request.form['staff_id'])
+        attendance_date = datetime.strptime(request.form['attendance_date'], '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        flash('Invalid staff or date.', 'danger')
+        return redirect(url_for('attendance'))
+    Staff.query.get_or_404(staff_id)
+    record = StaffAttendance.query.filter_by(staff_id=staff_id, attendance_date=attendance_date).first()
+    if not record:
+        record = StaffAttendance(staff_id=staff_id, attendance_date=attendance_date)
+        db.session.add(record)
+    record.status = request.form.get('status', 'Present')
+    record.check_in = request.form.get('check_in') or None
+    record.check_out = request.form.get('check_out') or None
+    record.notes = request.form.get('notes') or None
+    db.session.commit()
+    flash('Attendance saved.', 'success')
+    return redirect(url_for('attendance', date=attendance_date.isoformat()))
+
+# ==================== REPORTS ====================
+
+@app.route('/reports')
+@login_required
+def reports():
+    today = date.today()
+    start_text = request.args.get('start', today.replace(day=1).isoformat())
+    end_text = request.args.get('end', today.isoformat())
+    try:
+        start = datetime.strptime(start_text, '%Y-%m-%d').date()
+        end = datetime.strptime(end_text, '%Y-%m-%d').date()
+        if end < start:
+            raise ValueError
+    except ValueError:
+        start = today.replace(day=1)
+        end = today
+        start_text, end_text = start.isoformat(), end.isoformat()
+
+    paid = Invoice.query.filter(
+        Invoice.payment_status == 'Paid',
+        func.date(Invoice.created_at) >= start,
+        func.date(Invoice.created_at) <= end
+    ).all()
+    pending = Invoice.query.filter(
+        Invoice.payment_status == 'Pending',
+        func.date(Invoice.created_at) >= start,
+        func.date(Invoice.created_at) <= end
+    ).all()
+    expenses_list = Expense.query.filter(Expense.expense_date >= start, Expense.expense_date <= end).all()
+    appts = Appointment.query.filter(Appointment.appointment_date >= start, Appointment.appointment_date <= end).all()
+
+    revenue = round(sum(i.total for i in paid), 2)
+    expenses_total = round(sum(e.amount for e in expenses_list), 2)
+    profit = round(revenue - expenses_total, 2)
+    completed = sum(1 for a in appts if a.status == 'Completed')
+    no_show = sum(1 for a in appts if a.status == 'No-Show')
+    cancelled = sum(1 for a in appts if a.status == 'Cancelled')
+
+    service_counts = {}
+    for a in appts:
+        if a.status == 'Completed' and a.service:
+            key = a.service.name
+            service_counts[key] = service_counts.get(key, 0) + 1
+    top_services = sorted(service_counts.items(), key=lambda x: (-x[1], x[0]))[:8]
+
+    staff_rows = []
+    for member in Staff.query.order_by(Staff.name).all():
+        member_appts = [a for a in appts if a.staff_id == member.id]
+        member_paid = sum(
+            inv.total for inv in paid
+            if inv.appointment and inv.appointment.staff_id == member.id
+        )
+        settings = StaffCommission.query.filter_by(staff_id=member.id).first()
+        rate = settings.commission_rate if settings else 0
+        commission = round(member_paid * rate / 100, 2)
+        staff_rows.append({
+            'member': member,
+            'appointments': len(member_appts),
+            'completed': sum(1 for a in member_appts if a.status == 'Completed'),
+            'revenue': round(member_paid, 2),
+            'rate': rate,
+            'commission': commission
+        })
+
+    daily = {}
+    cursor = start
+    while cursor <= end:
+        daily[cursor.isoformat()] = 0
+        cursor += timedelta(days=1)
+    for inv in paid:
+        day_key = inv.created_at.date().isoformat()
+        if day_key in daily:
+            daily[day_key] += inv.total
+    daily_rows = [{'date': k, 'revenue': round(v, 2)} for k, v in daily.items()]
+
+    return render_template('reports.html', start=start_text, end=end_text, revenue=revenue,
+                           expenses_total=expenses_total, profit=profit, paid_count=len(paid),
+                           pending_count=len(pending), completed=completed, no_show=no_show,
+                           cancelled=cancelled, top_services=top_services,
+                           staff_rows=staff_rows, daily_rows=daily_rows)
+
+@app.route('/reports/export.csv')
+@login_required
+def export_report_csv():
+    import csv
+    from io import StringIO
+    today = date.today()
+    try:
+        start = datetime.strptime(request.args.get('start', today.replace(day=1).isoformat()), '%Y-%m-%d').date()
+        end = datetime.strptime(request.args.get('end', today.isoformat()), '%Y-%m-%d').date()
+        if end < start:
+            raise ValueError
+    except ValueError:
+        start, end = today.replace(day=1), today
+
+    paid = Invoice.query.filter(Invoice.payment_status == 'Paid',
+                                 func.date(Invoice.created_at) >= start,
+                                 func.date(Invoice.created_at) <= end).all()
+    expenses_list = Expense.query.filter(Expense.expense_date >= start, Expense.expense_date <= end).all()
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['Salon Pro Report', start.isoformat(), end.isoformat()])
+    writer.writerow([])
+    writer.writerow(['Paid Invoice ID', 'Date', 'Customer', 'Total', 'Payment Method'])
+    for inv in paid:
+        writer.writerow([inv.id, inv.created_at.strftime('%Y-%m-%d'), inv.customer.name if inv.customer else '',
+                         f'{inv.total:.2f}', inv.payment_method or ''])
+    writer.writerow([])
+    writer.writerow(['Expense ID', 'Date', 'Title', 'Category', 'Amount'])
+    for exp in expenses_list:
+        writer.writerow([exp.id, exp.expense_date.isoformat(), exp.title, exp.category, f'{exp.amount:.2f}'])
+    from flask import Response
+    return Response(output.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename=salon-pro-report-{start.isoformat()}-to-{end.isoformat()}.csv'})
 
 # ==================== INIT DB ====================
 
