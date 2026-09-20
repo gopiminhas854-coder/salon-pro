@@ -468,7 +468,7 @@ def calendar_view():
     return render_template('calendar.html', selected=selected, selected_text=selected_text,
                            week_start=week_start, days=days, appointments_by_day=appointments_by_day,
                            previous_week=(selected - timedelta(days=7)).isoformat(),
-                           next_week=(selected + timedelta(days=7)).isoformat(), today_iso=date.today().isoformat())
+                           next_week=selected + timedelta(days=7), today_iso=date.today().isoformat())
 
 @app.route('/book', methods=['GET', 'POST'])
 def public_booking():
@@ -576,6 +576,7 @@ def dashboard():
                            monthly_expenses=monthly_expenses,
                            monthly_profit=monthly_profit,
                            pending_invoices=pending_invoices,
+                           today=today,
                            today_revenue=today_revenue,
                            completed_today=completed_today,
                            low_stock_count=low_stock_count,
