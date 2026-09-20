@@ -8,8 +8,12 @@ from sqlalchemy import func
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SALON_PRO_SECRET_KEY', 'change-this-secret-key')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///salon.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///salon.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
+app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
 
 db = SQLAlchemy(app)
 
@@ -273,6 +277,10 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+@app.route('/health')
+def health():
+    return jsonify({'status': 'ok', 'service': 'Salon Pro'}), 200
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
