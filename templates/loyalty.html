@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Loyalty{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4"><div><h2><i class="bi bi-stars"></i> Customer Loyalty</h2><p class="text-muted mb-0">Points are calculated from paid customer spend.</p></div></div>
+<div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0">
+<thead><tr><th>Customer</th><th>Phone</th><th>Lifetime Spend</th><th>Points</th><th>Tier</th></tr></thead><tbody>
+{% for row in rows %}{% set tier = 'Platinum' if row.points >= 1000 else ('Gold' if row.points >= 500 else ('Silver' if row.points >= 200 else 'Member')) %}
+<tr><td><a href="{{ url_for('customer_detail', id=row.customer.id) }}">{{ row.customer.name }}</a></td><td>{{ row.customer.phone }}</td><td>₹{{ "%.2f"|format(row.spend) }}</td><td><strong>{{ row.points }}</strong></td><td><span class="badge bg-primary">{{ tier }}</span></td></tr>
+{% else %}<tr><td colspan="5" class="text-center text-muted py-5">No customers yet.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}
