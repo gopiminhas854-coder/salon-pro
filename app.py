@@ -187,6 +187,22 @@ def recalculate_invoice(invoice):
     invoice.tax = round(taxable * get_tax_rate() / 100, 2)
     invoice.total = round(taxable + invoice.tax, 2)
 
+ADMIN_ONLY_ENDPOINTS = {
+    'settings', 'download_backup',
+    'add_staff', 'edit_staff', 'delete_staff',
+    'add_service', 'edit_service', 'delete_service',
+    'add_expense', 'delete_expense',
+    'add_inventory', 'adjust_inventory',
+    'update_staff_commission', 'mark_attendance',
+    'export_report_csv', 'create_staff_account'
+}
+
+@app.before_request
+def enforce_roles():
+    if request.endpoint in ADMIN_ONLY_ENDPOINTS and 'user_id' in session and session.get('role') != 'admin':
+        flash('Admin access is required for this action.', 'danger')
+        return redirect(url_for('dashboard'))
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -573,6 +589,34 @@ def delete_staff(id):
     db.session.commit()
     flash('Staff member deleted.', 'info')
     return redirect(url_for('staff'))
+
+# ==================== STAFF ACCOUNTS ====================
+
+@app.route('/staff/<int:id>/account', methods=['GET', 'POST'])
+@admin_required
+def create_staff_account(id):
+    member = Staff.query.get_or_404(id)
+    existing_link = UserStaffLink.query.filter_by(staff_id=member.id).first()
+    if existing_link:
+        flash('This staff member already has a login account.', 'info')
+        return redirect(url_for('staff'))
+    if request.method == 'POST':
+        username = request.form.get('username','').strip()
+        password = request.form.get('password','')
+        if len(username) < 3 or len(password) < 8:
+            flash('Username must be at least 3 characters and password at least 8 characters.', 'danger')
+            return redirect(url_for('create_staff_account', id=id))
+        if User.query.filter_by(username=username).first():
+            flash('Username already exists.', 'danger')
+            return redirect(url_for('create_staff_account', id=id))
+        user = User(username=username, password_hash=generate_password_hash(password), role='staff')
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(UserStaffLink(user_id=user.id, staff_id=member.id))
+        db.session.commit()
+        flash(f'Login account created for {member.name}.', 'success')
+        return redirect(url_for('staff'))
+    return render_template('staff_account.html', member=member)
 
 # ==================== APPOINTMENTS ====================
 
