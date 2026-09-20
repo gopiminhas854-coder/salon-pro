@@ -580,8 +580,7 @@ def dashboard():
                            today_revenue=today_revenue,
                            completed_today=completed_today,
                            low_stock_count=low_stock_count,
-                           upcoming=upcoming,
-                           today=today)
+                           upcoming=upcoming)
 
 # ==================== CUSTOMERS ====================
 
