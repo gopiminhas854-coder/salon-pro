@@ -17,3 +17,50 @@ body{padding-bottom:env(safe-area-inset-bottom)}
 .quick-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:.65rem}
 .quick-actions .btn{display:flex;align-items:center;justify-content:center;gap:.45rem;min-height:48px}
 @media(min-width:768px){.quick-actions{grid-template-columns:repeat(4,minmax(0,1fr))}}
+
+/* ===== SALON PRO PREMIUM UI ===== */
+:root{
+ --sp-bg:#f5f6fa;--sp-surface:#fff;--sp-ink:#171923;--sp-muted:#73798a;
+ --sp-line:#e8e9ef;--sp-brand:#6d5dfc;--sp-brand-2:#8b5cf6;
+ --sp-success:#19a974;--sp-warning:#e6a700;--sp-danger:#e25563;
+ --sp-sidebar:#15151c;--sp-sidebar-muted:#a9a9b8;
+}
+html,body{min-height:100%}
+body.sp-app{background:var(--sp-bg);color:var(--sp-ink);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+.sp-shell{min-height:100vh;display:flex}
+.sp-sidebar{position:fixed;inset:0 auto 0 0;width:248px;background:var(--sp-sidebar);color:#fff;display:flex;flex-direction:column;z-index:1040;padding:20px 14px;overflow-y:auto}
+.sp-brand{display:flex;align-items:center;gap:11px;padding:4px 10px 25px}
+.sp-brand-mark{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,var(--sp-brand),#9b7cff);display:grid;place-items:center;font-size:18px;box-shadow:0 8px 25px #6d5dfc44}
+.sp-brand strong{display:block;font-size:15px;letter-spacing:.2px}.sp-brand small{display:block;color:#858594;font-size:11px;margin-top:2px}
+.sp-sidebar-label{font-size:10px;letter-spacing:.13em;color:#676777;font-weight:700;padding:13px 11px 7px}
+.sp-nav{display:grid;gap:3px}
+.sp-nav a{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:10px;color:var(--sp-sidebar-muted);text-decoration:none;font-size:13px;font-weight:550;transition:.18s}
+.sp-nav a i{font-size:16px;width:19px;text-align:center}
+.sp-nav a:hover{background:#ffffff0d;color:#fff}.sp-nav a.active{background:linear-gradient(90deg,#6d5dfc22,#6d5dfc0b);color:#fff;box-shadow:inset 3px 0 0 var(--sp-brand)}
+.sp-sidebar-bottom{margin-top:auto;padding-top:15px}
+.sp-booking-link{display:flex;align-items:center;gap:8px;color:#ddd;text-decoration:none;background:#ffffff09;border:1px solid #ffffff10;border-radius:12px;padding:10px 11px;font-size:12px;margin-bottom:13px}
+.sp-booking-link:hover{background:#ffffff12;color:#fff}
+.sp-user{display:flex;align-items:center;gap:9px;padding:9px 7px;border-top:1px solid #ffffff0d}
+.sp-avatar{width:32px;height:32px;border-radius:10px;background:#292934;display:grid;place-items:center;font-size:12px;font-weight:700}.sp-user strong{font-size:12px;display:block}.sp-user small{font-size:10px;color:#7f7f8d}
+.sp-icon-btn,.sp-mobile-menu,.sp-top-icon{border:0;background:transparent;color:inherit}
+.sp-main{margin-left:248px;min-width:0;flex:1}
+.sp-topbar{height:68px;background:#fffffff2;border-bottom:1px solid var(--sp-line);backdrop-filter:blur(12px);display:flex;align-items:center;padding:0 30px;position:sticky;top:0;z-index:1000}
+.sp-top-title{font-size:13px;font-weight:650;color:#555b6d}.sp-top-actions{margin-left:auto;display:flex;align-items:center;gap:10px}
+.sp-top-btn{height:38px;display:flex;align-items:center;gap:7px;background:var(--sp-brand);color:#fff!important;text-decoration:none;border-radius:10px;padding:0 14px;font-size:12px;font-weight:650;box-shadow:0 6px 16px #6d5dfc2b}
+.sp-top-icon{width:38px;height:38px;border:1px solid var(--sp-line);border-radius:10px;color:#666;display:grid;place-items:center;text-decoration:none}
+.sp-top-date{font-size:12px;color:#898e9c;padding-left:5px}.sp-mobile-menu{display:none}
+.sp-content{padding:30px;max-width:1600px;margin:auto}
+.sp-flashes{margin-bottom:18px}
+.sp-content .card{border:1px solid var(--sp-line)!important;border-radius:16px;box-shadow:0 8px 28px #17192307!important;background:var(--sp-surface)}
+.sp-content .card-header{border-bottom:1px solid var(--sp-line);padding:17px 19px;border-radius:16px 16px 0 0!important}
+.sp-content .card-body{padding:19px}
+.sp-content h2{font-size:25px;font-weight:750;letter-spacing:-.5px}.sp-content h5{font-size:14px;font-weight:700}
+.sp-content .btn{border-radius:10px;font-weight:650}.sp-content .btn-primary{background:var(--sp-brand);border-color:var(--sp-brand)}
+.sp-content .table{margin:0}.sp-content .table thead th{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#9297a6;border-bottom-color:var(--sp-line);font-weight:750}
+.sp-content .table tbody td{font-size:13px;border-color:#f0f1f4;vertical-align:middle}.sp-content .table-hover tbody tr:hover{background:#fafaff}
+.sp-content .badge{border-radius:999px;padding:6px 9px;font-size:10px}
+.sp-mobile-nav{display:none}
+.quick-actions{gap:10px!important}.quick-actions .btn{border:1px solid var(--sp-line);background:#fff;color:#555;border-radius:11px!important}
+@media(max-width:991.98px){.sp-sidebar{transform:translateX(-100%);transition:transform .22s}.sp-sidebar.open{transform:translateX(0);box-shadow:12px 0 40px #0003}.sp-main{margin-left:0}.sp-mobile-menu{display:grid;place-items:center;width:40px;height:40px;font-size:21px;color:#555;margin-right:10px}.sp-topbar{padding:0 18px}.sp-content{padding:20px 16px}}
+@media(max-width:767.98px){.sp-topbar{height:60px}.sp-content{padding:16px 12px 88px}.sp-top-title{font-size:12px}.sp-top-btn{height:36px;padding:0 11px}.sp-mobile-nav{position:fixed;display:flex;left:10px;right:10px;bottom:max(10px,env(safe-area-inset-bottom));height:62px;background:#17171f;color:#aaa;border:1px solid #ffffff12;border-radius:18px;z-index:1050;align-items:center;justify-content:space-around;box-shadow:0 12px 40px #0003}.sp-mobile-nav a{color:#92929f;text-decoration:none;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9px;font-weight:650;min-width:48px}.sp-mobile-nav a i{font-size:18px}.sp-mobile-nav a.active{color:#fff}.sp-mobile-nav .sp-mobile-add{width:48px;height:48px;border-radius:15px;background:var(--sp-brand);color:#fff;display:grid;place-items:center;box-shadow:0 7px 18px #6d5dfc55}.sp-mobile-nav .sp-mobile-add i{font-size:20px}.sp-content h2{font-size:21px}.sp-content .card-body{padding:15px}.sp-content .card-header{padding:14px 15px}}
+@media print{.sp-sidebar,.sp-topbar,.sp-mobile-nav{display:none!important}.sp-main{margin:0}.sp-content{padding:0}}
