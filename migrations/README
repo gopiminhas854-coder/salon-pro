@@ -1,0 +1,3 @@
+# Alembic migrations
+
+This directory is managed by Flask-Migrate. The initial schema baseline should be generated from the current SQLAlchemy models against an empty database before migration-only production startup is enabled.
