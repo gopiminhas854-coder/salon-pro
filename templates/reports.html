@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2><i class="bi bi-bar-chart-line"></i> Business Reports</h2>
+  <a class="btn btn-outline-success" href="{{ url_for('export_report_csv', start=start, end=end) }}"><i class="bi bi-download"></i> Export CSV</a>
+</div>
+<form class="card border-0 shadow-sm mb-4" method="GET">
+  <div class="card-body row g-2 align-items-end">
+    <div class="col-md-5"><label class="form-label">Start date</label><input type="date" name="start" class="form-control" value="{{ start }}"></div>
+    <div class="col-md-5"><label class="form-label">End date</label><input type="date" name="end" class="form-control" value="{{ end }}"></div>
+    <div class="col-md-2"><button class="btn btn-primary w-100">Run</button></div>
+  </div>
+</form>
+<div class="row g-3 mb-4">
+{% for label,value in [('Paid Revenue', '₹%.2f'|format(revenue)),('Expenses','₹%.2f'|format(expenses_total)),('Profit','₹%.2f'|format(profit)),('Paid Invoices',paid_count),('Pending Invoices',pending_count),('Completed',completed),('No-Shows',no_show),('Cancelled',cancelled)] %}
+<div class="col-6 col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">{{ label }}</small><h4 class="mt-2">{{ value }}</h4></div></div></div>
+{% endfor %}
+</div>
+<div class="row g-4">
+<div class="col-lg-5">
+<div class="card border-0 shadow-sm mb-4"><div class="card-header bg-white"><strong>Top Services</strong></div><div class="card-body">{% for name,count in top_services %}<div class="d-flex justify-content-between border-bottom py-2"><span>{{ name }}</span><strong>{{ count }}</strong></div>{% else %}<p class="text-muted mb-0">No completed services.</p>{% endfor %}</div></div>
+<div class="card border-0 shadow-sm"><div class="card-header bg-white"><strong>Daily Revenue</strong></div><div class="card-body" style="max-height:360px;overflow:auto">{% for row in daily_rows %}<div class="d-flex justify-content-between py-1"><small>{{ row.date }}</small><strong>₹{{ "%.2f"|format(row.revenue) }}</strong></div>{% endfor %}</div></div>
+</div>
+<div class="col-lg-7">
+<div class="card border-0 shadow-sm"><div class="card-header bg-white"><strong>Staff Performance</strong></div><div class="table-responsive"><table class="table mb-0"><thead><tr><th>Staff</th><th>Appts</th><th>Completed</th><th>Revenue</th><th>Commission</th></tr></thead><tbody>
+{% for row in staff_rows %}<tr><td><a href="{{ url_for('staff_performance', id=row.member.id) }}">{{ row.member.name }}</a></td><td>{{ row.appointments }}</td><td>{{ row.completed }}</td><td>₹{{ "%.2f"|format(row.revenue) }}</td><td>₹{{ "%.2f"|format(row.commission) }} <small class="text-muted">({{ row.rate }}%)</small></td></tr>{% else %}<tr><td colspan="5" class="text-center text-muted py-4">No staff data.</td></tr>{% endfor %}
+</tbody></table></div></div>
+</div>
+</div>
+{% endblock %}
