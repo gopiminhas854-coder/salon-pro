@@ -895,6 +895,11 @@ def add_inventory():
                              cost_price=cost, sale_price=sale, is_active=True)
         db.session.add(item)
         try:
+            db.session.flush()
+            if stock > 0:
+                record_inventory_transaction(item, 'Purchase', stock, cost,
+                                             reference=f'opening-stock:{item.id}',
+                                             notes='Opening stock entered when product was created.')
             db.session.commit()
             flash('Inventory item added!', 'success')
         except Exception:
