@@ -593,7 +593,8 @@ def invoices():
 @login_required
 def view_invoice(id):
     invoice = Invoice.query.get_or_404(id)
-    return render_template('invoice_detail.html', invoice=invoice)
+    inventory_products = InventoryItem.query.filter_by(is_active=True).order_by(InventoryItem.name).all()
+    return render_template('invoice_detail.html', invoice=invoice, inventory_products=inventory_products)
 
 @app.route('/invoices/pay/<int:id>', methods=['POST'])
 @login_required
