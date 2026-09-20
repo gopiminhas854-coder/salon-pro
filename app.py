@@ -6,6 +6,7 @@ from functools import wraps
 import os
 import secrets
 from sqlalchemy import func, inspect
+from flask_migrate import Migrate
 
 def commit_or_rollback():
     """Commit the current unit of work and always clear failed transactions."""
@@ -29,6 +30,7 @@ app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '0
 app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
 
 db = SQLAlchemy(app)
+migrate = Migrate(app, db)
 
 # ==================== MODELS ====================
 
@@ -329,8 +331,10 @@ ADMIN_ONLY_ENDPOINTS = {
 
 @app.before_request
 def ensure_database():
-    # Render can start Gunicorn workers before the SQLite file/tables exist.
-    # Bootstrap the schema on the first request if the database is missing.
+    # Tests and local development may use the legacy bootstrap path. Production
+    # deployments can disable it and rely exclusively on Flask-Migrate.
+    if os.environ.get('SALON_PRO_AUTO_CREATE_DB', '1') != '1':
+        return None
     try:
         if not inspect(db.engine).has_table('user'):
             init_db()
