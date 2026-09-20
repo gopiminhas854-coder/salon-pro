@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <meta name="theme-color" content="#6f42c1">
+    <meta name="theme-color" content="#111827">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
@@ -13,129 +13,90 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
-<body>
-    {% if session.get('user_id') %}
-    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
-        <div class="container-fluid">
-            <a class="navbar-brand fw-bold" href="{{ url_for('dashboard') }}">
-                <i class="bi bi-scissors"></i> Salon Pro
-            </a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="nav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">
-                            <i class="bi bi-speedometer2"></i> Dashboard
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'customer' in request.endpoint %}active{% endif %}" href="{{ url_for('customers') }}">
-                            <i class="bi bi-people"></i> Customers
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'appointment' in request.endpoint %}active{% endif %}" href="{{ url_for('appointments') }}">
-                            <i class="bi bi-calendar-check"></i> Appointments
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view') }}">
-                            <i class="bi bi-calendar3"></i> Calendar
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'service' in request.endpoint %}active{% endif %}" href="{{ url_for('services') }}">
-                            <i class="bi bi-list-stars"></i> Services
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'staff' in request.endpoint %}active{% endif %}" href="{{ url_for('staff') }}">
-                            <i class="bi bi-person-badge"></i> Staff
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'attendance' in request.endpoint %}active{% endif %}" href="{{ url_for('attendance') }}">
-                            <i class="bi bi-person-check"></i> Attendance
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'report' in request.endpoint %}active{% endif %}" href="{{ url_for('reports') }}">
-                            <i class="bi bi-bar-chart-line"></i> Reports
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'loyalty' %}active{% endif %}" href="{{ url_for('loyalty') }}"><i class="bi bi-stars"></i> Loyalty</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if request.endpoint == 'reminders' %}active{% endif %}" href="{{ url_for('reminders') }}"><i class="bi bi-bell"></i> Reminders</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'invoice' in request.endpoint %}active{% endif %}" href="{{ url_for('invoices') }}">
-                            <i class="bi bi-receipt"></i> Invoices
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'expense' in request.endpoint %}active{% endif %}" href="{{ url_for('expenses') }}">
-                            <i class="bi bi-wallet2"></i> Expenses
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'inventory' in request.endpoint %}active{% endif %}" href="{{ url_for('inventory') }}">
-                            <i class="bi bi-box-seam"></i> Inventory
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'purchase' in request.endpoint %}active{% endif %}" href="{{ url_for('purchases') }}">
-                            <i class="bi bi-bag-plus"></i> Purchases
-                        </a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link {% if 'supplier' in request.endpoint %}active{% endif %}" href="{{ url_for('suppliers') }}">
-                            <i class="bi bi-truck"></i> Suppliers
-                        </a>
-                    </li>
-                </ul>
-                <span class="navbar-text text-white me-3">
-                    <i class="bi bi-person-circle"></i> {{ session.get('username') }}
-                    <span class="badge bg-light text-primary ms-1">{{ session.get('role','staff')|title }}</span>
-                </span>
-                <a href="{{ url_for('public_booking') }}" class="btn btn-outline-light btn-sm me-2" title="Open online booking"><i class="bi bi-calendar2-heart"></i></a>
-                <a href="{{ url_for('settings') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-gear"></i></a>
-                {% if session.get('role') == 'admin' %}
-                <a href="{{ url_for('download_backup') }}" class="btn btn-outline-light btn-sm me-2" title="Download database backup"><i class="bi bi-database-down"></i></a>
-                {% endif %}
-                <a href="{{ url_for('change_password') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-key"></i></a>
-                <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">
-                    <i class="bi bi-box-arrow-right"></i> Logout
-                </a>
+<body class="sp-app">
+{% if session.get('user_id') %}
+<div class="sp-shell">
+    <aside class="sp-sidebar" id="spSidebar">
+        <div class="sp-brand">
+            <div class="sp-brand-mark"><i class="bi bi-scissors"></i></div>
+            <div><strong>Salon Pro</strong><small>Business OS</small></div>
+        </div>
+        <div class="sp-sidebar-label">WORKSPACE</div>
+        <nav class="sp-nav">
+            <a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span></a>
+            <a class="{% if 'appointment' in request.endpoint %}active{% endif %}" href="{{ url_for('appointments') }}"><i class="bi bi-calendar2-check"></i><span>Appointments</span></a>
+            <a class="{% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view') }}"><i class="bi bi-calendar3"></i><span>Calendar</span></a>
+            <a class="{% if 'customer' in request.endpoint %}active{% endif %}" href="{{ url_for('customers') }}"><i class="bi bi-people"></i><span>Clients</span></a>
+            <a class="{% if 'invoice' in request.endpoint %}active{% endif %}" href="{{ url_for('invoices') }}"><i class="bi bi-receipt"></i><span>Sales & POS</span></a>
+        </nav>
+        <div class="sp-sidebar-label">MANAGE</div>
+        <nav class="sp-nav">
+            <a class="{% if 'service' in request.endpoint %}active{% endif %}" href="{{ url_for('services') }}"><i class="bi bi-stars"></i><span>Services</span></a>
+            <a class="{% if 'staff' in request.endpoint %}active{% endif %} {% if 'attendance' in request.endpoint %}active{% endif %}" href="{{ url_for('staff') }}"><i class="bi bi-person-badge"></i><span>Team</span></a>
+            <a class="{% if 'inventory' in request.endpoint %}active{% endif %}" href="{{ url_for('inventory') }}"><i class="bi bi-box-seam"></i><span>Inventory</span></a>
+            <a class="{% if 'purchase' in request.endpoint %}active{% endif %}" href="{{ url_for('purchases') }}"><i class="bi bi-bag-plus"></i><span>Purchases</span></a>
+            <a class="{% if 'supplier' in request.endpoint %}active{% endif %}" href="{{ url_for('suppliers') }}"><i class="bi bi-truck"></i><span>Suppliers</span></a>
+            <a class="{% if 'expense' in request.endpoint %}active{% endif %}" href="{{ url_for('expenses') }}"><i class="bi bi-wallet2"></i><span>Expenses</span></a>
+        </nav>
+        <div class="sp-sidebar-label">GROW</div>
+        <nav class="sp-nav">
+            <a class="{% if 'report' in request.endpoint %}active{% endif %}" href="{{ url_for('reports') }}"><i class="bi bi-bar-chart-line"></i><span>Analytics</span></a>
+            <a class="{% if request.endpoint == 'loyalty' %}active{% endif %}" href="{{ url_for('loyalty') }}"><i class="bi bi-award"></i><span>Loyalty</span></a>
+            <a class="{% if request.endpoint == 'reminders' %}active{% endif %}" href="{{ url_for('reminders') }}"><i class="bi bi-bell"></i><span>Reminders</span></a>
+        </nav>
+        <div class="sp-sidebar-bottom">
+            <a href="{{ url_for('public_booking') }}" class="sp-booking-link"><i class="bi bi-calendar2-heart"></i><span>Online booking</span><i class="bi bi-arrow-up-right ms-auto"></i></a>
+            <div class="sp-user">
+                <div class="sp-avatar">{{ (session.get('username') or 'U')[0]|upper }}</div>
+                <div class="text-truncate"><strong>{{ session.get('username') }}</strong><small>{{ session.get('role','staff')|title }} account</small></div>
+                <div class="dropdown">
+                    <button class="sp-icon-btn" data-bs-toggle="dropdown" aria-label="Account menu"><i class="bi bi-three-dots"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="{{ url_for('change_password') }}"><i class="bi bi-key me-2"></i>Change password</a></li>
+                        <li><a class="dropdown-item" href="{{ url_for('settings') }}"><i class="bi bi-gear me-2"></i>Settings</a></li>
+                        {% if session.get('role') == 'admin' %}<li><a class="dropdown-item" href="{{ url_for('download_backup') }}"><i class="bi bi-database-down me-2"></i>Backup</a></li>{% endif %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item text-danger" href="{{ url_for('logout') }}"><i class="bi bi-box-arrow-right me-2"></i>Logout</a></li>
+                    </ul>
+                </div>
             </div>
         </div>
-    </nav>
-    {% endif %}
+    </aside>
 
-    <main class="container-fluid py-4 px-4">
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% if messages %}
-                {% for category, message in messages %}
-                    <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                        {{ message }}
-                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-                    </div>
-                {% endfor %}
-            {% endif %}
-        {% endwith %}
-
-        {% block content %}{% endblock %}
-    </main>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    {% block scripts %}{% endblock %}
+    <div class="sp-main">
+        <header class="sp-topbar">
+            <button class="sp-mobile-menu" type="button" onclick="document.getElementById('spSidebar').classList.toggle('open')" aria-label="Open navigation"><i class="bi bi-list"></i></button>
+            <div class="sp-top-title">{% block page_kicker %}Salon workspace{% endblock %}</div>
+            <div class="sp-top-actions">
+                <a href="{{ url_for('public_booking') }}" class="sp-top-btn d-none d-sm-flex"><i class="bi bi-calendar2-plus"></i><span>Book appointment</span></a>
+                <a href="{{ url_for('reminders') }}" class="sp-top-icon"><i class="bi bi-bell"></i></a>
+                <div class="sp-top-date d-none d-md-block">{{ today.strftime('%d %b %Y') if today is defined else '' }}</div>
+            </div>
+        </header>
+        <main class="sp-content">
+            {% with messages = get_flashed_messages(with_categories=true) %}
+                {% if messages %}
+                    <div class="sp-flashes">{% for category, message in messages %}<div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>
+                {% endif %}
+            {% endwith %}
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</div>
+<nav class="sp-mobile-nav">
+    <a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><i class="bi bi-grid-1x2-fill"></i><span>Home</span></a>
+    <a class="{% if 'appointment' in request.endpoint or request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('appointments') }}"><i class="bi bi-calendar2-check"></i><span>Bookings</span></a>
+    <a href="{{ url_for('add_appointment') }}" class="sp-mobile-add"><i class="bi bi-plus-lg"></i></a>
+    <a class="{% if 'customer' in request.endpoint %}active{% endif %}" href="{{ url_for('customers') }}"><i class="bi bi-people"></i><span>Clients</span></a>
+    <a href="{{ url_for('settings') }}"><i class="bi bi-gear"></i><span>More</span></a>
+</nav>
+{% else %}
+<main class="sp-public-shell">{% block public_content %}{% endblock %}{% block content %}{% endblock %}</main>
+{% endif %}
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+{% block scripts %}{% endblock %}
 <script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}').catch(() => {});
-}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}').catch(() => {});
 </script>
 </body>
 </html>
