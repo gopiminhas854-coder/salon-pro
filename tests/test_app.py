@@ -1,16 +1,15 @@
 import os
 import sys
-import tempfile
 import pytest
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)) )
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+os.environ["DATABASE_URL"] = "sqlite:///test_salon_ci.db"
+os.environ["SALON_PRO_SECRET_KEY"] = "test-secret"
+
+import app as salon
 
 @pytest.fixture()
 def client():
-    db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
-    db_file.close()
-    os.environ["DATABASE_URL"] = "sqlite:///" + db_file.name
-    os.environ["SALON_PRO_SECRET_KEY"] = "test-secret"
-    import app as salon
     salon.app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI=os.environ["DATABASE_URL"])
     with salon.app.app_context():
         salon.db.drop_all()
@@ -24,10 +23,6 @@ def client():
         salon.db.session.commit()
     with salon.app.test_client() as c:
         yield c, salon
-    try:
-        os.unlink(db_file.name)
-    except OSError:
-        pass
 
 def login(c):
     return c.post("/login", data={"username": "admin", "password": "admin123"}, follow_redirects=True)
