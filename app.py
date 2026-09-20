@@ -666,6 +666,14 @@ def delete_invoice_item(id, item_id):
 def init_db():
     with app.app_context():
         db.create_all()
+        # Backfill line items for invoices created by older versions.
+        for inv in Invoice.query.all():
+            if not inv.items and inv.appointment and inv.appointment.service:
+                svc = inv.appointment.service
+                db.session.add(InvoiceItem(invoice_id=inv.id, description=svc.name,
+                                           quantity=1, unit_price=svc.price,
+                                           total=svc.price))
+        db.session.commit()
         # Create default admin if not exists
         if not User.query.filter_by(username='admin').first():
             admin = User(
