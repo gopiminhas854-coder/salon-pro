@@ -1,8 +1,18 @@
 {% extends "base.html" %}
-{% block title %}Invoices{% endblock %}
+{% block title %}Sales & POS{% endblock %}
+{% block page_kicker %}Sales & checkout{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4"><div><h2 class="mb-1">Invoices</h2><p class="text-muted mb-0">Billing and payment records.</p></div></div>
-<div class="card shadow-sm border-0"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>#</th><th>Customer</th><th>Service</th><th>Amount</th><th>Tax</th><th>Total</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>
-{% for inv in invoices %}<tr><td>#{{ inv.id }}</td><td>{{ inv.customer.name if inv.customer else '—' }}<br><small class="text-muted">{{ inv.customer.phone if inv.customer else '' }}</small></td><td>{{ inv.appointment.service.name if inv.appointment and inv.appointment.service else '—' }}</td><td>₹{{ '%.2f'|format(inv.amount) }}</td><td>₹{{ '%.2f'|format(inv.tax) }}</td><td><strong>₹{{ '%.2f'|format(inv.total) }}</strong></td><td><span class="badge {{ 'text-bg-success' if inv.payment_status=='Paid' else 'text-bg-warning' }}">{{ inv.payment_status }}</span></td><td>{{ inv.created_at.strftime('%d %b %Y') }}</td><td><a href="{{ url_for('view_invoice', id=inv.id) }}" class="btn btn-sm btn-outline-primary">View</a></td></tr>
-{% else %}<tr><td colspan="9" class="text-center py-5 text-muted">No invoices yet.</td></tr>{% endfor %}</tbody></table></div></div>
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+ <div><div class="text-muted small mb-1">Front desk</div><h2 class="mb-1">Sales & POS</h2><div class="text-muted small">Every invoice, payment and client sale in one place.</div></div>
+</div>
+<div class="row g-3 mb-4">
+ <div class="col-12 col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Invoices shown</div><div class="fs-3 fw-bold mt-2">{{ invoices|length }}</div><div class="text-muted small mt-2">Open any invoice for full details</div></div></div></div>
+ <div class="col-12 col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Checkout workflow</div><div class="fw-bold mt-2">Client → services → payment</div><div class="text-muted small mt-2">Connected to appointments</div></div></div></div>
+ <div class="col-12 col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Payment records</div><div class="fw-bold mt-2">Track paid & pending</div><div class="text-muted small mt-2">Keep the front desk clear</div></div></div></div>
+</div>
+<div class="card"><div class="card-header d-flex justify-content-between align-items-center"><div><strong>Recent invoices</strong><div class="text-muted small">Sales history</div></div></div>
+<div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Invoice</th><th>Client</th><th>Service</th><th>Total</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>
+{% for inv in invoices %}<tr><td><strong>#{{ inv.id }}</strong></td><td><strong>{{ inv.customer.name if inv.customer else '—' }}</strong><div class="text-muted small">{{ inv.customer.phone if inv.customer else '' }}</div></td><td>{{ inv.appointment.service.name if inv.appointment and inv.appointment.service else '—' }}</td><td><strong>₹{{ '%.2f'|format(inv.total) }}</strong><div class="text-muted small">Tax ₹{{ '%.2f'|format(inv.tax) }}</div></td><td>{% if inv.payment_status=='Paid' %}<span class="badge text-bg-success">Paid</span>{% else %}<span class="badge text-bg-warning">{{ inv.payment_status }}</span>{% endif %}</td><td class="text-muted small">{{ inv.created_at.strftime('%d %b %Y') }}</td><td><a href="{{ url_for('view_invoice', id=inv.id) }}" class="btn btn-sm btn-outline-primary">Open</a></td></tr>
+{% else %}<tr><td colspan="7" class="text-center py-5"><div class="text-muted">No sales yet.</div></td></tr>{% endfor %}
+</tbody></table></div></div>
 {% endblock %}
