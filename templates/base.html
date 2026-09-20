@@ -14,6 +14,12 @@
     <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
 </head>
 <body class="sp-app">
+{% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+        <div class="sp-flashes">{% for category, message in messages %}<div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>
+    {% endif %}
+{% endwith %}
+
 {% if session.get('user_id') %}
 <div class="sp-shell">
     <aside class="sp-sidebar" id="spSidebar">
@@ -74,11 +80,6 @@
             </div>
         </header>
         <main class="sp-content">
-            {% with messages = get_flashed_messages(with_categories=true) %}
-                {% if messages %}
-                    <div class="sp-flashes">{% for category, message in messages %}<div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>{% endfor %}</div>
-                {% endif %}
-            {% endwith %}
             {% block content %}{% endblock %}
         </main>
     </div>
