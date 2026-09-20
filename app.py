@@ -235,7 +235,9 @@ def calendar_view():
         for d in days
     }
     return render_template('calendar.html', selected=selected, selected_text=selected_text,
-                           week_start=week_start, days=days, appointments_by_day=appointments_by_day)
+                           week_start=week_start, days=days, appointments_by_day=appointments_by_day,
+                           previous_week=(selected - timedelta(days=7)).isoformat(),
+                           next_week=(selected + timedelta(days=7)).isoformat(), today_iso=date.today().isoformat())
 
 @app.route('/book', methods=['GET', 'POST'])
 def public_booking():
