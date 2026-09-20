@@ -277,7 +277,7 @@ def test_advanced_crm_and_bi_apis(client):
     assert row["favorite_service"] == "Test Haircut"
     assert row["avg_visit_interval_days"] == 25
 
-    response = c.get("/api/business-intelligence")
+    response = c.get(f"/api/business-intelligence?start={(salon.date.today() - salon.timedelta(days=31)).isoformat()}&end={salon.date.today().isoformat()}")
     assert response.status_code == 200
     bi = response.get_json()
     assert bi["financial"]["net_revenue"] == 210
