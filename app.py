@@ -986,6 +986,47 @@ def mark_paid(id):
     flash(f'Payment of ₹{amount:.2f} recorded. Balance: ₹{invoice_balance(invoice):.2f}.', 'success')
     return redirect(url_for('view_invoice', id=id))
 
+@app.route('/invoices/refund/<int:id>', methods=['POST'])
+@admin_required
+def refund_invoice(id):
+    invoice = Invoice.query.get_or_404(id)
+    remaining = invoice_net_paid_amount(invoice)
+    try:
+        amount = round(float(request.form.get('amount', remaining)), 2)
+        if amount <= 0 or amount > remaining + 0.01:
+            raise ValueError
+    except (ValueError, TypeError):
+        flash(f'Refund must be between ₹0.01 and ₹{remaining:.2f}.', 'danger')
+        return redirect(url_for('view_invoice', id=id))
+    method = request.form.get('refund_method', invoice.payment_method or 'Cash')
+    reason = request.form.get('reason', '').strip()
+    db.session.add(InvoiceRefund(invoice_id=invoice.id, amount=amount, refund_method=method, reason=reason))
+    if invoice.customer_id:
+        setting = SalonSetting.query.first()
+        rate = setting.loyalty_rate if setting else 1
+        points = int(round(amount * rate))
+        loyalty = CustomerLoyalty.query.filter_by(customer_id=invoice.customer_id).first()
+        if loyalty and points:
+            loyalty.points = max(0, loyalty.points - points)
+            loyalty.lifetime_spend = max(0, round(loyalty.lifetime_spend - amount, 2))
+            db.session.add(LoyaltyTransaction(customer_id=invoice.customer_id, points=-points,
+                transaction_type='Refund', reference=f'refund:{invoice.id}:{secrets.token_hex(8)}', amount=-amount))
+    if amount >= remaining - 0.01:
+        for line in invoice.items:
+            sale_line = InventorySaleLine.query.filter_by(invoice_item_id=line.id).first()
+            if sale_line:
+                item = InventoryItem.query.get(sale_line.inventory_item_id)
+                if item:
+                    item.stock_qty += sale_line.quantity
+                    record_inventory_transaction(item, 'Return', sale_line.quantity, item.cost_price,
+                        reference=f'refund:{invoice.id}:item:{line.id}', notes=f'Restored after invoice #{invoice.id} refund.')
+        invoice.payment_status = 'Refunded'
+    else:
+        invoice.payment_status = 'Partial'
+    db.session.commit()
+    flash(f'Refund of ₹{amount:.2f} recorded.', 'success')
+    return redirect(url_for('view_invoice', id=id))
+
 # ==================== INVENTORY ====================
 
 @app.route('/inventory')
