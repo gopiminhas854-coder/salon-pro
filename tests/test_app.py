@@ -233,3 +233,8 @@ def test_completed_appointment_invoice_is_created_atomically():
             assert invoice.payment_status == 'Pending'
             assert invoice.amount == service_price
             assert invoice.total > invoice.amount
+
+
+def test_migration_extension_is_configured():
+    assert salon.migrate is not None
+    assert salon.app.extensions.get('migrate') is not None
