@@ -1,0 +1,165 @@
+import os
+import tempfile
+import pytest
+
+@pytest.fixture()
+def client():
+    db_file = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
+    db_file.close()
+    os.environ["DATABASE_URL"] = "sqlite:///" + db_file.name
+    os.environ["SALON_PRO_SECRET_KEY"] = "test-secret"
+    import app as salon
+    salon.app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI=os.environ["DATABASE_URL"])
+    with salon.app.app_context():
+        salon.db.drop_all()
+        salon.db.create_all()
+        user = salon.User(username="admin", password_hash=salon.generate_password_hash("admin123"), role="admin")
+        customer = salon.Customer(name="Test Customer", phone="9999999999")
+        service = salon.Service(name="Test Haircut", duration_minutes=30, price=100, category="Hair", is_active=True)
+        staff = salon.Staff(name="Test Stylist", is_active=True)
+        item = salon.InventoryItem(name="Test Shampoo", sku="TEST-1", stock_qty=10, reorder_level=2, cost_price=20, sale_price=50, is_active=True)
+        salon.db.session.add_all([user, customer, service, staff, item])
+        salon.db.session.commit()
+    with salon.app.test_client() as c:
+        yield c, salon
+    try:
+        os.unlink(db_file.name)
+    except OSError:
+        pass
+
+def login(c):
+    return c.post("/login", data={"username": "admin", "password": "admin123"}, follow_redirects=True)
+
+def test_health_and_login(client):
+    c, salon = client
+    assert c.get("/health").status_code == 200
+    assert b'"status":"ok"' in c.get("/health").data
+    response = login(c)
+    assert response.status_code == 200
+    assert b"Dashboard" in response.data
+
+def test_core_pages_load(client):
+    c, _ = client
+    login(c)
+    for path in ["/", "/customers", "/appointments", "/calendar", "/services", "/staff",
+                 "/attendance", "/reports", "/invoices", "/expenses", "/inventory",
+                 "/inventory/transactions", "/suppliers", "/purchases", "/loyalty",
+                 "/reminders", "/settings"]:
+        assert c.get(path).status_code == 200, path
+
+def test_public_booking_and_conflict_detection(client):
+    c, salon = client
+    with salon.app.app_context():
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+    first = c.post("/book", data={
+        "name": "Online Customer", "phone": "8888888888",
+        "service_id": service.id, "staff_id": staff.id,
+        "appointment_date": "2030-01-15", "appointment_time": "10:00"
+    }, follow_redirects=True)
+    assert first.status_code == 200
+    second = c.post("/book", data={
+        "name": "Second Customer", "phone": "7777777777",
+        "service_id": service.id, "staff_id": staff.id,
+        "appointment_date": "2030-01-15", "appointment_time": "10:15"
+    }, follow_redirects=True)
+    assert second.status_code == 200
+    assert b"already booked" in second.data
+
+def test_invoice_payment_and_duplicate_loyalty_protection(client):
+    c, salon = client
+    login(c)
+    with salon.app.app_context():
+        customer = salon.Customer.query.first()
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+        appt = salon.Appointment(customer_id=customer.id, staff_id=staff.id, service_id=service.id,
+                                 appointment_date=salon.date.today(), appointment_time="11:00", status="Completed")
+        salon.db.session.add(appt)
+        salon.db.session.flush()
+        inv = salon.Invoice(appointment_id=appt.id, customer_id=customer.id, amount=100,
+                            discount=0, tax=5, total=105, payment_status="Pending")
+        salon.db.session.add(inv)
+        salon.db.session.flush()
+        salon.db.session.add(salon.InvoiceItem(invoice_id=inv.id, description=service.name, quantity=1,
+                                               unit_price=100, total=100))
+        salon.db.session.commit()
+        inv_id = inv.id
+    response = c.post(f"/invoices/pay/{inv_id}", data={"amount": "50", "payment_method": "Cash"}, follow_redirects=True)
+    assert response.status_code == 200
+    with salon.app.app_context():
+        inv = salon.Invoice.query.get(inv_id)
+        assert inv.payment_status == "Partial"
+        assert round(salon.invoice_balance(inv), 2) == 55
+    c.post(f"/invoices/pay/{inv_id}", data={"amount": "55", "payment_method": "UPI"}, follow_redirects=True)
+    with salon.app.app_context():
+        inv = salon.Invoice.query.get(inv_id)
+        assert inv.payment_status == "Paid"
+        assert salon.InvoicePayment.query.filter_by(invoice_id=inv_id).count() == 2
+        assert salon.LoyaltyTransaction.query.filter_by(reference=f"invoice:{inv_id}").count() == 1
+
+def test_inventory_sale_and_item_removal_restore_stock(client):
+    c, salon = client
+    login(c)
+    with salon.app.app_context():
+        customer = salon.Customer.query.first()
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+        item = salon.InventoryItem.query.first()
+        appt = salon.Appointment(customer_id=customer.id, staff_id=staff.id, service_id=service.id,
+                                 appointment_date=salon.date.today(), appointment_time="12:00", status="Completed")
+        salon.db.session.add(appt)
+        salon.db.session.flush()
+        inv = salon.Invoice(appointment_id=appt.id, customer_id=customer.id, amount=100,
+                            discount=0, tax=5, total=105, payment_status="Pending")
+        salon.db.session.add(inv)
+        salon.db.session.flush()
+        salon.db.session.add(salon.InvoiceItem(invoice_id=inv.id, description=service.name, quantity=1,
+                                               unit_price=100, total=100))
+        salon.db.session.commit()
+        inv_id, item_id = inv.id, item.id
+    response = c.post(f"/invoices/{inv_id}/inventory-sale",
+                      data={"inventory_item_id": item_id, "quantity": "2"}, follow_redirects=True)
+    assert response.status_code == 200
+    with salon.app.app_context():
+        item = salon.InventoryItem.query.get(item_id)
+        inv = salon.Invoice.query.get(inv_id)
+        assert item.stock_qty == 8
+        assert salon.InventorySale.query.filter_by(invoice_id=inv_id).count() == 1
+        sale = salon.InventorySale.query.filter_by(invoice_id=inv_id).first()
+        line = salon.InventorySaleLine.query.filter_by(inventory_sale_id=sale.id).first()
+        assert line is not None
+        product_item = salon.InvoiceItem.query.filter_by(invoice_id=inv_id, description=item.name).first()
+        product_item_id = product_item.id
+    response = c.post(f"/invoices/{inv_id}/items/{product_item_id}/delete", follow_redirects=True)
+    assert response.status_code == 200
+    with salon.app.app_context():
+        assert salon.InventoryItem.query.get(item_id).stock_qty == 10
+        assert salon.InventorySaleLine.query.filter_by(invoice_item_id=product_item_id).first() is None
+
+def test_purchase_increases_stock(client):
+    c, salon = client
+    login(c)
+    with salon.app.app_context():
+        item = salon.InventoryItem.query.first()
+        item_id = item.id
+    response = c.post("/purchases/add", data={
+        "inventory_item_id": str(item_id), "quantity": "3", "unit_cost": "25",
+        "purchase_date": "2030-01-15", "reference": "BILL-1", "notes": "test"
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    with salon.app.app_context():
+        assert salon.InventoryItem.query.get(item_id).stock_qty == 13
+        assert salon.InventoryPurchase.query.count() == 1
+        assert salon.InventoryTransaction.query.filter_by(transaction_type="Purchase").count() >= 1
+
+def test_staff_cannot_access_admin_endpoints(client):
+    c, salon = client
+    with salon.app.app_context():
+        staff_user = salon.User(username="staff", password_hash=salon.generate_password_hash("staff12345"), role="staff")
+        salon.db.session.add(staff_user)
+        salon.db.session.commit()
+    response = c.post("/login", data={"username": "staff", "password": "staff12345"}, follow_redirects=True)
+    assert response.status_code == 200
+    assert c.get("/settings").status_code == 302
+    assert c.post("/inventory/adjust/1", data={"change": "1"}).status_code == 302
