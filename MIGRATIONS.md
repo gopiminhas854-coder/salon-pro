@@ -32,3 +32,8 @@ Before a production upgrade:
 5. Check `/health` and verify customers, appointments, invoices, payments and inventory.
 
 Never use `db.drop_all()` against a production database.
+
+
+### Baseline rollout
+
+The initial revision is `0001_initial_schema`. Render runs `migrate_startup.py` before Gunicorn. It safely stamps an existing pre-Alembic database after verifying the complete baseline table set, then runs `upgrade()` for any later migrations. A partial or unexpected schema fails closed instead of attempting destructive changes.
