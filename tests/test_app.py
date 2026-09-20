@@ -286,3 +286,44 @@ def test_advanced_crm_and_bi_apis(client):
     assert bi["customers"]["repeat_customer_rate"] == 100
     assert bi["inventory"]["stock_value_at_cost"] == 200
     assert bi["inventory"]["low_stock_items"] == 0
+
+
+def test_retention_service_and_staff_intelligence(client):
+    c, salon = client
+    login(c)
+    with salon.app.app_context():
+        customer = salon.Customer.query.first()
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+        appt = salon.Appointment(customer_id=customer.id, staff_id=staff.id, service_id=service.id,
+                                  appointment_date=salon.date.today() - salon.timedelta(days=10),
+                                  appointment_time="10:00", status="Completed")
+        salon.db.session.add(appt)
+        salon.db.session.flush()
+        inv = salon.Invoice(appointment_id=appt.id, customer_id=customer.id, amount=100,
+                            discount=0, tax=5, total=105, payment_status="Paid")
+        salon.db.session.add(inv)
+        salon.db.session.flush()
+        salon.db.session.add(salon.InvoiceItem(invoice_id=inv.id, description=service.name,
+                                               quantity=1, unit_price=100, total=100))
+        salon.db.session.add(salon.InvoicePayment(invoice_id=inv.id, amount=105, payment_method="UPI"))
+        salon.db.session.commit()
+
+    retention = c.get("/api/crm/retention")
+    assert retention.status_code == 200
+    data = retention.get_json()
+    assert data["counts"]["active"] == 1
+
+    services = c.get("/api/business-intelligence/services")
+    assert services.status_code == 200
+    service_data = services.get_json()
+    row = next(x for x in service_data["services"] if x["service"] == "Test Haircut")
+    assert row["completed"] == 1
+    assert row["net_revenue"] == 105
+    assert row["revenue_per_completed_visit"] == 105
+
+    staff_data = c.get("/api/business-intelligence/staff").get_json()
+    staff_row = next(x for x in staff_data["staff"] if x["staff"] == "Test Stylist")
+    assert staff_row["completed"] == 1
+    assert staff_row["net_revenue"] == 105
+    assert staff_row["revenue_per_completed_visit"] == 105
