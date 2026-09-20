@@ -30,6 +30,7 @@
                     </div>
                 </div>
                 <div class="mt-3">
+                    <a href="{{ url_for('staff_performance', id=s.id) }}" class="btn btn-sm btn-outline-success"><i class="bi bi-graph-up"></i> Performance</a>
                     <a href="{{ url_for('edit_staff', id=s.id) }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> Edit</a>
                     <form method="POST" action="{{ url_for('delete_staff', id=s.id) }}" class="d-inline" onsubmit="return confirm('Delete this staff member?')">
                         <button type="submit" class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
