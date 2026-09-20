@@ -7,14 +7,24 @@
   <div>
     <div class="text-muted small mb-1">{{ today.strftime('%A, %d %B %Y') }}</div>
     <h2 class="mb-1">Good to see you 👋</h2>
-    <div class="text-muted small">Here’s what’s happening at your salon today.</div>
+    <div class="text-muted small">Your salon at a glance — bookings, cash flow and daily operations.</div>
   </div>
-  <a href="{{ url_for('add_appointment') }}" class="btn btn-primary px-3"><i class="bi bi-plus-lg me-1"></i> New appointment</a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('calendar_view') }}" class="btn btn-light px-3"><i class="bi bi-calendar3 me-1"></i> Calendar</a>
+    <a href="{{ url_for('add_appointment') }}" class="btn btn-primary px-3"><i class="bi bi-plus-lg me-1"></i> New booking</a>
+  </div>
 </div>
+
+{% if low_stock_count %}
+<div class="alert d-flex align-items-center justify-content-between gap-3 mb-4" style="background:#fff7e6;border:1px solid #f0dfb8;border-radius:14px">
+  <div><strong><i class="bi bi-box-seam me-2"></i>Inventory attention</strong><div class="small text-muted mt-1">{{ low_stock_count }} active item{{ 's' if low_stock_count != 1 else '' }} at or below reorder level.</div></div>
+  <a href="{{ url_for('inventory') }}" class="btn btn-sm btn-light">Review stock</a>
+</div>
+{% endif %}
 
 <div class="row g-3 mb-3">
   <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Today revenue</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(today_revenue) }}</div></div><div class="sp-avatar" style="background:#eeeaff;color:#6d5dfc"><i class="bi bi-wallet2"></i></div></div><div class="text-muted small mt-3">{{ completed_today }} completed today</div></div></div></div>
-  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Monthly revenue</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(monthly_revenue) }}</div></div><div class="sp-avatar" style="background:#e8f8f1;color:#19a974"><i class="bi bi-graph-up-arrow"></i></div></div><div class="text-muted small mt-3">Current month</div></div></div></div>
+  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Monthly revenue</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(monthly_revenue) }}</div></div><div class="sp-avatar" style="background:#e8f8f1;color:#19a974"><i class="bi bi-graph-up-arrow"></i></div></div><div class="text-muted small mt-3">Paid invoices this month</div></div></div></div>
   <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Monthly profit</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(monthly_profit) }}</div></div><div class="sp-avatar" style="background:#fff5db;color:#c98b00"><i class="bi bi-pie-chart"></i></div></div><div class="text-muted small mt-3">After tracked expenses</div></div></div></div>
   <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Clients</div><div class="fs-3 fw-bold mt-2">{{ total_customers }}</div></div><div class="sp-avatar" style="background:#eaf2ff;color:#3975d8"><i class="bi bi-people"></i></div></div><div class="text-muted small mt-3">{{ total_staff }} active team members</div></div></div></div>
 </div>
@@ -26,9 +36,9 @@
   <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Monthly expenses</div><div class="fw-bold fs-5 mt-1">₹{{ "%.0f"|format(monthly_expenses) }}</div></div></div></div>
 </div>
 
-<div class="row g-4">
+<div class="row g-4 mb-4">
   <div class="col-xl-8">
-    <div class="card">
+    <div class="card h-100">
       <div class="card-header bg-white d-flex justify-content-between align-items-center">
         <div><h5 class="mb-1">Today’s schedule</h5><div class="text-muted small">{{ today_appointments|length }} appointments</div></div>
         <a href="{{ url_for('calendar_view') }}" class="btn btn-light btn-sm">Open calendar <i class="bi bi-arrow-right ms-1"></i></a>
@@ -59,6 +69,41 @@
         {% endfor %}
         </div>
       {% else %}<div class="text-center text-muted small py-4">No upcoming appointments.</div>{% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-4">
+  <div class="col-xl-8">
+    <div class="card h-100">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center"><div><h5 class="mb-1">Revenue pulse</h5><div class="text-muted small">Last 7 days · paid invoices</div></div><a href="{{ url_for('reports') }}" class="btn btn-light btn-sm">View reports</a></div>
+      <div class="card-body">
+        <div class="d-flex align-items-end gap-2" style="height:190px">
+          {% set max_revenue = revenue_by_day|map(attribute='revenue')|max if revenue_by_day else 0 %}
+          {% for point in revenue_by_day %}
+          {% set height = (point.revenue / max_revenue * 150) if max_revenue else 4 %}
+          <div class="flex-fill text-center h-100 d-flex flex-column justify-content-end">
+            <div class="small text-muted mb-1">₹{{ "%.0f"|format(point.revenue) }}</div>
+            <div title="{{ point.date }} · ₹{{ '%.2f'|format(point.revenue) }}" style="height:{{ [height,4]|max }}px;background:#b9975b;border-radius:8px 8px 3px 3px;min-width:18px"></div>
+            <div class="small text-muted mt-2">{{ point.label }}</div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card h-100">
+      <div class="card-header bg-white"><h5 class="mb-1">Popular services</h5><div class="text-muted small">Completed this month</div></div>
+      <div class="card-body">
+      {% if top_services %}
+        <div class="d-grid gap-3">
+        {% for name, count in top_services %}
+          <div><div class="d-flex justify-content-between small mb-1"><span class="fw-semibold text-truncate me-2">{{ name }}</span><span class="text-muted">{{ count }}</span></div><div style="height:7px;background:#f0eee9;border-radius:99px;overflow:hidden"><div style="width:{{ (count / top_services[0][1] * 100) if top_services[0][1] else 0 }}%;height:100%;background:#b9975b;border-radius:99px"></div></div></div>
+        {% endfor %}
+        </div>
+      {% else %}<div class="text-center text-muted small py-4">Completed service data will appear here.</div>{% endif %}
       </div>
     </div>
   </div>
