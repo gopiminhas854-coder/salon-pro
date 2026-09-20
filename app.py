@@ -7,6 +7,15 @@ import os
 import secrets
 from sqlalchemy import func, inspect
 
+def commit_or_rollback():
+    """Commit the current unit of work and always clear failed transactions."""
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        raise
+
+
 app = Flask(__name__)
 _secret = os.environ.get('SALON_PRO_SECRET_KEY', '')
 if os.environ.get('FLASK_ENV') == 'production' and len(_secret) < 32:
@@ -916,10 +925,11 @@ def edit_appointment(id):
 def update_appointment_status(id, status):
     appt = Appointment.query.get_or_404(id)
     appt.status = status
-    db.session.commit()
-    
-    # Auto-create invoice when completed
-    if status == 'Completed':
+    # Keep status change and automatic invoice creation in one database transaction.
+    # A failure must not leave a completed appointment without its invoice.
+    try:
+        # Auto-create invoice when completed
+        if status == 'Completed':
         existing = Invoice.query.filter_by(appointment_id=appt.id).first()
         if not existing:
             service = Service.query.get(appt.service_id)
@@ -941,8 +951,10 @@ def update_appointment_status(id, status):
             flash(f'Appointment marked as Completed. Invoice created (₹{inv.total}).', 'success')
         else:
             flash('Status updated.', 'success')
-    else:
-        flash('Status updated.', 'success')
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        flash('Could not update appointment status. No changes were saved.', 'danger')
     return redirect(url_for('appointments'))
 
 # ==================== INVOICES / BILLING ====================
@@ -964,6 +976,9 @@ def view_invoice(id):
 @login_required
 def mark_paid(id):
     invoice = Invoice.query.get_or_404(id)
+    if invoice.payment_status == 'Refunded':
+        flash('A refunded invoice cannot receive another payment.', 'danger')
+        return redirect(url_for('view_invoice', id=id))
     balance = invoice_balance(invoice)
     if balance <= 0:
         invoice.payment_status = 'Paid'
@@ -995,7 +1010,13 @@ def mark_paid(id):
 @admin_required
 def refund_invoice(id):
     invoice = Invoice.query.get_or_404(id)
+    if invoice.payment_status == 'Refunded':
+        flash('This invoice has already been fully refunded.', 'warning')
+        return redirect(url_for('view_invoice', id=id))
     remaining = invoice_net_paid_amount(invoice)
+    if remaining <= 0:
+        flash('Only paid invoices can be refunded.', 'warning')
+        return redirect(url_for('view_invoice', id=id))
     try:
         amount = round(float(request.form.get('amount', remaining)), 2)
         if amount <= 0 or amount > remaining + 0.01:
@@ -1198,6 +1219,9 @@ def add_purchase():
 @login_required
 def add_invoice_item(id):
     invoice = Invoice.query.get_or_404(id)
+    if invoice.payment_status in ('Paid', 'Refunded'):
+        flash('Paid or refunded invoices cannot be edited. Create a new invoice for additional charges.', 'warning')
+        return redirect(url_for('view_invoice', id=id))
     try:
         description = request.form['description'].strip()
         quantity = float(request.form.get('quantity', 1))
@@ -1223,6 +1247,9 @@ def add_invoice_item(id):
 @login_required
 def delete_invoice_item(id, item_id):
     invoice = Invoice.query.get_or_404(id)
+    if invoice.payment_status in ('Paid', 'Refunded') or invoice_net_paid_amount(invoice) > 0:
+        flash('An invoice with payments cannot be edited. Refund the payment first if a correction is required.', 'warning')
+        return redirect(url_for('view_invoice', id=id))
     item = InvoiceItem.query.filter_by(id=item_id, invoice_id=id).first_or_404()
     if len(invoice.items) <= 1:
         flash('An invoice must keep at least one item.', 'warning')
@@ -1495,6 +1522,9 @@ def reminders():
 @login_required
 def add_inventory_sale(id):
     invoice = Invoice.query.get_or_404(id)
+    if invoice.payment_status == 'Refunded':
+        flash('A refunded invoice cannot receive new products.', 'danger')
+        return redirect(url_for('view_invoice', id=id))
     try:
         item_id = int(request.form['inventory_item_id'])
         quantity = float(request.form['quantity'])
