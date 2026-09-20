@@ -539,48 +539,31 @@ def download_backup():
 def dashboard():
     today = date.today()
     today_appointments = Appointment.query.filter_by(appointment_date=today).order_by(Appointment.appointment_time).all()
-    
     total_customers = Customer.query.count()
     total_staff = Staff.query.filter_by(is_active=True).count()
     total_services = Service.query.filter_by(is_active=True).count()
-    
-    # Revenue this month
     first_day = today.replace(day=1)
-    paid_invoices = Invoice.query.filter(
-        Invoice.payment_status == 'Paid',
-        Invoice.created_at >= first_day
-    ).all()
+    paid_invoices = Invoice.query.filter(Invoice.payment_status == 'Paid', Invoice.created_at >= first_day).all()
     monthly_revenue = sum(inv.total for inv in paid_invoices)
     monthly_expenses = sum(e.amount for e in Expense.query.filter(Expense.expense_date >= first_day, Expense.expense_date <= today).all())
     monthly_profit = monthly_revenue - monthly_expenses
-    
-    # Upcoming appointments (next 7 days)
     next_week = today + timedelta(days=7)
-    upcoming = Appointment.query.filter(
-        Appointment.appointment_date > today,
-        Appointment.appointment_date <= next_week,
-        Appointment.status == 'Scheduled'
-    ).order_by(Appointment.appointment_date, Appointment.appointment_time).limit(5).all()
-    
+    upcoming = Appointment.query.filter(Appointment.appointment_date > today, Appointment.appointment_date <= next_week, Appointment.status == 'Scheduled').order_by(Appointment.appointment_date, Appointment.appointment_time).limit(5).all()
     pending_invoices = Invoice.query.filter_by(payment_status='Pending').count()
     today_revenue = sum(i.total for i in Invoice.query.filter(Invoice.payment_status == 'Paid', func.date(Invoice.created_at) == today).all())
     completed_today = Appointment.query.filter_by(appointment_date=today, status='Completed').count()
-    low_stock_count = InventoryItem.query.filter(InventoryItem.is_active == True,
-                                                 InventoryItem.stock_qty <= InventoryItem.reorder_level).count()
-    return render_template('dashboard.html',
-                           today_appointments=today_appointments,
-                           total_customers=total_customers,
-                           total_staff=total_staff,
-                           total_services=total_services,
-                           monthly_revenue=monthly_revenue,
-                           monthly_expenses=monthly_expenses,
-                           monthly_profit=monthly_profit,
-                           pending_invoices=pending_invoices,
-                           today=today,
-                           today_revenue=today_revenue,
-                           completed_today=completed_today,
-                           low_stock_count=low_stock_count,
-                           upcoming=upcoming)
+    low_stock_count = InventoryItem.query.filter(InventoryItem.is_active == True, InventoryItem.stock_qty <= InventoryItem.reorder_level).count()
+    revenue_by_day = []
+    for offset in range(6, -1, -1):
+        day = today - timedelta(days=offset)
+        day_revenue = sum(i.total for i in Invoice.query.filter(Invoice.payment_status == 'Paid', func.date(Invoice.created_at) == day).all())
+        revenue_by_day.append({'label': day.strftime('%a'), 'date': day.isoformat(), 'revenue': round(day_revenue, 2)})
+    service_counts = {}
+    for appointment in Appointment.query.filter(Appointment.appointment_date >= first_day, Appointment.appointment_date <= today, Appointment.status == 'Completed').all():
+        if appointment.service:
+            service_counts[appointment.service.name] = service_counts.get(appointment.service.name, 0) + 1
+    top_services = sorted(service_counts.items(), key=lambda x: (-x[1], x[0]))[:5]
+    return render_template('dashboard.html', today_appointments=today_appointments, total_customers=total_customers, total_staff=total_staff, total_services=total_services, monthly_revenue=monthly_revenue, monthly_expenses=monthly_expenses, monthly_profit=monthly_profit, pending_invoices=pending_invoices, today=today, today_revenue=today_revenue, completed_today=completed_today, low_stock_count=low_stock_count, upcoming=upcoming, revenue_by_day=revenue_by_day, top_services=top_services)
 
 # ==================== CUSTOMERS ====================
 
