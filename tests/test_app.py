@@ -3,7 +3,10 @@ import sys
 import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-os.environ["DATABASE_URL"] = "sqlite:///test_salon_ci.db"
+# Keep the CI database outside the checked-out repository. Flask-SQLAlchemy
+# resolves relative SQLite paths under the instance directory, which can
+# produce a readonly database when fixtures repeatedly reset the file.
+os.environ["DATABASE_URL"] = "sqlite:////tmp/salon_ci.db"
 os.environ["SALON_PRO_SECRET_KEY"] = "test-secret"
 
 import app as salon
@@ -12,6 +15,7 @@ import app as salon
 def client():
     salon.app.config.update(TESTING=True, SQLALCHEMY_DATABASE_URI=os.environ["DATABASE_URL"])
     with salon.app.app_context():
+        salon.db.session.remove()
         salon.db.drop_all()
         salon.db.create_all()
         user = salon.User(username="admin", password_hash=salon.generate_password_hash("admin123"), role="admin")
@@ -23,6 +27,8 @@ def client():
         salon.db.session.commit()
     with salon.app.test_client() as c:
         yield c, salon
+    with salon.app.app_context():
+        salon.db.session.remove()
 
 def login(c):
     return c.post("/login", data={"username": "admin", "password": "admin123"}, follow_redirects=True)
@@ -171,7 +177,6 @@ def test_staff_cannot_access_admin_endpoints(client):
     assert response.status_code == 200
     assert c.get("/settings").status_code == 302
     assert c.post("/inventory/adjust/1", data={"change": "1"}).status_code == 302
-
 
 def test_refund_reverses_loyalty_and_inventory(client):
     c, salon = client
