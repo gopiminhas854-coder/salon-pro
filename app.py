@@ -635,6 +635,183 @@ def delete_customer(id):
     flash('Customer deleted.', 'info')
     return redirect(url_for('customers'))
 
+# ==================== ADVANCED CRM & BUSINESS INTELLIGENCE ====================
+
+def _customer_metrics(customer_id):
+    """Build reusable CRM metrics from appointments, invoices and loyalty history."""
+    appointments = Appointment.query.filter_by(customer_id=customer_id).order_by(
+        Appointment.appointment_date.asc(), Appointment.appointment_time.asc()
+    ).all()
+    invoices = Invoice.query.filter_by(customer_id=customer_id).all()
+    completed = [a for a in appointments if a.status == 'Completed']
+    paid_revenue = round(sum(invoice_net_paid_amount(i) for i in invoices), 2)
+    refunds = round(sum(invoice_refunded_amount(i) for i in invoices), 2)
+    avg_ticket = round(paid_revenue / len(completed), 2) if completed else 0
+    last_visit = completed[-1] if completed else None
+    next_visit = next((a for a in appointments if a.status == 'Scheduled' and a.appointment_date >= date.today()), None)
+
+    service_counts = {}
+    for appt in completed:
+        if appt.service:
+            service_counts[appt.service.name] = service_counts.get(appt.service.name, 0) + 1
+    favorite_service = max(service_counts, key=service_counts.get) if service_counts else None
+
+    if len(completed) >= 2:
+        intervals = [
+            (completed[i].appointment_date - completed[i - 1].appointment_date).days
+            for i in range(1, len(completed))
+        ]
+        avg_visit_interval = round(sum(intervals) / len(intervals), 1)
+    else:
+        avg_visit_interval = None
+
+    days_since_visit = (date.today() - last_visit.appointment_date).days if last_visit else None
+    loyalty = CustomerLoyalty.query.filter_by(customer_id=customer_id).first()
+    return {
+        'visits': len(completed),
+        'paid_revenue': paid_revenue,
+        'refunds': refunds,
+        'avg_ticket': avg_ticket,
+        'last_visit': last_visit,
+        'next_visit': next_visit,
+        'favorite_service': favorite_service,
+        'avg_visit_interval_days': avg_visit_interval,
+        'days_since_visit': days_since_visit,
+        'loyalty_points': loyalty.points if loyalty else 0,
+        'lifetime_spend': round(loyalty.lifetime_spend, 2) if loyalty else paid_revenue,
+        'no_shows': sum(1 for a in appointments if a.status == 'No-Show'),
+        'cancelled': sum(1 for a in appointments if a.status == 'Cancelled'),
+    }
+
+
+@app.route('/api/crm/summary')
+@login_required
+def crm_summary():
+    """Authenticated CRM summary API; intentionally does not alter existing UI."""
+    customers = Customer.query.order_by(Customer.name).all()
+    rows = []
+    for customer in customers:
+        metrics = _customer_metrics(customer.id)
+        rows.append({
+            'id': customer.id,
+            'name': customer.name,
+            'phone': customer.phone,
+            'visits': metrics['visits'],
+            'paid_revenue': metrics['paid_revenue'],
+            'avg_ticket': metrics['avg_ticket'],
+            'last_visit': metrics['last_visit'].appointment_date.isoformat() if metrics['last_visit'] else None,
+            'next_visit': metrics['next_visit'].appointment_date.isoformat() if metrics['next_visit'] else None,
+            'favorite_service': metrics['favorite_service'],
+            'avg_visit_interval_days': metrics['avg_visit_interval_days'],
+            'days_since_visit': metrics['days_since_visit'],
+            'loyalty_points': metrics['loyalty_points'],
+            'no_shows': metrics['no_shows'],
+            'cancelled': metrics['cancelled'],
+        })
+    return jsonify({
+        'customers': rows,
+        'total_customers': len(rows),
+        'active_customers': sum(1 for r in rows if r['next_visit'] or (r['days_since_visit'] is not None and r['days_since_visit'] <= 90)),
+        'repeat_customers': sum(1 for r in rows if r['visits'] >= 2),
+    })
+
+
+@app.route('/api/business-intelligence')
+@login_required
+def business_intelligence():
+    """Authenticated BI API for operational and financial decision support."""
+    today = date.today()
+    start_text = request.args.get('start', (today - timedelta(days=29)).isoformat())
+    end_text = request.args.get('end', today.isoformat())
+    try:
+        start = date.fromisoformat(start_text)
+        end = date.fromisoformat(end_text)
+        if end < start:
+            raise ValueError
+    except ValueError:
+        return jsonify({'error': 'Invalid date range. Use YYYY-MM-DD and ensure end >= start.'}), 400
+
+    invoices = Invoice.query.filter(
+        func.date(Invoice.created_at) >= start,
+        func.date(Invoice.created_at) <= end
+    ).all()
+    appointments = Appointment.query.filter(
+        Appointment.appointment_date >= start, Appointment.appointment_date <= end
+    ).all()
+    expenses = Expense.query.filter(
+        Expense.expense_date >= start, Expense.expense_date <= end
+    ).all()
+
+    gross_collected = round(sum(invoice_net_paid_amount(i) + invoice_refunded_amount(i) for i in invoices), 2)
+    refunds = round(sum(invoice_refunded_amount(i) for i in invoices), 2)
+    net_revenue = round(gross_collected - refunds, 2)
+    expense_total = round(sum(e.amount for e in expenses), 2)
+    commissions = round(sum(
+        sum(invoice_net_paid_amount(i) for i in invoices
+            if i.appointment and i.appointment.staff_id == member.id) *
+        ((StaffCommission.query.filter_by(staff_id=member.id).first().commission_rate
+          if StaffCommission.query.filter_by(staff_id=member.id).first() else 0) / 100)
+        for member in Staff.query.all()
+    ), 2)
+
+    completed = sum(1 for a in appointments if a.status == 'Completed')
+    no_shows = sum(1 for a in appointments if a.status == 'No-Show')
+    cancelled = sum(1 for a in appointments if a.status == 'Cancelled')
+    scheduled_or_completed = completed + sum(1 for a in appointments if a.status == 'Scheduled')
+    service_revenue = {}
+    for invoice in invoices:
+        if invoice_net_paid_amount(invoice) <= 0:
+            continue
+        for item in invoice.items:
+            service_revenue[item.description] = service_revenue.get(item.description, 0) + (
+                item.total * (invoice_net_paid_amount(invoice) / invoice.total) if invoice.total else 0
+            )
+
+    inventory_value = round(sum((i.stock_qty or 0) * (i.cost_price or 0) for i in InventoryItem.query.filter_by(is_active=True).all()), 2)
+    low_stock = InventoryItem.query.filter(
+        InventoryItem.is_active == True, InventoryItem.stock_qty <= InventoryItem.reorder_level
+    ).count()
+
+    customer_ids = {i.customer_id for i in invoices if i.customer_id and invoice_net_paid_amount(i) > 0}
+    repeat_ids = set()
+    for customer_id in customer_ids:
+        if Appointment.query.filter_by(customer_id=customer_id, status='Completed').count() >= 2:
+            repeat_ids.add(customer_id)
+
+    return jsonify({
+        'range': {'start': start.isoformat(), 'end': end.isoformat()},
+        'financial': {
+            'gross_collected': gross_collected,
+            'refunds': refunds,
+            'net_revenue': net_revenue,
+            'expenses': expense_total,
+            'profit_before_tax_and_other_adjustments': round(net_revenue - expense_total, 2),
+            'average_paid_invoice': round(net_revenue / len([i for i in invoices if invoice_net_paid_amount(i) > 0]), 2) if any(invoice_net_paid_amount(i) > 0 for i in invoices) else 0,
+            'commissions': commissions,
+        },
+        'appointments': {
+            'total': len(appointments),
+            'completed': completed,
+            'no_shows': no_shows,
+            'cancelled': cancelled,
+            'completion_rate': round(completed / len(appointments) * 100, 2) if appointments else 0,
+            'no_show_rate': round(no_shows / len(appointments) * 100, 2) if appointments else 0,
+        },
+        'customers': {
+            'paying_customers': len(customer_ids),
+            'repeat_customer_rate': round(len(repeat_ids) / len(customer_ids) * 100, 2) if customer_ids else 0,
+        },
+        'inventory': {
+            'stock_value_at_cost': inventory_value,
+            'low_stock_items': low_stock,
+        },
+        'service_revenue': [
+            {'service': name, 'revenue': round(value, 2)}
+            for name, value in sorted(service_revenue.items(), key=lambda x: (-x[1], x[0]))
+        ],
+    })
+
+
 # ==================== CUSTOMER PROFILE ====================
 
 @app.route('/customers/<int:id>')
@@ -651,10 +828,12 @@ def customer_detail(id):
     last_visit = Appointment.query.filter_by(customer_id=id, status='Completed').order_by(
         Appointment.appointment_date.desc()
     ).first()
+    crm = _customer_metrics(id)
     return render_template('customer_detail.html', customer=customer,
                            appointments=customer_appointments, invoices=customer_invoices,
                            completed_visits=completed_visits, total_spend=total_spend,
-                           pending_amount=pending_amount, last_visit=last_visit)
+                           pending_amount=pending_amount, last_visit=last_visit,
+                           crm=crm)
 
 
 # ==================== EXPENSES ====================
