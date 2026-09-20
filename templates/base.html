@@ -46,6 +46,16 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if 'attendance' in request.endpoint %}active{% endif %}" href="{{ url_for('attendance') }}">
+                            <i class="bi bi-person-check"></i> Attendance
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'report' in request.endpoint %}active{% endif %}" href="{{ url_for('reports') }}">
+                            <i class="bi bi-bar-chart-line"></i> Reports
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if 'invoice' in request.endpoint %}active{% endif %}" href="{{ url_for('invoices') }}">
                             <i class="bi bi-receipt"></i> Invoices
                         </a>
