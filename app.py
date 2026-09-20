@@ -5,7 +5,6 @@ from datetime import datetime, date, timedelta
 from functools import wraps
 import os
 from sqlalchemy import func
-from sqlalchemy import func
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'salon-pro-secret-key-change-in-production'
@@ -62,6 +61,15 @@ class Appointment(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     service = db.relationship('Service')
+
+class Expense(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(120), nullable=False)
+    category = db.Column(db.String(60), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    expense_date = db.Column(db.Date, default=date.today, nullable=False)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -127,6 +135,8 @@ def dashboard():
         Invoice.created_at >= first_day
     ).all()
     monthly_revenue = sum(inv.total for inv in paid_invoices)
+    monthly_expenses = sum(e.amount for e in Expense.query.filter(Expense.expense_date >= first_day, Expense.expense_date <= today).all())
+    monthly_profit = monthly_revenue - monthly_expenses
     
     # Upcoming appointments (next 7 days)
     next_week = today + timedelta(days=7)
@@ -149,6 +159,8 @@ def dashboard():
                            total_staff=total_staff,
                            total_services=total_services,
                            monthly_revenue=monthly_revenue,
+                           monthly_expenses=monthly_expenses,
+                           monthly_profit=monthly_profit,
                            pending_invoices=pending_invoices,
                            today_revenue=today_revenue,
                            completed_today=completed_today,
@@ -214,6 +226,79 @@ def delete_customer(id):
     db.session.commit()
     flash('Customer deleted.', 'info')
     return redirect(url_for('customers'))
+
+# ==================== CUSTOMER PROFILE ====================
+
+@app.route('/customers/<int:id>')
+@login_required
+def customer_detail(id):
+    customer = Customer.query.get_or_404(id)
+    customer_appointments = Appointment.query.filter_by(customer_id=id).order_by(
+        Appointment.appointment_date.desc(), Appointment.appointment_time.desc()
+    ).all()
+    customer_invoices = Invoice.query.filter_by(customer_id=id).order_by(Invoice.created_at.desc()).all()
+    completed_visits = Appointment.query.filter_by(customer_id=id, status='Completed').count()
+    total_spend = sum(i.total for i in customer_invoices if i.payment_status == 'Paid')
+    pending_amount = sum(i.total for i in customer_invoices if i.payment_status == 'Pending')
+    last_visit = Appointment.query.filter_by(customer_id=id, status='Completed').order_by(
+        Appointment.appointment_date.desc()
+    ).first()
+    return render_template('customer_detail.html', customer=customer,
+                           appointments=customer_appointments, invoices=customer_invoices,
+                           completed_visits=completed_visits, total_spend=total_spend,
+                           pending_amount=pending_amount, last_visit=last_visit)
+
+
+# ==================== EXPENSES ====================
+
+@app.route('/expenses')
+@login_required
+def expenses():
+    month = request.args.get('month', date.today().strftime('%Y-%m'))
+    try:
+        month_start = datetime.strptime(month + '-01', '%Y-%m-%d').date()
+    except ValueError:
+        month_start = date.today().replace(day=1)
+        month = month_start.strftime('%Y-%m')
+    next_month = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    expenses_list = Expense.query.filter(
+        Expense.expense_date >= month_start, Expense.expense_date < next_month
+    ).order_by(Expense.expense_date.desc(), Expense.id.desc()).all()
+    total_expenses = sum(e.amount for e in expenses_list)
+    return render_template('expenses.html', expenses=expenses_list,
+                           total_expenses=total_expenses, month=month)
+
+@app.route('/expenses/add', methods=['GET', 'POST'])
+@login_required
+def add_expense():
+    if request.method == 'POST':
+        try:
+            amount = float(request.form['amount'])
+            expense_date = datetime.strptime(request.form['expense_date'], '%Y-%m-%d').date()
+            if amount <= 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            flash('Enter a valid positive expense amount and date.', 'danger')
+            return redirect(url_for('add_expense'))
+        expense = Expense(title=request.form['title'].strip(),
+                          category=request.form['category'].strip(),
+                          amount=amount, expense_date=expense_date,
+                          notes=request.form.get('notes'))
+        db.session.add(expense)
+        db.session.commit()
+        flash('Expense added successfully!', 'success')
+        return redirect(url_for('expenses'))
+    return render_template('expense_form.html', expense=None)
+
+@app.route('/expenses/delete/<int:id>', methods=['POST'])
+@login_required
+def delete_expense(id):
+    expense = Expense.query.get_or_404(id)
+    db.session.delete(expense)
+    db.session.commit()
+    flash('Expense deleted.', 'info')
+    return redirect(url_for('expenses'))
+
 
 # ==================== SERVICES ====================
 
