@@ -81,6 +81,16 @@
                             <i class="bi bi-box-seam"></i> Inventory
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'purchase' in request.endpoint %}active{% endif %}" href="{{ url_for('purchases') }}">
+                            <i class="bi bi-bag-plus"></i> Purchases
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'supplier' in request.endpoint %}active{% endif %}" href="{{ url_for('suppliers') }}">
+                            <i class="bi bi-truck"></i> Suppliers
+                        </a>
+                    </li>
                 </ul>
                 <span class="navbar-text text-white me-3">
                     <i class="bi bi-person-circle"></i> {{ session.get('username') }}
