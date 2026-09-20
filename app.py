@@ -199,6 +199,10 @@ ADMIN_ONLY_ENDPOINTS = {
 
 @app.before_request
 def enforce_roles():
+    if 'user_id' in session and 'role' not in session:
+        user = current_user()
+        if user:
+            session['role'] = user.role or 'staff'
     if request.endpoint in ADMIN_ONLY_ENDPOINTS and 'user_id' in session and session.get('role') != 'admin':
         flash('Admin access is required for this action.', 'danger')
         return redirect(url_for('dashboard'))
