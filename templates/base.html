@@ -86,6 +86,7 @@
                     <i class="bi bi-person-circle"></i> {{ session.get('username') }}
                     <span class="badge bg-light text-primary ms-1">{{ session.get('role','staff')|title }}</span>
                 </span>
+                <a href="{{ url_for('public_booking') }}" class="btn btn-outline-light btn-sm me-2" title="Open online booking"><i class="bi bi-calendar2-heart"></i></a>
                 <a href="{{ url_for('settings') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-gear"></i></a>
                 {% if session.get('role') == 'admin' %}
                 <a href="{{ url_for('download_backup') }}" class="btn btn-outline-light btn-sm me-2" title="Download database backup"><i class="bi bi-database-down"></i></a>
