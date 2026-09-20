@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timedelta
@@ -20,6 +20,13 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), default='admin')  # admin / staff
+
+class UserStaffLink(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), unique=True, nullable=False)
+    user = db.relationship('User', backref=db.backref('staff_link', uselist=False))
+    staff = db.relationship('Staff', backref=db.backref('user_link', uselist=False))
 
 class Customer(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -153,6 +160,33 @@ class InvoiceItem(db.Model):
 
 # ==================== AUTH ====================
 
+def current_user():
+    user_id = session.get('user_id')
+    return User.query.get(user_id) if user_id else None
+
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user_id' not in session:
+            flash('Please login to continue.', 'warning')
+            return redirect(url_for('login'))
+        if session.get('role') != 'admin':
+            flash('Admin access is required for this action.', 'danger')
+            return redirect(url_for('dashboard'))
+        return f(*args, **kwargs)
+    return decorated_function
+
+def get_tax_rate():
+    setting = SalonSetting.query.first()
+    return max(0, min(100, setting.tax_rate if setting else 5))
+
+def recalculate_invoice(invoice):
+    subtotal = round(sum(i.total for i in invoice.items), 2)
+    invoice.amount = subtotal
+    taxable = max(invoice.amount - (invoice.discount or 0), 0)
+    invoice.tax = round(taxable * get_tax_rate() / 100, 2)
+    invoice.total = round(taxable + invoice.tax, 2)
+
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -171,6 +205,7 @@ def login():
         if user and check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
             session['username'] = user.username
+            session['role'] = user.role or 'staff'
             flash('Welcome back!', 'success')
             return redirect(url_for('dashboard'))
         flash('Invalid username or password.', 'danger')
@@ -181,6 +216,84 @@ def logout():
     session.clear()
     flash('Logged out successfully.', 'info')
     return redirect(url_for('login'))
+
+# ==================== CALENDAR / BOOKING ====================
+
+@app.route('/calendar')
+@login_required
+def calendar_view():
+    selected_text = request.args.get('date', date.today().isoformat())
+    try:
+        selected = datetime.strptime(selected_text, '%Y-%m-%d').date()
+    except ValueError:
+        selected = date.today()
+        selected_text = selected.isoformat()
+    week_start = selected - timedelta(days=selected.weekday())
+    days = [week_start + timedelta(days=i) for i in range(7)]
+    appointments_by_day = {
+        d: Appointment.query.filter_by(appointment_date=d).order_by(Appointment.appointment_time).all()
+        for d in days
+    }
+    return render_template('calendar.html', selected=selected, selected_text=selected_text,
+                           week_start=week_start, days=days, appointments_by_day=appointments_by_day)
+
+@app.route('/book', methods=['GET', 'POST'])
+def public_booking():
+    if request.method == 'POST':
+        try:
+            name = request.form['name'].strip()
+            phone = request.form['phone'].strip()
+            service_id = int(request.form['service_id'])
+            staff_id = int(request.form['staff_id'])
+            appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
+            appointment_time = request.form['appointment_time']
+            if not name or not phone:
+                raise ValueError
+            service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+            Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
+            end = start + timedelta(minutes=service.duration_minutes or 30)
+            conflicts = Appointment.query.filter_by(
+                staff_id=staff_id, appointment_date=appointment_date, status='Scheduled'
+            ).all()
+            if any(
+                start < datetime.combine(appointment_date, datetime.strptime(a.appointment_time, '%H:%M').time())
+                + timedelta(minutes=a.service.duration_minutes or 30)
+                and datetime.combine(appointment_date, datetime.strptime(a.appointment_time, '%H:%M').time()) < end
+                for a in conflicts
+            ):
+                flash('That time is already booked. Please choose another time.', 'danger')
+                return redirect(url_for('public_booking'))
+            customer = Customer.query.filter_by(phone=phone).first()
+            if not customer:
+                customer = Customer(name=name, phone=phone)
+                db.session.add(customer)
+                db.session.flush()
+            else:
+                customer.name = name
+            db.session.add(Appointment(customer_id=customer.id, staff_id=staff_id, service_id=service_id,
+                                        appointment_date=appointment_date, appointment_time=appointment_time,
+                                        status='Scheduled', notes='Online booking'))
+            db.session.commit()
+            flash('Booking confirmed! The salon will see your appointment in the calendar.', 'success')
+            return redirect(url_for('public_booking'))
+        except (KeyError, ValueError, TypeError):
+            flash('Please enter valid booking details.', 'danger')
+    customers = Customer.query.order_by(Customer.name).all()
+    services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
+    staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
+    return render_template('booking.html', services=services, staff_list=staff_list)
+
+@app.route('/backup/download')
+@admin_required
+def download_backup():
+    db_path = os.path.join(app.instance_path, 'salon.db')
+    if not os.path.exists(db_path):
+        db_path = os.path.abspath('salon.db')
+    if not os.path.exists(db_path):
+        flash('Database file was not found.', 'danger')
+        return redirect(url_for('dashboard'))
+    return send_file(db_path, as_attachment=True, download_name=f"salon-pro-backup-{date.today().isoformat()}.db")
 
 # ==================== DASHBOARD ====================
 
@@ -683,8 +796,7 @@ def add_invoice_item(id):
     db.session.flush()
     subtotal = sum(i.total for i in invoice.items)
     invoice.amount = round(subtotal, 2)
-    invoice.tax = round(max(invoice.amount - invoice.discount, 0) * 0.05, 2)
-    invoice.total = round(max(invoice.amount - invoice.discount, 0) + invoice.tax, 2)
+    recalculate_invoice(invoice)
     db.session.commit()
     flash('Item added to invoice.', 'success')
     return redirect(url_for('view_invoice', id=id))
@@ -701,8 +813,7 @@ def delete_invoice_item(id, item_id):
     db.session.flush()
     subtotal = sum(i.total for i in invoice.items)
     invoice.amount = round(subtotal, 2)
-    invoice.tax = round(max(invoice.amount - invoice.discount, 0) * 0.05, 2)
-    invoice.total = round(max(invoice.amount - invoice.discount, 0) + invoice.tax, 2)
+    recalculate_invoice(invoice)
     db.session.commit()
     flash('Invoice item removed.', 'info')
     return redirect(url_for('view_invoice', id=id))
@@ -975,8 +1086,7 @@ def add_inventory_sale(id):
     db.session.flush()
     subtotal = sum(i.total for i in invoice.items)
     invoice.amount = round(subtotal, 2)
-    invoice.tax = round(max(invoice.amount - invoice.discount, 0) * 0.05, 2)
-    invoice.total = round(max(invoice.amount - invoice.discount, 0) + invoice.tax, 2)
+    recalculate_invoice(invoice)
     db.session.commit()
     flash(f'{item.name} added and {quantity:g} stock deducted.', 'success')
     return redirect(url_for('view_invoice', id=id))
@@ -985,6 +1095,7 @@ def add_inventory_sale(id):
 
 @app.route('/settings', methods=['GET', 'POST'])
 @login_required
+@admin_required
 def settings():
     setting = SalonSetting.query.first()
     if not setting:
