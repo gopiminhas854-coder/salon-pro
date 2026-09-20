@@ -114,6 +114,34 @@ class StaffAttendance(db.Model):
     notes = db.Column(db.Text)
     staff = db.relationship('Staff', backref='attendance_records')
 
+class CustomerLoyalty(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), unique=True, nullable=False)
+    points = db.Column(db.Integer, default=0)
+    lifetime_spend = db.Column(db.Float, default=0)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    customer = db.relationship('Customer', backref=db.backref('loyalty', uselist=False))
+
+class InventorySale(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
+    inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
+    quantity = db.Column(db.Float, nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    invoice = db.relationship('Invoice', backref='inventory_sales')
+    inventory_item = db.relationship('InventoryItem')
+
+class SalonSetting(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    salon_name = db.Column(db.String(120), default='Salon Pro')
+    phone = db.Column(db.String(30))
+    address = db.Column(db.Text)
+    tax_rate = db.Column(db.Float, default=5)
+    loyalty_rate = db.Column(db.Float, default=1)
+    reminder_days = db.Column(db.Integer, default=1)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class InvoiceItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
@@ -885,6 +913,119 @@ def export_report_csv():
     from flask import Response
     return Response(output.getvalue(), mimetype='text/csv',
                     headers={'Content-Disposition': f'attachment; filename=salon-pro-report-{start.isoformat()}-to-{end.isoformat()}.csv'})
+
+# ==================== LOYALTY ====================
+
+@app.route('/loyalty')
+@login_required
+def loyalty():
+    customers_list = Customer.query.order_by(Customer.name).all()
+    rows = []
+    for customer in customers_list:
+        loyalty = CustomerLoyalty.query.filter_by(customer_id=customer.id).first()
+        paid = sum(i.total for i in Invoice.query.filter_by(customer_id=customer.id, payment_status='Paid').all())
+        points = loyalty.points if loyalty else int(paid * (SalonSetting.query.first().loyalty_rate if SalonSetting.query.first() else 1) / 100)
+        rows.append({'customer': customer, 'points': points, 'spend': round(paid,2)})
+    rows.sort(key=lambda x: (-x['points'], x['customer'].name.lower()))
+    return render_template('loyalty.html', rows=rows)
+
+# ==================== REMINDERS ====================
+
+@app.route('/reminders')
+@login_required
+def reminders():
+    today = date.today()
+    setting = SalonSetting.query.first()
+    days = setting.reminder_days if setting else 1
+    until = today + timedelta(days=max(1, min(days, 30)))
+    upcoming = Appointment.query.filter(
+        Appointment.appointment_date >= today,
+        Appointment.appointment_date <= until,
+        Appointment.status == 'Scheduled'
+    ).order_by(Appointment.appointment_date, Appointment.appointment_time).all()
+    return render_template('reminders.html', upcoming=upcoming, days=days)
+
+# ==================== INVENTORY SALES ====================
+
+@app.route('/invoices/<int:id>/inventory-sale', methods=['POST'])
+@login_required
+def add_inventory_sale(id):
+    invoice = Invoice.query.get_or_404(id)
+    try:
+        item_id = int(request.form['inventory_item_id'])
+        quantity = float(request.form['quantity'])
+        if quantity <= 0:
+            raise ValueError
+    except (KeyError, ValueError, TypeError):
+        flash('Enter a valid product and quantity.', 'danger')
+        return redirect(url_for('view_invoice', id=id))
+    item = InventoryItem.query.get_or_404(item_id)
+    if not item.is_active or item.stock_qty < quantity:
+        flash(f'Not enough stock for {item.name}. Available: {item.stock_qty:g}.', 'danger')
+        return redirect(url_for('view_invoice', id=id))
+    sale = InventorySale(invoice_id=invoice.id, inventory_item_id=item.id,
+                         quantity=quantity, unit_price=item.sale_price)
+    db.session.add(sale)
+    item.stock_qty = round(item.stock_qty - quantity, 3)
+    line = InvoiceItem(invoice_id=invoice.id, description=item.name,
+                       quantity=quantity, unit_price=item.sale_price,
+                       total=round(quantity * item.sale_price, 2))
+    db.session.add(line)
+    db.session.flush()
+    subtotal = sum(i.total for i in invoice.items)
+    invoice.amount = round(subtotal, 2)
+    invoice.tax = round(max(invoice.amount - invoice.discount, 0) * 0.05, 2)
+    invoice.total = round(max(invoice.amount - invoice.discount, 0) + invoice.tax, 2)
+    db.session.commit()
+    flash(f'{item.name} added and {quantity:g} stock deducted.', 'success')
+    return redirect(url_for('view_invoice', id=id))
+
+# ==================== SALON SETTINGS ====================
+
+@app.route('/settings', methods=['GET', 'POST'])
+@login_required
+def settings():
+    setting = SalonSetting.query.first()
+    if not setting:
+        setting = SalonSetting()
+        db.session.add(setting)
+        db.session.commit()
+    if request.method == 'POST':
+        setting.salon_name = request.form.get('salon_name','Salon Pro').strip() or 'Salon Pro'
+        setting.phone = request.form.get('phone','').strip()
+        setting.address = request.form.get('address','').strip()
+        try:
+            setting.tax_rate = max(0, min(100, float(request.form.get('tax_rate', 5))))
+            setting.loyalty_rate = max(0, min(100, float(request.form.get('loyalty_rate', 1))))
+            setting.reminder_days = max(1, min(30, int(request.form.get('reminder_days', 1))))
+        except (ValueError, TypeError):
+            flash('Enter valid numeric settings.', 'danger')
+            return render_template('settings.html', setting=setting)
+        db.session.commit()
+        flash('Salon settings saved.', 'success')
+        return redirect(url_for('settings'))
+    return render_template('settings.html', setting=setting)
+
+@app.route('/account/password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    user = User.query.get_or_404(session['user_id'])
+    if request.method == 'POST':
+        current = request.form.get('current_password','')
+        new = request.form.get('new_password','')
+        confirm = request.form.get('confirm_password','')
+        if not check_password_hash(user.password_hash, current):
+            flash('Current password is incorrect.', 'danger')
+        elif len(new) < 8:
+            flash('New password must be at least 8 characters.', 'danger')
+        elif new != confirm:
+            flash('New passwords do not match.', 'danger')
+        else:
+            user.password_hash = generate_password_hash(new)
+            db.session.commit()
+            flash('Password changed successfully.', 'success')
+            return redirect(url_for('dashboard'))
+    return render_template('change_password.html')
 
 # ==================== INIT DB ====================
 
