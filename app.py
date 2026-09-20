@@ -1474,8 +1474,9 @@ def loyalty():
     for customer in customers_list:
         loyalty = CustomerLoyalty.query.filter_by(customer_id=customer.id).first()
         paid = sum(i.total for i in Invoice.query.filter_by(customer_id=customer.id, payment_status='Paid').all())
+        spend = loyalty.lifetime_spend if loyalty else paid
         points = loyalty.points if loyalty else int(paid * (SalonSetting.query.first().loyalty_rate if SalonSetting.query.first() else 1) / 100)
-        rows.append({'customer': customer, 'points': points, 'spend': round(paid,2)})
+        rows.append({'customer': customer, 'points': points, 'spend': round(spend,2)})
     rows.sort(key=lambda x: (-x['points'], x['customer'].name.lower()))
     return render_template('loyalty.html', rows=rows)
 
