@@ -8,6 +8,11 @@
 </div>
 
 <!-- Stats Cards -->
+<div class="row g-3 mb-3">
+    <div class="col-12 col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Monthly Expenses</small><h3 class="mb-0">₹{{ "%.0f"|format(monthly_expenses) }}</h3></div></div></div>
+    <div class="col-12 col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Monthly Profit</small><h3 class="mb-0">₹{{ "%.0f"|format(monthly_profit) }}</h3></div></div></div>
+    <div class="col-12 col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Expense Tracking</small><h3 class="mb-0"><a href="{{ url_for('expenses') }}" class="text-decoration-none">Manage →</a></h3></div></div></div>
+</div>
 <div class="row g-3 mb-4">
     <div class="col-6 col-xl-2"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">Today Revenue</small><h4 class="mt-2 mb-0">₹{{ "%.0f"|format(today_revenue) }}</h4></div></div></div>
     <div class="col-6 col-xl-2"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">Completed Today</small><h4 class="mt-2 mb-0">{{ completed_today }}</h4></div></div></div>
