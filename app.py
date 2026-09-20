@@ -312,7 +312,7 @@ ADMIN_ONLY_ENDPOINTS = {
     'add_inventory', 'adjust_inventory',
     'update_staff_commission', 'mark_attendance',
     'export_report_csv', 'create_staff_account',
-    'reminders', 'reports', 'export_report_csv', 'expenses', 'delete_expense',
+    'reports', 'export_report_csv', 'expenses', 'delete_expense',
     'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty'
 }
 
