@@ -1,89 +1,24 @@
 {% extends "base.html" %}
 {% block title %}Appointments{% endblock %}
-
+{% block page_kicker %}Bookings{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2><i class="bi bi-calendar-check"></i> Appointments</h2>
-    <a href="{{ url_for('add_appointment') }}" class="btn btn-primary">
-        <i class="bi bi-plus-lg"></i> Book Appointment
-    </a>
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+ <div><div class="text-muted small mb-1">Schedule</div><h2 class="mb-1">Appointments</h2><div class="text-muted small">Manage today's bookings and move clients through the visit.</div></div>
+ <a href="{{ url_for('add_appointment') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i> New booking</a>
 </div>
-
-<form class="row g-2 mb-4" method="GET">
-    <div class="col-md-3">
-        <input type="date" name="date" class="form-control" value="{{ date_filter }}">
-    </div>
-    <div class="col-md-3">
-        <select name="status" class="form-select">
-            <option value="">All Status</option>
-            <option value="Scheduled" {% if status_filter == 'Scheduled' %}selected{% endif %}>Scheduled</option>
-            <option value="Completed" {% if status_filter == 'Completed' %}selected{% endif %}>Completed</option>
-            <option value="Cancelled" {% if status_filter == 'Cancelled' %}selected{% endif %}>Cancelled</option>
-            <option value="No-Show" {% if status_filter == 'No-Show' %}selected{% endif %}>No-Show</option>
-        </select>
-    </div>
-    <div class="col-auto">
-        <button type="submit" class="btn btn-outline-primary"><i class="bi bi-funnel"></i> Filter</button>
-        <a href="{{ url_for('appointments') }}" class="btn btn-outline-secondary">Clear</a>
-    </div>
-</form>
-
-<div class="card border-0 shadow-sm">
-    <div class="table-responsive">
-        <table class="table table-hover mb-0 align-middle">
-            <thead class="table-light">
-                <tr>
-                    <th>Date</th>
-                    <th>Time</th>
-                    <th>Customer</th>
-                    <th>Service</th>
-                    <th>Staff</th>
-                    <th>Status</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for a in appointments %}
-                <tr>
-                    <td>{{ a.appointment_date.strftime('%d %b %Y') }}</td>
-                    <td><strong>{{ a.appointment_time }}</strong></td>
-                    <td>{{ a.customer.name }}</td>
-                    <td>{{ a.service.name }} <br><small class="text-muted">₹{{ "%.0f"|format(a.service.price) }}</small></td>
-                    <td>{{ a.staff.name }}</td>
-                    <td>
-                        {% if a.status == 'Scheduled' %}
-                            <span class="badge bg-primary">Scheduled</span>
-                        {% elif a.status == 'Completed' %}
-                            <span class="badge bg-success">Completed</span>
-                        {% elif a.status == 'Cancelled' %}
-                            <span class="badge bg-danger">Cancelled</span>
-                        {% else %}
-                            <span class="badge bg-secondary">{{ a.status }}</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <div class="btn-group btn-group-sm">
-                            <a href="{{ url_for('edit_appointment', id=a.id) }}" class="btn btn-outline-primary" title="Edit">
-                                <i class="bi bi-pencil"></i>
-                            </a>
-                            {% if a.status == 'Scheduled' %}
-                            <form method="POST" action="{{ url_for('update_appointment_status', id=a.id, status='Completed') }}" class="d-inline">
-                                <button type="submit" class="btn btn-outline-success" title="Mark Completed"><i class="bi bi-check-lg"></i></button>
-                            </form>
-                            <form method="POST" action="{{ url_for('update_appointment_status', id=a.id, status='Cancelled') }}" class="d-inline">
-                                <button type="submit" class="btn btn-outline-danger" title="Cancel"><i class="bi bi-x-lg"></i></button>
-                            </form>
-                            {% endif %}
-                        </div>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="7" class="text-center py-4 text-muted">No appointments found.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
+<form class="card mb-4" method="GET"><div class="card-body"><div class="row g-2 align-items-end">
+ <div class="col-12 col-md-3"><label class="form-label small text-muted">Date</label><input type="date" name="date" class="form-control" value="{{ date_filter }}"></div>
+ <div class="col-12 col-md-3"><label class="form-label small text-muted">Status</label><select name="status" class="form-select"><option value="">All statuses</option><option value="Scheduled" {% if status_filter=='Scheduled' %}selected{% endif %}>Scheduled</option><option value="Completed" {% if status_filter=='Completed' %}selected{% endif %}>Completed</option><option value="Cancelled" {% if status_filter=='Cancelled' %}selected{% endif %}>Cancelled</option><option value="No-Show" {% if status_filter=='No-Show' %}selected{% endif %}>No-Show</option></select></div>
+ <div class="col-auto"><button class="btn btn-outline-primary"><i class="bi bi-funnel me-1"></i> Filter</button><a href="{{ url_for('appointments') }}" class="btn btn-light ms-1">Clear</a></div>
+</div></div></form>
+<div class="card"><div class="card-header d-flex justify-content-between align-items-center"><div><strong>Booking list</strong><div class="text-muted small">{{ appointments|length }} appointments</div></div><a href="{{ url_for('calendar_view') }}" class="btn btn-sm btn-light"><i class="bi bi-calendar3 me-1"></i> Calendar</a></div>
+<div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Booking</th><th>Client</th><th>Service</th><th>Team</th><th>Status</th><th></th></tr></thead><tbody>
+{% for a in appointments %}<tr>
+<td><strong>{{ a.appointment_time }}</strong><div class="text-muted small">{{ a.appointment_date.strftime('%d %b %Y') }}</div></td>
+<td><strong>{{ a.customer.name }}</strong><div class="text-muted small">{{ a.customer.phone }}</div></td>
+<td>{{ a.service.name }}<div class="text-muted small">₹{{ "%.0f"|format(a.service.price) }}</div></td><td>{{ a.staff.name }}</td>
+<td>{% if a.status=='Scheduled' %}<span class="badge text-bg-primary">Scheduled</span>{% elif a.status=='Completed' %}<span class="badge text-bg-success">Completed</span>{% elif a.status=='Cancelled' %}<span class="badge text-bg-danger">Cancelled</span>{% else %}<span class="badge text-bg-secondary">{{ a.status }}</span>{% endif %}</td>
+<td><div class="d-flex gap-1 justify-content-end"><a href="{{ url_for('edit_appointment', id=a.id) }}" class="btn btn-sm btn-light"><i class="bi bi-pencil"></i></a>{% if a.status=='Scheduled' %}<form method="POST" action="{{ url_for('update_appointment_status', id=a.id, status='Completed') }}"><button class="btn btn-sm btn-light text-success" title="Complete"><i class="bi bi-check-lg"></i></button></form><form method="POST" action="{{ url_for('update_appointment_status', id=a.id, status='Cancelled') }}"><button class="btn btn-sm btn-light text-danger" title="Cancel"><i class="bi bi-x-lg"></i></button></form>{% endif %}</div></td>
+</tr>{% else %}<tr><td colspan="6" class="text-center py-5 text-muted">No appointments found.</td></tr>{% endfor %}
+</tbody></table></div></div>
 {% endblock %}
