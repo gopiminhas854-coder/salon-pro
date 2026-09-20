@@ -8,7 +8,10 @@ import secrets
 from sqlalchemy import func
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SALON_PRO_SECRET_KEY', 'change-this-secret-key')
+_secret = os.environ.get('SALON_PRO_SECRET_KEY', '')
+if os.environ.get('FLASK_ENV') == 'production' and len(_secret) < 32:
+    raise RuntimeError('SALON_PRO_SECRET_KEY must be set to a strong 32+ character value in production.')
+app.config['SECRET_KEY'] = _secret or 'change-this-secret-key'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///salon.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -347,6 +350,15 @@ def login_required(f):
             return redirect(url_for('login'))
         return f(*args, **kwargs)
     return decorated_function
+
+@app.after_request
+def security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    if request.is_secure:
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
 
 @app.route('/health')
 def health():
