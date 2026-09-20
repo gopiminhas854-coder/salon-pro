@@ -1552,21 +1552,54 @@ def settings():
         setting = SalonSetting()
         db.session.add(setting)
         db.session.commit()
+
     if request.method == 'POST':
-        setting.salon_name = request.form.get('salon_name','Salon Pro').strip() or 'Salon Pro'
-        setting.phone = request.form.get('phone','').strip()
-        setting.address = request.form.get('address','').strip()
+        setting.salon_name = request.form.get('salon_name', 'Salon Pro').strip() or 'Salon Pro'
+        setting.phone = request.form.get('phone', '').strip()
+        setting.address = request.form.get('address', '').strip()
         try:
             setting.tax_rate = max(0, min(100, float(request.form.get('tax_rate', 5))))
             setting.loyalty_rate = max(0, min(100, float(request.form.get('loyalty_rate', 1))))
             setting.reminder_days = max(1, min(30, int(request.form.get('reminder_days', 1))))
         except (ValueError, TypeError):
             flash('Enter valid numeric settings.', 'danger')
-            return render_template('settings.html', setting=setting)
+            hours = {h.day_of_week: h for h in SalonHours.query.all()}
+            closures = SalonClosure.query.order_by(SalonClosure.closure_date).all()
+            return render_template('settings.html', setting=setting, hours=hours, closures=closures)
+
+        # Save the seven-day business-hours schedule.
+        for day in range(7):
+            hour = SalonHours.query.filter_by(day_of_week=day).first()
+            if not hour:
+                hour = SalonHours(day_of_week=day)
+                db.session.add(hour)
+            hour.open_time = request.form.get(f'open_{day}', '09:00')
+            hour.close_time = request.form.get(f'close_{day}', '20:00')
+            hour.is_closed = request.form.get(f'closed_{day}') == '1'
+
+        # Add/update a closure date when supplied.
+        closure_value = request.form.get('closure_date', '').strip()
+        if closure_value:
+            try:
+                closure_date = date.fromisoformat(closure_value)
+                closure = SalonClosure.query.filter_by(closure_date=closure_date).first()
+                if not closure:
+                    closure = SalonClosure(closure_date=closure_date)
+                    db.session.add(closure)
+                closure.reason = request.form.get('closure_reason', '').strip()[:200] or None
+            except ValueError:
+                flash('Enter a valid closure date.', 'danger')
+                hours = {h.day_of_week: h for h in SalonHours.query.all()}
+                closures = SalonClosure.query.order_by(SalonClosure.closure_date).all()
+                return render_template('settings.html', setting=setting, hours=hours, closures=closures)
+
         db.session.commit()
-        flash('Salon settings saved.', 'success')
+        flash('Salon settings and business hours saved.', 'success')
         return redirect(url_for('settings'))
-    return render_template('settings.html', setting=setting)
+
+    hours = {h.day_of_week: h for h in SalonHours.query.all()}
+    closures = SalonClosure.query.order_by(SalonClosure.closure_date).all()
+    return render_template('settings.html', setting=setting, hours=hours, closures=closures)
 
 @app.route('/account/password', methods=['GET', 'POST'])
 @login_required
