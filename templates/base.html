@@ -56,6 +56,12 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'loyalty' %}active{% endif %}" href="{{ url_for('loyalty') }}"><i class="bi bi-stars"></i> Loyalty</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'reminders' %}active{% endif %}" href="{{ url_for('reminders') }}"><i class="bi bi-bell"></i> Reminders</a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if 'invoice' in request.endpoint %}active{% endif %}" href="{{ url_for('invoices') }}">
                             <i class="bi bi-receipt"></i> Invoices
                         </a>
@@ -74,6 +80,8 @@
                 <span class="navbar-text text-white me-3">
                     <i class="bi bi-person-circle"></i> {{ session.get('username') }}
                 </span>
+                <a href="{{ url_for('settings') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-gear"></i></a>
+                <a href="{{ url_for('change_password') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-key"></i></a>
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">
                     <i class="bi bi-box-arrow-right"></i> Logout
                 </a>
