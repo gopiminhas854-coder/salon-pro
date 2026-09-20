@@ -86,3 +86,6 @@ The application prevents overlapping appointments for the selected staff member.
 ```
 
 Returns a small JSON status response for deployment monitoring.
+
+
+<!-- CI verification trigger -->
