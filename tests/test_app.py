@@ -208,11 +208,21 @@ def test_completed_appointment_invoice_is_created_atomically():
     with salon.app.test_client() as client:
         login(client)
         with salon.app.app_context():
-            appt = salon.Appointment.query.first()
-            appt.status = 'Scheduled'
+            customer = salon.Customer.query.first()
+            service = salon.Service.query.first()
+            staff = salon.Staff.query.first()
+            appt = salon.Appointment(
+                customer_id=customer.id,
+                staff_id=staff.id,
+                service_id=service.id,
+                appointment_date=salon.date.today(),
+                appointment_time="14:00",
+                status="Scheduled",
+            )
+            salon.db.session.add(appt)
             salon.db.session.commit()
             appointment_id = appt.id
-            service_price = appt.service.price
+            service_price = service.price
 
         response = client.post(f'/appointments/status/{appointment_id}/Completed')
         assert response.status_code == 302
