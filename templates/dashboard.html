@@ -1,158 +1,69 @@
 {% extends "base.html" %}
 {% block title %}Dashboard{% endblock %}
 
+{% extends "base.html" %}
+{% block title %}Overview{% endblock %}
+{% block page_kicker %}Overview{% endblock %}
+
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
-    <h2 class="mb-0"><i class="bi bi-speedometer2"></i> Dashboard</h2>
-    <span class="text-muted">{{ today.strftime('%A, %d %B %Y') }}</span>
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+  <div>
+    <div class="text-muted small mb-1">{{ today.strftime('%A, %d %B %Y') }}</div>
+    <h2 class="mb-1">Good to see you 👋</h2>
+    <div class="text-muted small">Here’s what’s happening at your salon today.</div>
+  </div>
+  <a href="{{ url_for('add_appointment') }}" class="btn btn-primary px-3"><i class="bi bi-plus-lg me-1"></i> New appointment</a>
 </div>
 
-<!-- Stats Cards -->
 <div class="row g-3 mb-3">
-    <div class="col-12 col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Monthly Expenses</small><h3 class="mb-0">₹{{ "%.0f"|format(monthly_expenses) }}</h3></div></div></div>
-    <div class="col-12 col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Monthly Profit</small><h3 class="mb-0">₹{{ "%.0f"|format(monthly_profit) }}</h3></div></div></div>
-    <div class="col-12 col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Expense Tracking</small><h3 class="mb-0"><a href="{{ url_for('expenses') }}" class="text-decoration-none">Manage →</a></h3></div></div></div>
+  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Today revenue</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(today_revenue) }}</div></div><div class="sp-avatar" style="background:#eeeaff;color:#6d5dfc"><i class="bi bi-wallet2"></i></div></div><div class="text-muted small mt-3">{{ completed_today }} completed today</div></div></div></div>
+  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Monthly revenue</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(monthly_revenue) }}</div></div><div class="sp-avatar" style="background:#e8f8f1;color:#19a974"><i class="bi bi-graph-up-arrow"></i></div></div><div class="text-muted small mt-3">Current month</div></div></div></div>
+  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Monthly profit</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(monthly_profit) }}</div></div><div class="sp-avatar" style="background:#fff5db;color:#c98b00"><i class="bi bi-pie-chart"></i></div></div><div class="text-muted small mt-3">After tracked expenses</div></div></div></div>
+  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="d-flex justify-content-between"><div><div class="text-muted small">Clients</div><div class="fs-3 fw-bold mt-2">{{ total_customers }}</div></div><div class="sp-avatar" style="background:#eaf2ff;color:#3975d8"><i class="bi bi-people"></i></div></div><div class="text-muted small mt-3">{{ total_staff }} active team members</div></div></div></div>
 </div>
+
 <div class="row g-3 mb-4">
-    <div class="col-6 col-xl-2"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">Today Revenue</small><h4 class="mt-2 mb-0">₹{{ "%.0f"|format(today_revenue) }}</h4></div></div></div>
-    <div class="col-6 col-xl-2"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">Completed Today</small><h4 class="mt-2 mb-0">{{ completed_today }}</h4></div></div></div>
-    <div class="col-6 col-xl-2"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">Pending Invoices</small><h4 class="mt-2 mb-0">{{ pending_invoices }}</h4></div></div></div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm h-100 bg-primary text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-subtitle mb-2 opacity-75">Customers</h6>
-                        <h2 class="mb-0">{{ total_customers }}</h2>
-                    </div>
-                    <i class="bi bi-people display-5 opacity-50"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm h-100 bg-success text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-subtitle mb-2 opacity-75">Monthly Revenue</h6>
-                        <h2 class="mb-0">₹{{ "%.0f"|format(monthly_revenue) }}</h2>
-                    </div>
-                    <i class="bi bi-currency-rupee display-5 opacity-50"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm h-100 bg-info text-white">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-subtitle mb-2 opacity-75">Active Staff</h6>
-                        <h2 class="mb-0">{{ total_staff }}</h2>
-                    </div>
-                    <i class="bi bi-person-badge display-5 opacity-50"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card border-0 shadow-sm h-100 bg-warning text-dark">
-            <div class="card-body">
-                <div class="d-flex justify-content-between">
-                    <div>
-                        <h6 class="card-subtitle mb-2">Services</h6>
-                        <h2 class="mb-0">{{ total_services }}</h2>
-                    </div>
-                    <i class="bi bi-list-stars display-5 opacity-50"></i>
-                </div>
-            </div>
-        </div>
-    </div>
+  <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Upcoming bookings</div><div class="fw-bold fs-5 mt-1">{{ upcoming|length }}</div></div></div></div>
+  <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Pending invoices</div><div class="fw-bold fs-5 mt-1">{{ pending_invoices }}</div></div></div></div>
+  <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Services</div><div class="fw-bold fs-5 mt-1">{{ total_services }}</div></div></div></div>
+  <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Monthly expenses</div><div class="fw-bold fs-5 mt-1">₹{{ "%.0f"|format(monthly_expenses) }}</div></div></div></div>
 </div>
 
 <div class="row g-4">
-    <div class="col-lg-7">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="bi bi-calendar-day"></i> Today's Appointments</h5>
-                <a href="{{ url_for('add_appointment') }}" class="btn btn-primary btn-sm">
-                    <i class="bi bi-plus-lg"></i> Book New
-                </a>
-            </div>
-            <div class="card-body p-0">
-                {% if today_appointments %}
-                <div class="table-responsive">
-                    <table class="table table-hover mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Time</th>
-                                <th>Customer</th>
-                                <th>Service</th>
-                                <th>Staff</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for appt in today_appointments %}
-                            <tr>
-                                <td><strong>{{ appt.appointment_time }}</strong></td>
-                                <td>{{ appt.customer.name }}</td>
-                                <td>{{ appt.service.name }}</td>
-                                <td>{{ appt.staff.name }}</td>
-                                <td>
-                                    {% if appt.status == 'Scheduled' %}
-                                        <span class="badge bg-primary">Scheduled</span>
-                                    {% elif appt.status == 'Completed' %}
-                                        <span class="badge bg-success">Completed</span>
-                                    {% elif appt.status == 'Cancelled' %}
-                                        <span class="badge bg-danger">Cancelled</span>
-                                    {% else %}
-                                        <span class="badge bg-secondary">{{ appt.status }}</span>
-                                    {% endif %}
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
-                {% else %}
-                <div class="text-center py-5 text-muted">
-                    <i class="bi bi-calendar-x display-4"></i>
-                    <p class="mt-2">No appointments scheduled for today.</p>
-                    <a href="{{ url_for('add_appointment') }}" class="btn btn-outline-primary">Book an Appointment</a>
-                </div>
-                {% endif %}
-            </div>
-        </div>
+  <div class="col-xl-8">
+    <div class="card">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <div><h5 class="mb-1">Today’s schedule</h5><div class="text-muted small">{{ today_appointments|length }} appointments</div></div>
+        <a href="{{ url_for('calendar_view') }}" class="btn btn-light btn-sm">Open calendar <i class="bi bi-arrow-right ms-1"></i></a>
+      </div>
+      <div class="card-body p-0">
+      {% if today_appointments %}
+        <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Time</th><th>Client</th><th>Service</th><th>Team</th><th>Status</th></tr></thead><tbody>
+        {% for appt in today_appointments %}
+        <tr><td><strong>{{ appt.appointment_time }}</strong></td><td><strong>{{ appt.customer.name }}</strong></td><td>{{ appt.service.name }}</td><td>{{ appt.staff.name }}</td><td>{% if appt.status == 'Scheduled' %}<span class="badge bg-primary">Scheduled</span>{% elif appt.status == 'Completed' %}<span class="badge bg-success">Completed</span>{% elif appt.status == 'Cancelled' %}<span class="badge bg-danger">Cancelled</span>{% else %}<span class="badge bg-secondary">{{ appt.status }}</span>{% endif %}</td></tr>
+        {% endfor %}</tbody></table></div>
+      {% else %}
+        <div class="text-center py-5"><div class="sp-avatar mx-auto mb-3" style="width:52px;height:52px;background:#eeeaff;color:#6d5dfc"><i class="bi bi-calendar2-check fs-4"></i></div><h6>No appointments today</h6><p class="text-muted small mb-3">Your schedule is clear. Add the first booking.</p><a href="{{ url_for('add_appointment') }}" class="btn btn-primary btn-sm">Create appointment</a></div>
+      {% endif %}
+      </div>
     </div>
-
-    <div class="col-lg-5">
-        <div class="card border-0 shadow-sm">
-            <div class="card-header bg-white">
-                <h5 class="mb-0"><i class="bi bi-calendar-week"></i> Upcoming (Next 7 Days)</h5>
-            </div>
-            <div class="card-body">
-                {% if upcoming %}
-                <ul class="list-group list-group-flush">
-                    {% for appt in upcoming %}
-                    <li class="list-group-item px-0 d-flex justify-content-between align-items-start">
-                        <div>
-                            <strong>{{ appt.customer.name }}</strong><br>
-                            <small class="text-muted">{{ appt.service.name }} • {{ appt.staff.name }}</small>
-                        </div>
-                        <div class="text-end">
-                            <span class="badge bg-light text-dark">{{ appt.appointment_date.strftime('%d %b') }}</span><br>
-                            <small>{{ appt.appointment_time }}</small>
-                        </div>
-                    </li>
-                    {% endfor %}
-                </ul>
-                {% else %}
-                <p class="text-muted text-center py-3">No upcoming appointments.</p>
-                {% endif %}
-            </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="card h-100">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center"><div><h5 class="mb-1">Coming up</h5><div class="text-muted small">Next 7 days</div></div><i class="bi bi-calendar3 text-muted"></i></div>
+      <div class="card-body">
+      {% if upcoming %}
+        <div class="d-grid gap-2">
+        {% for appt in upcoming %}
+          <div class="d-flex align-items-center gap-3 p-2 rounded-3" style="background:#fafafe">
+            <div class="text-center" style="min-width:42px"><div class="fw-bold small">{{ appt.appointment_date.strftime('%d') }}</div><div class="text-muted" style="font-size:9px">{{ appt.appointment_date.strftime('%b')|upper }}</div></div>
+            <div class="flex-grow-1 min-w-0"><div class="fw-semibold small text-truncate">{{ appt.customer.name }}</div><div class="text-muted" style="font-size:11px">{{ appt.service.name }} · {{ appt.appointment_time }}</div></div>
+          </div>
+        {% endfor %}
         </div>
+      {% else %}<div class="text-center text-muted small py-4">No upcoming appointments.</div>{% endif %}
+      </div>
     </div>
+  </div>
 </div>
 {% endblock %}
