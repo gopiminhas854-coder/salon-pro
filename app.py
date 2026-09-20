@@ -194,7 +194,8 @@ ADMIN_ONLY_ENDPOINTS = {
     'add_expense', 'delete_expense',
     'add_inventory', 'adjust_inventory',
     'update_staff_commission', 'mark_attendance',
-    'export_report_csv', 'create_staff_account'
+    'export_report_csv', 'create_staff_account',
+    'loyalty', 'reminders'
 }
 
 @app.before_request
@@ -236,6 +237,22 @@ def logout():
     session.clear()
     flash('Logged out successfully.', 'info')
     return redirect(url_for('login'))
+
+def award_loyalty_for_invoice(invoice):
+    if invoice.payment_status != 'Paid' or not invoice.customer_id:
+        return
+    setting = SalonSetting.query.first()
+    rate = setting.loyalty_rate if setting else 1
+    points = max(0, int(round(max(invoice.total, 0) * rate)))
+    loyalty = CustomerLoyalty.query.filter_by(customer_id=invoice.customer_id).first()
+    if not loyalty:
+        loyalty = CustomerLoyalty(customer_id=invoice.customer_id, points=0, lifetime_spend=0)
+        db.session.add(loyalty)
+    already = loyalty.lifetime_spend
+    if already < invoice.total:
+        loyalty.points += points
+        loyalty.lifetime_spend += invoice.total
+        loyalty.updated_at = datetime.utcnow()
 
 # ==================== CALENDAR / BOOKING ====================
 
@@ -764,6 +781,7 @@ def view_invoice(id):
 def mark_paid(id):
     invoice = Invoice.query.get_or_404(id)
     invoice.payment_status = 'Paid'
+    award_loyalty_for_invoice(invoice)
     invoice.payment_method = request.form.get('payment_method', 'Cash')
     db.session.commit()
     flash('Payment recorded successfully!', 'success')
