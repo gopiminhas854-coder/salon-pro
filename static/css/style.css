@@ -1,0 +1,11 @@
+:root{--sp-primary:#6f42c1;--sp-dark:#212529}
+body{background:#f6f7fb;color:#212529}
+.navbar-brand{font-weight:700;letter-spacing:.2px}
+.card{border-radius:14px}
+.btn{border-radius:9px}
+.form-control,.form-select{border-radius:9px;padding:.65rem .8rem}
+.table> :not(caption)>*>*{padding:.85rem .75rem}
+.badge{font-weight:600}
+.stat-card{min-height:120px}
+@media(max-width:767.98px){.container{padding-left:14px;padding-right:14px}.table{font-size:.9rem}.btn{min-height:40px}.card-body{padding:1rem!important}}
+@media print{body{background:#fff}.navbar,.no-print,.flash-messages{display:none!important}.container{max-width:none!important;padding:0!important}.card{border:0!important;box-shadow:none!important}.invoice-card{margin:0!important}.table{font-size:12px}}
