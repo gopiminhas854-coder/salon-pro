@@ -39,7 +39,7 @@ def test_health_and_login(client):
     assert b'"status":"ok"' in c.get("/health").data
     response = login(c)
     assert response.status_code == 200
-    assert b"Dashboard" in response.data
+    assert b"Overview" in response.data
 
 def test_core_pages_load(client):
     c, _ = client
