@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Edit' if appointment else 'Book' }} Appointment{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div><h2 class="mb-1">{{ 'Edit' if appointment else 'Book' }} Appointment</h2><p class="text-muted mb-0">Schedule a customer visit with a staff member and service.</p></div>
+  <a href="{{ url_for('appointments') }}" class="btn btn-outline-secondary">Back</a>
+</div>
+<div class="card shadow-sm border-0"><div class="card-body p-4">
+<form method="post" class="row g-3">
+  <div class="col-md-6"><label class="form-label">Customer *</label><select name="customer_id" class="form-select" required><option value="">Select customer</option>{% for c in customers %}<option value="{{ c.id }}" {% if appointment and appointment.customer_id==c.id %}selected{% endif %}>{{ c.name }} — {{ c.phone }}</option>{% endfor %}</select></div>
+  <div class="col-md-6"><label class="form-label">Staff *</label><select name="staff_id" class="form-select" required><option value="">Select staff</option>{% for s in staff_list %}<option value="{{ s.id }}" {% if appointment and appointment.staff_id==s.id %}selected{% endif %}>{{ s.name }}{% if s.specialty %} — {{ s.specialty }}{% endif %}</option>{% endfor %}</select></div>
+  <div class="col-md-6"><label class="form-label">Service *</label><select name="service_id" class="form-select" required>{% for s in services %}<option value="{{ s.id }}" {% if appointment and appointment.service_id==s.id %}selected{% endif %}>{{ s.name }} — ₹{{ '%.2f'|format(s.price) }} ({{ s.duration_minutes }} min)</option>{% endfor %}</select></div>
+  <div class="col-md-3"><label class="form-label">Date *</label><input type="date" name="appointment_date" class="form-control" required value="{{ appointment.appointment_date.isoformat() if appointment else '' }}"></div>
+  <div class="col-md-3"><label class="form-label">Time *</label><input type="time" name="appointment_time" class="form-control" required value="{{ appointment.appointment_time if appointment else '' }}"></div>
+  {% if appointment %}<div class="col-md-4"><label class="form-label">Status</label><select name="status" class="form-select">{% for st in ['Scheduled','Completed','Cancelled','No-Show'] %}<option {{ 'selected' if appointment.status==st else '' }}>{{ st }}</option>{% endfor %}</select></div>{% endif %}
+  <div class="col-12"><label class="form-label">Notes</label><textarea name="notes" class="form-control" rows="3" placeholder="Optional notes">{{ appointment.notes if appointment else '' }}</textarea></div>
+  <div class="col-12 pt-2"><button class="btn btn-primary px-4">Save Appointment</button><a href="{{ url_for('appointments') }}" class="btn btn-light ms-2">Cancel</a></div>
+</form></div></div>
+{% endblock %}
