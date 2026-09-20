@@ -1,42 +1,46 @@
 {% extends "base.html" %}
 {% block title %}Calendar{% endblock %}
+{% block page_kicker %}Schedule{% endblock %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4">
+<div class="sp-calendar-toolbar">
   <div>
-    <h2 class="mb-1"><i class="bi bi-calendar3"></i> Appointment Calendar</h2>
-    <div class="text-muted">Weekly schedule • {{ week_start.strftime('%d %b %Y') }}</div>
+    <div class="text-muted small mb-1">Appointments</div>
+    <h2 class="sp-calendar-title">Calendar</h2>
+    <div class="sp-calendar-range">{{ week_start.strftime('%d %b') }} — {{ (week_start + __import__('datetime').timedelta(days=6)).strftime('%d %b %Y') }}</div>
   </div>
-  <div class="d-flex gap-2">
-    <a class="btn btn-outline-secondary" href="{{ url_for('calendar_view', date=previous_week) }}"><i class="bi bi-chevron-left"></i></a>
-    <a class="btn btn-outline-primary" href="{{ url_for('calendar_view', date=today_iso) }}">Today</a>
-    <a class="btn btn-outline-secondary" href="{{ url_for('calendar_view', date=next_week) }}"><i class="bi bi-chevron-right"></i></a>
-    <a class="btn btn-primary" href="{{ url_for('add_appointment') }}"><i class="bi bi-plus-lg"></i> Appointment</a>
+  <div class="d-flex gap-2 flex-wrap">
+    <a class="btn btn-light btn-sm" href="{{ url_for('calendar_view', date=previous_week) }}"><i class="bi bi-chevron-left"></i></a>
+    <a class="btn btn-light btn-sm" href="{{ url_for('calendar_view', date=today_iso) }}">Today</a>
+    <a class="btn btn-light btn-sm" href="{{ url_for('calendar_view', date=next_week) }}"><i class="bi bi-chevron-right"></i></a>
+    <a class="btn btn-primary btn-sm" href="{{ url_for('add_appointment') }}"><i class="bi bi-plus-lg me-1"></i> New booking</a>
   </div>
 </div>
-<div class="row g-3">
-{% for day in days %}
-  <div class="col-12 col-md-6 col-xl">
-    <div class="card border-0 shadow-sm h-100 {% if day == selected %}border-primary{% endif %}">
-      <div class="card-header bg-transparent d-flex justify-content-between">
-        <strong>{{ day.strftime('%a') }}</strong>
-        <span class="text-muted">{{ day.strftime('%d %b') }}</span>
-      </div>
-      <div class="card-body p-2">
-        {% for a in appointments_by_day[day] %}
-          <a href="{{ url_for('edit_appointment', id=a.id) }}" class="text-decoration-none">
-            <div class="p-2 mb-2 rounded border {% if a.status == 'Completed' %}bg-success-subtle{% elif a.status == 'Cancelled' %}bg-danger-subtle{% elif a.status == 'No-Show' %}bg-warning-subtle{% else %}bg-primary-subtle{% endif %}">
-              <div class="fw-semibold">{{ a.appointment_time }} · {{ a.customer.name }}</div>
-              <div class="small">{{ a.service.name }}</div>
-              <div class="small text-muted">{{ a.staff.name }}</div>
-              <span class="badge text-bg-light mt-1">{{ a.status }}</span>
-            </div>
-          </a>
-        {% else %}
-          <div class="text-center text-muted py-4 small">No appointments</div>
-        {% endfor %}
-      </div>
+
+<div class="sp-calendar-scroll">
+  <div class="sp-calendar-shell">
+    <div class="sp-calendar-grid">
+      {% for day in days %}
+      <section class="sp-calendar-day {% if day == selected %}is-today{% endif %}">
+        <div class="sp-calendar-day-head">
+          <div class="sp-calendar-day-name">{{ day.strftime('%a') }}</div>
+          <div class="sp-calendar-day-number">{{ day.strftime('%d') }}</div>
+          <div class="text-muted" style="font-size:10px">{{ day.strftime('%b') }}</div>
+        </div>
+        <div class="sp-calendar-items">
+          {% for a in appointments_by_day[day] %}
+            <a href="{{ url_for('edit_appointment', id=a.id) }}" class="sp-appt {% if a.status == 'Completed' %}is-completed{% elif a.status == 'Cancelled' %}is-cancelled{% elif a.status == 'No-Show' %}is-noshow{% endif %}">
+              <div class="sp-appt-time">{{ a.appointment_time }} · {{ a.status }}</div>
+              <div class="sp-appt-name">{{ a.customer.name }}</div>
+              <div class="sp-appt-service">{{ a.service.name }}</div>
+              <div class="sp-appt-staff"><i class="bi bi-person"></i> {{ a.staff.name }}</div>
+            </a>
+          {% else %}
+            <div class="sp-calendar-empty">No bookings</div>
+          {% endfor %}
+        </div>
+      </section>
+      {% endfor %}
     </div>
   </div>
-{% endfor %}
 </div>
 {% endblock %}
