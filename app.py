@@ -5,6 +5,7 @@ from datetime import datetime, date, timedelta
 from functools import wraps
 import os
 from sqlalchemy import func
+from sqlalchemy import func
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'salon-pro-secret-key-change-in-production'
@@ -138,12 +139,19 @@ def dashboard():
     pending_invoices = Invoice.query.filter_by(payment_status='Pending').count()
     today_revenue = sum(i.total for i in Invoice.query.join(Appointment, isouter=True).filter(Invoice.payment_status == 'Paid', func.date(Invoice.created_at) == today).all())
     completed_today = Appointment.query.filter_by(appointment_date=today, status='Completed').count()
+    pending_invoices = Invoice.query.filter_by(payment_status='Pending').count()
+    today_revenue = sum(i.total for i in Invoice.query.filter(Invoice.payment_status == 'Paid',
+                                                               func.date(Invoice.created_at) == today).all())
+    completed_today = Appointment.query.filter_by(appointment_date=today, status='Completed').count()
     return render_template('dashboard.html',
                            today_appointments=today_appointments,
                            total_customers=total_customers,
                            total_staff=total_staff,
                            total_services=total_services,
                            monthly_revenue=monthly_revenue,
+                           pending_invoices=pending_invoices,
+                           today_revenue=today_revenue,
+                           completed_today=completed_today,
                            pending_invoices=pending_invoices,
                            today_revenue=today_revenue,
                            completed_today=completed_today,
