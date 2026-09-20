@@ -67,7 +67,7 @@ The first database initialization creates:
 
 ## Important deployment note
 
-The application uses `db.create_all()` for additive tables. It does not perform arbitrary schema migrations. Before changing existing columns in a live database, use a proper migration process such as Alembic/Flask-Migrate.
+Production schema changes use Flask-Migrate/Alembic. The migration framework is installed and wired into the Flask app; the existing bootstrap path remains enabled until the current production schema is captured in the initial migration baseline. Set `SALON_PRO_AUTO_CREATE_DB=0` to enforce migration-only startup after that baseline is deployed.
 
 ## Public booking
 
