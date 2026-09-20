@@ -139,6 +139,63 @@ class InventorySale(db.Model):
     invoice = db.relationship('Invoice', backref='inventory_sales')
     inventory_item = db.relationship('InventoryItem')
 
+class Supplier(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    phone = db.Column(db.String(30))
+    email = db.Column(db.String(100))
+    address = db.Column(db.Text)
+    notes = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class InventoryTransaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
+    transaction_type = db.Column(db.String(30), nullable=False)
+    quantity = db.Column(db.Float, nullable=False)
+    unit_cost = db.Column(db.Float, default=0)
+    reference = db.Column(db.String(120))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
+    inventory_item = db.relationship('InventoryItem', backref='inventory_transactions')
+
+class InventoryPurchase(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))
+    inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
+    quantity = db.Column(db.Float, nullable=False)
+    unit_cost = db.Column(db.Float, nullable=False)
+    total_cost = db.Column(db.Float, nullable=False)
+    purchase_date = db.Column(db.Date, default=date.today, nullable=False)
+    reference = db.Column(db.String(120))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    supplier = db.relationship('Supplier', backref='purchases')
+    inventory_item = db.relationship('InventoryItem', backref='purchases')
+
+class InventorySaleLine(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    inventory_sale_id = db.Column(db.Integer, db.ForeignKey('inventory_sale.id'), unique=True, nullable=False)
+    invoice_item_id = db.Column(db.Integer, db.ForeignKey('invoice_item.id'), unique=True, nullable=False)
+    inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
+    quantity = db.Column(db.Float, nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)
+    inventory_sale = db.relationship('InventorySale', backref=db.backref('line', uselist=False))
+    invoice_item = db.relationship('InvoiceItem', backref=db.backref('inventory_sale_line', uselist=False))
+    inventory_item = db.relationship('InventoryItem')
+
+class LoyaltyTransaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    points = db.Column(db.Integer, nullable=False)
+    transaction_type = db.Column(db.String(30), nullable=False)
+    reference = db.Column(db.String(120), unique=True)
+    amount = db.Column(db.Float, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    customer = db.relationship('Customer', backref='loyalty_transactions')
+
 class SalonSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     salon_name = db.Column(db.String(120), default='Salon Pro')
@@ -195,7 +252,7 @@ ADMIN_ONLY_ENDPOINTS = {
     'add_inventory', 'adjust_inventory',
     'update_staff_commission', 'mark_attendance',
     'export_report_csv', 'create_staff_account',
-    'loyalty', 'reminders'
+    'reminders'
 }
 
 @app.before_request
@@ -238,8 +295,25 @@ def logout():
     flash('Logged out successfully.', 'info')
     return redirect(url_for('login'))
 
+
+def record_inventory_transaction(item, transaction_type, quantity, unit_cost=0, reference=None, notes=None):
+    tx = InventoryTransaction(
+        inventory_item_id=item.id,
+        transaction_type=transaction_type,
+        quantity=quantity,
+        unit_cost=unit_cost or 0,
+        reference=reference,
+        notes=notes,
+        created_by=session.get('user_id')
+    )
+    db.session.add(tx)
+    return tx
+
 def award_loyalty_for_invoice(invoice):
     if invoice.payment_status != 'Paid' or not invoice.customer_id:
+        return
+    reference = f'invoice:{invoice.id}'
+    if LoyaltyTransaction.query.filter_by(reference=reference).first():
         return
     setting = SalonSetting.query.first()
     rate = setting.loyalty_rate if setting else 1
@@ -248,11 +322,12 @@ def award_loyalty_for_invoice(invoice):
     if not loyalty:
         loyalty = CustomerLoyalty(customer_id=invoice.customer_id, points=0, lifetime_spend=0)
         db.session.add(loyalty)
-    already = loyalty.lifetime_spend
-    if already < invoice.total:
-        loyalty.points += points
-        loyalty.lifetime_spend += invoice.total
-        loyalty.updated_at = datetime.utcnow()
+    loyalty.points += points
+    loyalty.lifetime_spend += max(invoice.total, 0)
+    loyalty.updated_at = datetime.utcnow()
+    db.session.add(LoyaltyTransaction(customer_id=invoice.customer_id, points=points,
+                                       transaction_type='Earn', reference=reference,
+                                       amount=max(invoice.total, 0)))
 
 # ==================== CALENDAR / BOOKING ====================
 
@@ -367,6 +442,8 @@ def dashboard():
     pending_invoices = Invoice.query.filter_by(payment_status='Pending').count()
     today_revenue = sum(i.total for i in Invoice.query.filter(Invoice.payment_status == 'Paid', func.date(Invoice.created_at) == today).all())
     completed_today = Appointment.query.filter_by(appointment_date=today, status='Completed').count()
+    low_stock_count = InventoryItem.query.filter(InventoryItem.is_active == True,
+                                                 InventoryItem.stock_qty <= InventoryItem.reorder_level).count()
     return render_template('dashboard.html',
                            today_appointments=today_appointments,
                            total_customers=total_customers,
@@ -378,6 +455,7 @@ def dashboard():
                            pending_invoices=pending_invoices,
                            today_revenue=today_revenue,
                            completed_today=completed_today,
+                           low_stock_count=low_stock_count,
                            upcoming=upcoming,
                            today=today)
 
@@ -838,9 +916,109 @@ def adjust_inventory(id):
         flash('Stock adjustment would create an invalid quantity.', 'danger')
         return redirect(url_for('inventory'))
     item.stock_qty = new_qty
+    record_inventory_transaction(item, 'Adjustment', change, item.cost_price,
+                                  reference=f'adjustment:{item.id}:{datetime.utcnow().isoformat()}')
     db.session.commit()
     flash(f'{item.name} stock updated to {item.stock_qty:g}.', 'success')
     return redirect(url_for('inventory'))
+
+@app.route('/inventory/transactions')
+@login_required
+def inventory_transactions():
+    item_id = request.args.get('item_id', type=int)
+    tx_type = request.args.get('type', '').strip()
+    query = InventoryTransaction.query
+    if item_id:
+        query = query.filter_by(inventory_item_id=item_id)
+    if tx_type:
+        query = query.filter_by(transaction_type=tx_type)
+    transactions = query.order_by(InventoryTransaction.created_at.desc()).limit(300).all()
+    items = InventoryItem.query.order_by(InventoryItem.name).all()
+    return render_template('inventory_transactions.html', transactions=transactions, items=items,
+                           selected_item=item_id, selected_type=tx_type)
+
+@app.route('/suppliers')
+@login_required
+def suppliers():
+    suppliers_list = Supplier.query.filter_by(is_active=True).order_by(Supplier.name).all()
+    return render_template('suppliers.html', suppliers=suppliers_list)
+
+@app.route('/suppliers/add', methods=['GET', 'POST'])
+@admin_required
+def add_supplier():
+    if request.method == 'POST':
+        name = request.form.get('name','').strip()
+        if not name:
+            flash('Supplier name is required.', 'danger')
+            return redirect(url_for('add_supplier'))
+        db.session.add(Supplier(name=name, phone=request.form.get('phone','').strip(),
+                                 email=request.form.get('email','').strip(),
+                                 address=request.form.get('address','').strip(),
+                                 notes=request.form.get('notes','').strip()))
+        db.session.commit()
+        flash('Supplier added.', 'success')
+        return redirect(url_for('suppliers'))
+    return render_template('supplier_form.html', supplier=None)
+
+@app.route('/suppliers/edit/<int:id>', methods=['GET', 'POST'])
+@admin_required
+def edit_supplier(id):
+    supplier = Supplier.query.get_or_404(id)
+    if request.method == 'POST':
+        supplier.name = request.form.get('name','').strip()
+        supplier.phone = request.form.get('phone','').strip()
+        supplier.email = request.form.get('email','').strip()
+        supplier.address = request.form.get('address','').strip()
+        supplier.notes = request.form.get('notes','').strip()
+        if not supplier.name:
+            flash('Supplier name is required.', 'danger')
+            return redirect(url_for('edit_supplier', id=id))
+        db.session.commit()
+        flash('Supplier updated.', 'success')
+        return redirect(url_for('suppliers'))
+    return render_template('supplier_form.html', supplier=supplier)
+
+@app.route('/purchases')
+@login_required
+def purchases():
+    purchases_list = InventoryPurchase.query.order_by(InventoryPurchase.purchase_date.desc(),
+                                                       InventoryPurchase.id.desc()).limit(300).all()
+    return render_template('purchases.html', purchases=purchases_list)
+
+@app.route('/purchases/add', methods=['GET', 'POST'])
+@admin_required
+def add_purchase():
+    if request.method == 'POST':
+        try:
+            item = InventoryItem.query.get_or_404(int(request.form['inventory_item_id']))
+            quantity = float(request.form.get('quantity', 0))
+            unit_cost = float(request.form.get('unit_cost', 0))
+            purchase_date = datetime.strptime(request.form.get('purchase_date',''), '%Y-%m-%d').date()
+            if quantity <= 0 or unit_cost < 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            flash('Enter valid purchase details.', 'danger')
+            return redirect(url_for('add_purchase'))
+        supplier_id = request.form.get('supplier_id', type=int)
+        total = round(quantity * unit_cost, 2)
+        purchase = InventoryPurchase(supplier_id=supplier_id or None, inventory_item_id=item.id,
+                                     quantity=quantity, unit_cost=unit_cost, total_cost=total,
+                                     purchase_date=purchase_date,
+                                     reference=request.form.get('reference','').strip(),
+                                     notes=request.form.get('notes','').strip())
+        item.stock_qty += quantity
+        db.session.add(purchase)
+        record_inventory_transaction(item, 'Purchase', quantity, unit_cost,
+                                     reference=purchase.reference or f'purchase:{datetime.utcnow().isoformat()}',
+                                     notes=purchase.notes)
+        db.session.commit()
+        flash(f'Purchase recorded. {item.name} stock increased by {quantity:g}.', 'success')
+        return redirect(url_for('purchases'))
+    items = InventoryItem.query.filter_by(is_active=True).order_by(InventoryItem.name).all()
+    suppliers_list = Supplier.query.filter_by(is_active=True).order_by(Supplier.name).all()
+    return render_template('purchase_form.html', items=items, suppliers=suppliers_list,
+                           today_iso=date.today().isoformat())
+
 
 # ==================== POS INVOICE ITEMS ====================
 
@@ -877,6 +1055,19 @@ def delete_invoice_item(id, item_id):
     if len(invoice.items) <= 1:
         flash('An invoice must keep at least one item.', 'warning')
         return redirect(url_for('view_invoice', id=id))
+    sale_line = InventorySaleLine.query.filter_by(invoice_item_id=item.id).first()
+    if sale_line:
+        inventory_item = InventoryItem.query.get(sale_line.inventory_item_id)
+        if inventory_item:
+            inventory_item.stock_qty += sale_line.quantity
+            record_inventory_transaction(
+                inventory_item, 'Return', sale_line.quantity, inventory_item.cost_price,
+                reference=f'invoice-item-return:{item.id}',
+                notes=f'Restored after removing invoice #{invoice.id} item.'
+            )
+        if sale_line.inventory_sale:
+            db.session.delete(sale_line.inventory_sale)
+        db.session.delete(sale_line)
     db.session.delete(item)
     db.session.flush()
     subtotal = sum(i.total for i in invoice.items)
