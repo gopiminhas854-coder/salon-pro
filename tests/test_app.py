@@ -238,3 +238,51 @@ def test_completed_appointment_invoice_is_created_atomically():
 def test_migration_extension_is_configured():
     assert salon.migrate is not None
     assert salon.app.extensions.get('migrate') is not None
+
+
+def test_advanced_crm_and_bi_apis(client):
+    c, salon = client
+    login(c)
+    with salon.app.app_context():
+        customer = salon.Customer.query.first()
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+        appt1 = salon.Appointment(customer_id=customer.id, staff_id=staff.id, service_id=service.id,
+                                   appointment_date=salon.date.today() - salon.timedelta(days=30),
+                                   appointment_time="10:00", status="Completed")
+        appt2 = salon.Appointment(customer_id=customer.id, staff_id=staff.id, service_id=service.id,
+                                   appointment_date=salon.date.today() - salon.timedelta(days=5),
+                                   appointment_time="11:00", status="Completed")
+        salon.db.session.add_all([appt1, appt2])
+        salon.db.session.flush()
+        for appt in (appt1, appt2):
+            inv = salon.Invoice(appointment_id=appt.id, customer_id=customer.id, amount=100,
+                                discount=0, tax=5, total=105, payment_status="Paid",
+                                created_at=salon.datetime.combine(appt.appointment_date, salon.datetime.min.time()))
+            salon.db.session.add(inv)
+            salon.db.session.flush()
+            salon.db.session.add(salon.InvoiceItem(invoice_id=inv.id, description=service.name,
+                                                   quantity=1, unit_price=100, total=100))
+            salon.db.session.add(salon.InvoicePayment(invoice_id=inv.id, amount=105,
+                                                      payment_method="Cash"))
+        salon.db.session.commit()
+
+    response = c.get("/api/crm/summary")
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["repeat_customers"] == 1
+    row = next(x for x in data["customers"] if x["name"] == "Test Customer")
+    assert row["visits"] == 2
+    assert row["paid_revenue"] == 210
+    assert row["favorite_service"] == "Test Haircut"
+    assert row["avg_visit_interval_days"] == 25
+
+    response = c.get("/api/business-intelligence")
+    assert response.status_code == 200
+    bi = response.get_json()
+    assert bi["financial"]["net_revenue"] == 210
+    assert bi["financial"]["average_paid_invoice"] == 105
+    assert bi["appointments"]["completion_rate"] == 100
+    assert bi["customers"]["repeat_customer_rate"] == 100
+    assert bi["inventory"]["stock_value_at_cost"] == 200
+    assert bi["inventory"]["low_stock_items"] == 0
