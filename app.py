@@ -947,11 +947,10 @@ def update_appointment_status(id, status):
                 db.session.add(InvoiceItem(invoice_id=inv.id, description=service.name,
                                            quantity=1, unit_price=service.price,
                                            total=service.price))
-                db.session.commit()
                 flash(f'Appointment marked as Completed. Invoice created (₹{inv.total}).', 'success')
             else:
                 flash('Status updated.', 'success')
-        db.session.commit()
+        commit_or_rollback()
     except Exception:
         db.session.rollback()
         flash('Could not update appointment status. No changes were saved.', 'danger')
