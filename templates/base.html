@@ -55,6 +55,11 @@
                             <i class="bi bi-wallet2"></i> Expenses
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link {% if 'inventory' in request.endpoint %}active{% endif %}" href="{{ url_for('inventory') }}">
+                            <i class="bi bi-box-seam"></i> Inventory
+                        </a>
+                    </li>
                 </ul>
                 <span class="navbar-text text-white me-3">
                     <i class="bi bi-person-circle"></i> {{ session.get('username') }}
