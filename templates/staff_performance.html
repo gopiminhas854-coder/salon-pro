@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Staff Performance{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div><h2><i class="bi bi-graph-up"></i> {{ member.name }}</h2><p class="text-muted mb-0">{{ member.specialty or 'General' }} • Performance</p></div>
+  <a href="{{ url_for('staff') }}" class="btn btn-outline-secondary">Back to Staff</a>
+</div>
+<form class="card border-0 shadow-sm mb-4" method="GET">
+  <div class="card-body row g-2 align-items-end">
+    <div class="col-md-4"><label class="form-label">Start date</label><input type="date" name="start" class="form-control" value="{{ start }}"></div>
+    <div class="col-md-4"><label class="form-label">End date</label><input type="date" name="end" class="form-control" value="{{ end }}"></div>
+    <div class="col-md-4"><button class="btn btn-primary w-100">Apply Period</button></div>
+  </div>
+</form>
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Completed Appointments</small><h2>{{ completed_count }}</h2></div></div></div>
+  <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Paid Revenue</small><h2>₹{{ "%.2f"|format(paid_revenue) }}</h2></div></div></div>
+  <div class="col-md-4"><div class="card border-0 shadow-sm"><div class="card-body"><small class="text-muted">Commission Earned</small><h2>₹{{ "%.2f"|format(commission) }}</h2></div></div></div>
+</div>
+<div class="card border-0 shadow-sm mb-4">
+  <div class="card-header bg-white"><strong>Commission Settings</strong></div>
+  <div class="card-body">
+    <form method="POST" action="{{ url_for('update_staff_commission', id=member.id) }}" class="row g-2 align-items-end">
+      <div class="col-md-6"><label class="form-label">Commission rate (%)</label><input type="number" min="0" max="100" step="0.1" name="commission_rate" class="form-control" value="{{ rate }}"></div>
+      <div class="col-md-6"><button class="btn btn-success">Save Commission Rate</button></div>
+    </form>
+  </div>
+</div>
+<div class="card border-0 shadow-sm">
+  <div class="card-header bg-white"><strong>Appointments in Period</strong></div>
+  <div class="table-responsive"><table class="table mb-0">
+    <thead><tr><th>Date</th><th>Time</th><th>Customer</th><th>Service</th><th>Status</th></tr></thead>
+    <tbody>{% for a in appointments %}<tr><td>{{ a.appointment_date }}</td><td>{{ a.appointment_time }}</td><td>{{ a.customer.name }}</td><td>{{ a.service.name }}</td><td><span class="badge bg-{{ 'success' if a.status == 'Completed' else 'secondary' }}">{{ a.status }}</span></td></tr>{% else %}<tr><td colspan="5" class="text-center text-muted py-4">No appointments in this period.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}
