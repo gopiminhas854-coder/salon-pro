@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block title %}Invoices{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4"><div><h2 class="mb-1">Invoices</h2><p class="text-muted mb-0">Billing and payment records.</p></div></div>
+<div class="card shadow-sm border-0"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>#</th><th>Customer</th><th>Service</th><th>Amount</th><th>Tax</th><th>Total</th><th>Status</th><th>Date</th><th></th></tr></thead><tbody>
+{% for inv in invoices %}<tr><td>#{{ inv.id }}</td><td>{{ inv.customer.name if inv.customer else '—' }}<br><small class="text-muted">{{ inv.customer.phone if inv.customer else '' }}</small></td><td>{{ inv.appointment.service.name if inv.appointment and inv.appointment.service else '—' }}</td><td>₹{{ '%.2f'|format(inv.amount) }}</td><td>₹{{ '%.2f'|format(inv.tax) }}</td><td><strong>₹{{ '%.2f'|format(inv.total) }}</strong></td><td><span class="badge {{ 'text-bg-success' if inv.payment_status=='Paid' else 'text-bg-warning' }}">{{ inv.payment_status }}</span></td><td>{{ inv.created_at.strftime('%d %b %Y') }}</td><td><a href="{{ url_for('view_invoice', id=inv.id) }}" class="btn btn-sm btn-outline-primary">View</a></td></tr>
+{% else %}<tr><td colspan="9" class="text-center py-5 text-muted">No invoices yet.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}
