@@ -284,7 +284,7 @@ def public_booking():
     customers = Customer.query.order_by(Customer.name).all()
     services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
     staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
-    return render_template('booking.html', services=services, staff_list=staff_list)
+    return render_template('booking.html', services=services, staff_list=staff_list, today_iso=date.today().isoformat())
 
 @app.route('/backup/download')
 @admin_required
