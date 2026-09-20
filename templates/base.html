@@ -36,6 +36,11 @@
                         </a>
                     </li>
                     <li class="nav-item">
+                        <a class="nav-link {% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view') }}">
+                            <i class="bi bi-calendar3"></i> Calendar
+                        </a>
+                    </li>
+                    <li class="nav-item">
                         <a class="nav-link {% if 'service' in request.endpoint %}active{% endif %}" href="{{ url_for('services') }}">
                             <i class="bi bi-list-stars"></i> Services
                         </a>
@@ -79,8 +84,12 @@
                 </ul>
                 <span class="navbar-text text-white me-3">
                     <i class="bi bi-person-circle"></i> {{ session.get('username') }}
+                    <span class="badge bg-light text-primary ms-1">{{ session.get('role','staff')|title }}</span>
                 </span>
                 <a href="{{ url_for('settings') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-gear"></i></a>
+                {% if session.get('role') == 'admin' %}
+                <a href="{{ url_for('download_backup') }}" class="btn btn-outline-light btn-sm me-2" title="Download database backup"><i class="bi bi-database-down"></i></a>
+                {% endif %}
                 <a href="{{ url_for('change_password') }}" class="btn btn-outline-light btn-sm me-2"><i class="bi bi-key"></i></a>
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-light btn-sm">
                     <i class="bi bi-box-arrow-right"></i> Logout
