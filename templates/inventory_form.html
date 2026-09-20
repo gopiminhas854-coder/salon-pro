@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Add Inventory{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-lg-7"><div class="card border-0 shadow-sm"><div class="card-body p-4"><h3 class="mb-4"><i class="bi bi-box-seam"></i> Add Product</h3>
+<form method="POST"><div class="mb-3"><label class="form-label">Product name</label><input name="name" class="form-control" placeholder="Shampoo, Hair Color, Serum..." required></div>
+<div class="row g-3"><div class="col-md-6"><label class="form-label">SKU</label><input name="sku" class="form-control" placeholder="Optional"></div><div class="col-md-6"><label class="form-label">Category</label><input name="category" class="form-control" placeholder="Hair Care"></div></div>
+<div class="row g-3 mt-1"><div class="col-md-6"><label class="form-label">Opening stock</label><input name="stock_qty" type="number" step="0.5" min="0" value="0" class="form-control" required></div><div class="col-md-6"><label class="form-label">Low-stock level</label><input name="reorder_level" type="number" step="0.5" min="0" value="5" class="form-control" required></div></div>
+<div class="row g-3 mt-1"><div class="col-md-6"><label class="form-label">Cost price (₹)</label><input name="cost_price" type="number" step="0.01" min="0" value="0" class="form-control"></div><div class="col-md-6"><label class="form-label">Sale price (₹)</label><input name="sale_price" type="number" step="0.01" min="0" value="0" class="form-control"></div></div>
+<div class="mt-4"><button class="btn btn-primary">Save Product</button> <a href="{{ url_for('inventory') }}" class="btn btn-outline-secondary">Cancel</a></div></form>
+</div></div></div></div>
+{% endblock %}
