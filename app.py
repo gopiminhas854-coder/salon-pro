@@ -276,10 +276,10 @@ def get_tax_rate():
     return max(0, min(100, setting.tax_rate if setting else 5))
 
 def invoice_paid_amount(invoice):
-    return round(sum(p.amount for p in invoice.payments), 2)
+    return round(sum(p.amount for p in InvoicePayment.query.filter_by(invoice_id=invoice.id).all()), 2)
 
 def invoice_refunded_amount(invoice):
-    return round(sum(r.amount for r in invoice.refunds), 2)
+    return round(sum(r.amount for r in InvoiceRefund.query.filter_by(invoice_id=invoice.id).all()), 2)
 
 def invoice_net_paid_amount(invoice):
     return round(max(invoice_paid_amount(invoice) - invoice_refunded_amount(invoice), 0), 2)
