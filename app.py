@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timedelta
 from functools import wraps
 import os
+import secrets
 from sqlalchemy import func
 
 app = Flask(__name__)
@@ -200,6 +201,18 @@ class LoyaltyTransaction(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     customer = db.relationship('Customer', backref='loyalty_transactions')
 
+class SalonHours(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    day_of_week = db.Column(db.Integer, unique=True, nullable=False)
+    open_time = db.Column(db.String(5), default='09:00')
+    close_time = db.Column(db.String(5), default='20:00')
+    is_closed = db.Column(db.Boolean, default=False)
+
+class SalonClosure(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    closure_date = db.Column(db.Date, unique=True, nullable=False)
+    reason = db.Column(db.String(200))
+
 class SalonSetting(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     salon_name = db.Column(db.String(120), default='Salon Pro')
@@ -209,6 +222,15 @@ class SalonSetting(db.Model):
     loyalty_rate = db.Column(db.Float, default=1)
     reminder_days = db.Column(db.Integer, default=1)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class InvoiceRefund(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    refund_method = db.Column(db.String(30), nullable=False)
+    reason = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    invoice = db.relationship('Invoice', backref='refunds')
 
 class InvoicePayment(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -253,12 +275,26 @@ def get_tax_rate():
 def invoice_paid_amount(invoice):
     return round(sum(p.amount for p in invoice.payments), 2)
 
+def invoice_refunded_amount(invoice):
+    return round(sum(r.amount for r in invoice.refunds), 2)
+
+def invoice_net_paid_amount(invoice):
+    return round(max(invoice_paid_amount(invoice) - invoice_refunded_amount(invoice), 0), 2)
+
 def invoice_balance(invoice):
-    return round(max(invoice.total - invoice_paid_amount(invoice), 0), 2)
+    return round(max(invoice.total - invoice_net_paid_amount(invoice), 0), 2)
+
+@app.context_processor
+def csrf_token():
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_csrf_token'] = token
+    return token
 
 @app.context_processor
 def template_helpers():
-    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_balance': invoice_balance}
+    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_refunded_amount': invoice_refunded_amount, 'invoice_balance': invoice_balance, 'csrf_token': csrf_token}
 
 
 def recalculate_invoice(invoice):
@@ -276,8 +312,22 @@ ADMIN_ONLY_ENDPOINTS = {
     'add_inventory', 'adjust_inventory',
     'update_staff_commission', 'mark_attendance',
     'export_report_csv', 'create_staff_account',
-    'reminders'
+    'reminders', 'reports', 'export_report_csv', 'expenses', 'delete_expense',
+    'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty'
 }
+
+@app.before_request
+def csrf_guard():
+    if request.method in {'POST','PUT','PATCH','DELETE'}:
+        token = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
+        if token and secrets.compare_digest(token, session.get('_csrf_token', '')):
+            return None
+        origin = request.headers.get('Origin') or request.headers.get('Referer')
+        if origin and origin.startswith(request.host_url):
+            return None
+        if app.config.get('TESTING'):
+            return None
+        return jsonify({'error': 'CSRF validation failed'}), 400
 
 @app.before_request
 def enforce_roles():
