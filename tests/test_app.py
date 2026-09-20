@@ -1,6 +1,8 @@
 import os
+import sys
 import tempfile
 import pytest
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)) )
 
 @pytest.fixture()
 def client():
@@ -153,6 +155,17 @@ def test_purchase_increases_stock(client):
         assert salon.InventoryPurchase.query.count() == 1
         assert salon.InventoryTransaction.query.filter_by(transaction_type="Purchase").count() >= 1
 
+def test_business_hours_block_booking(client):
+    c, salon = client
+    with salon.app.app_context():
+        h = salon.SalonHours(day_of_week=1, open_time='10:00', close_time='18:00', is_closed=False)
+        salon.db.session.add(h)
+        salon.db.session.commit()
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+    response = c.post('/book', data={'name':'Closed Hours','phone':'6666666666','service_id':service.id,'staff_id':staff.id,'appointment_date':'2030-01-15','appointment_time':'09:00'}, follow_redirects=True)
+    assert b'Bookings are available' in response.data
+
 def test_staff_cannot_access_admin_endpoints(client):
     c, salon = client
     with salon.app.app_context():
@@ -163,3 +176,30 @@ def test_staff_cannot_access_admin_endpoints(client):
     assert response.status_code == 200
     assert c.get("/settings").status_code == 302
     assert c.post("/inventory/adjust/1", data={"change": "1"}).status_code == 302
+
+
+def test_refund_reverses_loyalty_and_inventory(client):
+    c, salon = client
+    login(c)
+    with salon.app.app_context():
+        customer = salon.Customer.query.first()
+        service = salon.Service.query.first()
+        item = salon.InventoryItem.query.first()
+        appt = salon.Appointment(customer_id=customer.id, staff_id=salon.Staff.query.first().id, service_id=service.id,
+                                 appointment_date=salon.date.today(), appointment_time='13:00', status='Completed')
+        salon.db.session.add(appt); salon.db.session.flush()
+        inv = salon.Invoice(appointment_id=appt.id, customer_id=customer.id, amount=100, discount=0, tax=5, total=105, payment_status='Pending')
+        salon.db.session.add(inv); salon.db.session.flush()
+        salon.db.session.add(salon.InvoiceItem(invoice_id=inv.id, description=service.name, quantity=1, unit_price=100, total=100))
+        salon.db.session.commit()
+        inv_id, item_id = inv.id, item.id
+    c.post(f'/invoices/{inv_id}/inventory-sale', data={'inventory_item_id':item_id,'quantity':'1'})
+    c.post(f'/invoices/pay/{inv_id}', data={'amount':'155','payment_method':'Cash'})
+    with salon.app.app_context():
+        assert salon.Invoice.query.get(inv_id).payment_status == 'Paid'
+        before = salon.InventoryItem.query.get(item_id).stock_qty
+    c.post(f'/invoices/refund/{inv_id}', data={'amount':'155','refund_method':'Cash','reason':'Test refund'}, follow_redirects=True)
+    with salon.app.app_context():
+        assert salon.Invoice.query.get(inv_id).payment_status == 'Refunded'
+        assert salon.InventoryItem.query.get(item_id).stock_qty == before + 1
+        assert salon.LoyaltyTransaction.query.filter_by(transaction_type='Refund').count() == 1
