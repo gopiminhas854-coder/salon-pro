@@ -210,6 +210,15 @@ class SalonSetting(db.Model):
     reminder_days = db.Column(db.Integer, default=1)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
+class InvoicePayment(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    payment_method = db.Column(db.String(30), nullable=False)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    invoice = db.relationship('Invoice', backref='payments')
+
 class InvoiceItem(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
@@ -240,6 +249,13 @@ def admin_required(f):
 def get_tax_rate():
     setting = SalonSetting.query.first()
     return max(0, min(100, setting.tax_rate if setting else 5))
+
+def invoice_paid_amount(invoice):
+    return round(sum(p.amount for p in invoice.payments), 2)
+
+def invoice_balance(invoice):
+    return round(max(invoice.total - invoice_paid_amount(invoice), 0), 2)
+
 
 def recalculate_invoice(invoice):
     subtotal = round(sum(i.total for i in invoice.items), 2)
@@ -866,11 +882,31 @@ def view_invoice(id):
 @login_required
 def mark_paid(id):
     invoice = Invoice.query.get_or_404(id)
-    invoice.payment_status = 'Paid'
-    award_loyalty_for_invoice(invoice)
-    invoice.payment_method = request.form.get('payment_method', 'Cash')
+    balance = invoice_balance(invoice)
+    if balance <= 0:
+        invoice.payment_status = 'Paid'
+        award_loyalty_for_invoice(invoice)
+        db.session.commit()
+        return redirect(url_for('view_invoice', id=id))
+    method = request.form.get('payment_method', 'Cash')
+    try:
+        amount = float(request.form.get('amount', balance))
+        if amount <= 0 or amount > balance + 0.01:
+            raise ValueError
+    except (ValueError, TypeError):
+        flash(f'Payment must be between ₹0.01 and ₹{balance:.2f}.', 'danger')
+        return redirect(url_for('view_invoice', id=id))
+    amount = round(min(amount, balance), 2)
+    db.session.add(InvoicePayment(invoice_id=invoice.id, amount=amount,
+                                  payment_method=method, notes=request.form.get('notes')))
+    invoice.payment_method = method
+    db.session.flush()
+    paid = invoice_paid_amount(invoice)
+    invoice.payment_status = 'Paid' if paid >= invoice.total - 0.01 else 'Partial'
+    if invoice.payment_status == 'Paid':
+        award_loyalty_for_invoice(invoice)
     db.session.commit()
-    flash('Payment recorded successfully!', 'success')
+    flash(f'Payment of ₹{amount:.2f} recorded. Balance: ₹{invoice_balance(invoice):.2f}.', 'success')
     return redirect(url_for('view_invoice', id=id))
 
 # ==================== INVENTORY ====================
