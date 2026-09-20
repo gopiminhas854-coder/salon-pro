@@ -812,6 +812,161 @@ def business_intelligence():
     })
 
 
+# ==================== ADVANCED RETENTION & PERFORMANCE INTELLIGENCE ====================
+
+@app.route('/api/crm/retention')
+@login_required
+def crm_retention():
+    """Return actionable customer-recall segments without changing the existing UI."""
+    today = date.today()
+    segments = {'new': [], 'active': [], 'due': [], 'at_risk': [], 'lost': []}
+    customers = Customer.query.order_by(Customer.name).all()
+
+    for customer in customers:
+        metrics = _customer_metrics(customer.id)
+        visits = metrics['visits']
+        days = metrics['days_since_visit']
+        interval = metrics['avg_visit_interval_days']
+
+        if visits == 0:
+            segment = 'new'
+        elif days is None:
+            segment = 'new'
+        elif days <= max(30, int((interval or 30) * 1.25)):
+            segment = 'active'
+        elif days <= max(60, int((interval or 30) * 2.0)):
+            segment = 'due'
+        elif days <= 180:
+            segment = 'at_risk'
+        else:
+            segment = 'lost'
+
+        segments[segment].append({
+            'id': customer.id,
+            'name': customer.name,
+            'phone': customer.phone,
+            'visits': visits,
+            'lifetime_spend': metrics['lifetime_spend'],
+            'last_visit': metrics['last_visit'].appointment_date.isoformat() if metrics['last_visit'] else None,
+            'days_since_visit': days,
+            'avg_visit_interval_days': interval,
+            'favorite_service': metrics['favorite_service'],
+            'no_shows': metrics['no_shows']
+        })
+
+    return jsonify({
+        'generated_at': today.isoformat(),
+        'segments': segments,
+        'counts': {name: len(rows) for name, rows in segments.items()}
+    })
+
+
+@app.route('/api/business-intelligence/services')
+@login_required
+def service_profitability():
+    """Service-level revenue and operational metrics for the BI layer."""
+    today = date.today()
+    start_text = request.args.get('start', (today - timedelta(days=29)).isoformat())
+    end_text = request.args.get('end', today.isoformat())
+    try:
+        start = date.fromisoformat(start_text)
+        end = date.fromisoformat(end_text)
+        if end < start:
+            raise ValueError
+    except ValueError:
+        return jsonify({'error': 'Invalid date range. Use YYYY-MM-DD and ensure end >= start.'}), 400
+
+    services = Service.query.order_by(Service.name).all()
+    rows = []
+    for service in services:
+        appts = Appointment.query.filter(
+            Appointment.service_id == service.id,
+            Appointment.appointment_date >= start,
+            Appointment.appointment_date <= end
+        ).all()
+        completed = [a for a in appts if a.status == 'Completed']
+        invoices = Invoice.query.join(Appointment, Invoice.appointment_id == Appointment.id).filter(
+            Appointment.service_id == service.id,
+            Invoice.created_at >= datetime.combine(start, datetime.min.time()),
+            Invoice.created_at < datetime.combine(end + timedelta(days=1), datetime.min.time())
+        ).all()
+        collected = round(sum(invoice_net_paid_amount(i) for i in invoices), 2)
+        refunds = round(sum(invoice_refunded_amount(i) for i in invoices), 2)
+        net = round(collected - refunds, 2)
+        rows.append({
+            'id': service.id,
+            'service': service.name,
+            'category': service.category,
+            'price': round(service.price, 2),
+            'duration_minutes': service.duration_minutes,
+            'appointments': len(appts),
+            'completed': len(completed),
+            'no_shows': sum(1 for a in appts if a.status == 'No-Show'),
+            'completion_rate': round(len(completed) / len(appts) * 100, 2) if appts else 0,
+            'net_revenue': net,
+            'revenue_per_completed_visit': round(net / len(completed), 2) if completed else 0,
+            'revenue_per_hour': round(net / (sum(a.service.duration_minutes for a in completed) / 60), 2)
+                if completed and service.duration_minutes else 0
+        })
+
+    rows.sort(key=lambda x: (-x['net_revenue'], x['service'].lower()))
+    return jsonify({'range': {'start': start.isoformat(), 'end': end.isoformat()}, 'services': rows})
+
+
+@app.route('/api/business-intelligence/staff')
+@login_required
+def staff_intelligence():
+    """Staff-level operational metrics; no UI changes required."""
+    today = date.today()
+    start_text = request.args.get('start', today.replace(day=1).isoformat())
+    end_text = request.args.get('end', today.isoformat())
+    try:
+        start = date.fromisoformat(start_text)
+        end = date.fromisoformat(end_text)
+        if end < start:
+            raise ValueError
+    except ValueError:
+        return jsonify({'error': 'Invalid date range. Use YYYY-MM-DD and ensure end >= start.'}), 400
+
+    rows = []
+    for member in Staff.query.order_by(Staff.name).all():
+        appts = Appointment.query.filter(
+            Appointment.staff_id == member.id,
+            Appointment.appointment_date >= start,
+            Appointment.appointment_date <= end
+        ).all()
+        completed = [a for a in appts if a.status == 'Completed']
+        invoices = Invoice.query.join(Appointment, Invoice.appointment_id == Appointment.id).filter(
+            Appointment.staff_id == member.id,
+            Invoice.created_at >= datetime.combine(start, datetime.min.time()),
+            Invoice.created_at < datetime.combine(end + timedelta(days=1), datetime.min.time())
+        ).all()
+        collected = round(sum(invoice_net_paid_amount(i) for i in invoices), 2)
+        refunds = round(sum(invoice_refunded_amount(i) for i in invoices), 2)
+        net = round(collected - refunds, 2)
+        commission_settings = StaffCommission.query.filter_by(staff_id=member.id).first()
+        rate = commission_settings.commission_rate if commission_settings else 0
+        commission = round(max(net, 0) * rate / 100, 2)
+        service_minutes = sum(a.service.duration_minutes for a in completed if a.service and a.service.duration_minutes)
+        rows.append({
+            'id': member.id,
+            'staff': member.name,
+            'active': member.is_active,
+            'appointments': len(appts),
+            'completed': len(completed),
+            'no_shows': sum(1 for a in appts if a.status == 'No-Show'),
+            'cancelled': sum(1 for a in appts if a.status == 'Cancelled'),
+            'completion_rate': round(len(completed) / len(appts) * 100, 2) if appts else 0,
+            'net_revenue': net,
+            'revenue_per_completed_visit': round(net / len(completed), 2) if completed else 0,
+            'revenue_per_service_hour': round(net / (service_minutes / 60), 2) if service_minutes else 0,
+            'commission_rate': rate,
+            'estimated_commission': commission
+        })
+
+    return jsonify({'range': {'start': start.isoformat(), 'end': end.isoformat()}, 'staff': rows})
+
+
 # ==================== CUSTOMER PROFILE ====================
 
 @app.route('/customers/<int:id>')
