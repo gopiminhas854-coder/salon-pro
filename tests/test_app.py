@@ -194,11 +194,11 @@ def test_refund_reverses_loyalty_and_inventory(client):
         salon.db.session.commit()
         inv_id, item_id = inv.id, item.id
     c.post(f'/invoices/{inv_id}/inventory-sale', data={'inventory_item_id':item_id,'quantity':'1'})
-    c.post(f'/invoices/pay/{inv_id}', data={'amount':'155','payment_method':'Cash'})
+    c.post(f'/invoices/pay/{inv_id}', data={'amount':'157.5','payment_method':'Cash'})
     with salon.app.app_context():
         assert salon.Invoice.query.get(inv_id).payment_status == 'Paid'
         before = salon.InventoryItem.query.get(item_id).stock_qty
-    c.post(f'/invoices/refund/{inv_id}', data={'amount':'155','refund_method':'Cash','reason':'Test refund'}, follow_redirects=True)
+    c.post(f'/invoices/refund/{inv_id}', data={'amount':'157.5','refund_method':'Cash','reason':'Test refund'}, follow_redirects=True)
     with salon.app.app_context():
         assert salon.Invoice.query.get(inv_id).payment_status == 'Refunded'
         assert salon.InventoryItem.query.get(item_id).stock_qty == before + 1
