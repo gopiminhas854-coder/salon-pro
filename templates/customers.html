@@ -45,6 +45,9 @@
                     <td>{{ c.gender or '-' }}</td>
                     <td>{{ c.created_at.strftime('%d %b %Y') }}</td>
                     <td>
+                        <a href="{{ url_for('customer_detail', id=c.id) }}" class="btn btn-sm btn-outline-success" title="Profile">
+                            <i class="bi bi-person-vcard"></i>
+                        </a>
                         <a href="{{ url_for('edit_customer', id=c.id) }}" class="btn btn-sm btn-outline-primary">
                             <i class="bi bi-pencil"></i>
                         </a>
