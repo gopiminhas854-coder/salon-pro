@@ -71,6 +71,18 @@ class Expense(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class InventoryItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    sku = db.Column(db.String(50), unique=True)
+    category = db.Column(db.String(60))
+    stock_qty = db.Column(db.Float, default=0)
+    reorder_level = db.Column(db.Float, default=5)
+    cost_price = db.Column(db.Float, default=0)
+    sale_price = db.Column(db.Float, default=0)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     appointment_id = db.Column(db.Integer, db.ForeignKey('appointment.id'), unique=True)
@@ -84,6 +96,15 @@ class Invoice(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     appointment = db.relationship('Appointment')
     customer = db.relationship('Customer')
+
+class InvoiceItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
+    description = db.Column(db.String(150), nullable=False)
+    quantity = db.Column(db.Float, default=1)
+    unit_price = db.Column(db.Float, nullable=False)
+    total = db.Column(db.Float, nullable=False)
+    invoice = db.relationship('Invoice', backref=db.backref('items', lazy=True, cascade='all, delete-orphan'))
 
 # ==================== AUTH ====================
 
@@ -503,6 +524,10 @@ def update_appointment_status(id, status):
                 payment_status='Pending'
             )
             db.session.add(inv)
+            db.session.flush()
+            db.session.add(InvoiceItem(invoice_id=inv.id, description=service.name,
+                                       quantity=1, unit_price=service.price,
+                                       total=service.price))
             db.session.commit()
             flash(f'Appointment marked as Completed. Invoice created (₹{inv.total}).', 'success')
         else:
@@ -533,6 +558,107 @@ def mark_paid(id):
     invoice.payment_method = request.form.get('payment_method', 'Cash')
     db.session.commit()
     flash('Payment recorded successfully!', 'success')
+    return redirect(url_for('view_invoice', id=id))
+
+# ==================== INVENTORY ====================
+
+@app.route('/inventory')
+@login_required
+def inventory():
+    items = InventoryItem.query.order_by(InventoryItem.name).all()
+    low_stock = [i for i in items if i.is_active and i.stock_qty <= i.reorder_level]
+    return render_template('inventory.html', items=items, low_stock=low_stock)
+
+@app.route('/inventory/add', methods=['GET', 'POST'])
+@login_required
+def add_inventory():
+    if request.method == 'POST':
+        try:
+            stock = float(request.form.get('stock_qty', 0))
+            reorder = float(request.form.get('reorder_level', 5))
+            cost = float(request.form.get('cost_price', 0))
+            sale = float(request.form.get('sale_price', 0))
+            if min(stock, reorder, cost, sale) < 0:
+                raise ValueError
+        except (ValueError, TypeError):
+            flash('Enter valid non-negative stock and prices.', 'danger')
+            return redirect(url_for('add_inventory'))
+        item = InventoryItem(name=request.form['name'].strip(),
+                             sku=request.form.get('sku','').strip() or None,
+                             category=request.form.get('category'),
+                             stock_qty=stock, reorder_level=reorder,
+                             cost_price=cost, sale_price=sale, is_active=True)
+        db.session.add(item)
+        try:
+            db.session.commit()
+            flash('Inventory item added!', 'success')
+        except Exception:
+            db.session.rollback()
+            flash('SKU already exists. Use a different SKU.', 'danger')
+        return redirect(url_for('inventory'))
+    return render_template('inventory_form.html', item=None)
+
+@app.route('/inventory/adjust/<int:id>', methods=['POST'])
+@login_required
+def adjust_inventory(id):
+    item = InventoryItem.query.get_or_404(id)
+    try:
+        change = float(request.form['change'])
+        new_qty = item.stock_qty + change
+        if new_qty < 0:
+            raise ValueError
+    except (ValueError, TypeError):
+        flash('Stock adjustment would create an invalid quantity.', 'danger')
+        return redirect(url_for('inventory'))
+    item.stock_qty = new_qty
+    db.session.commit()
+    flash(f'{item.name} stock updated to {item.stock_qty:g}.', 'success')
+    return redirect(url_for('inventory'))
+
+# ==================== POS INVOICE ITEMS ====================
+
+@app.route('/invoices/<int:id>/items/add', methods=['POST'])
+@login_required
+def add_invoice_item(id):
+    invoice = Invoice.query.get_or_404(id)
+    try:
+        description = request.form['description'].strip()
+        quantity = float(request.form.get('quantity', 1))
+        unit_price = float(request.form['unit_price'])
+        if not description or quantity <= 0 or unit_price < 0:
+            raise ValueError
+    except (KeyError, ValueError, TypeError):
+        flash('Enter valid item details.', 'danger')
+        return redirect(url_for('view_invoice', id=id))
+    item = InvoiceItem(invoice_id=invoice.id, description=description,
+                       quantity=quantity, unit_price=unit_price,
+                       total=round(quantity * unit_price, 2))
+    db.session.add(item)
+    db.session.flush()
+    subtotal = sum(i.total for i in invoice.items)
+    invoice.amount = round(subtotal, 2)
+    invoice.tax = round(max(invoice.amount - invoice.discount, 0) * 0.05, 2)
+    invoice.total = round(max(invoice.amount - invoice.discount, 0) + invoice.tax, 2)
+    db.session.commit()
+    flash('Item added to invoice.', 'success')
+    return redirect(url_for('view_invoice', id=id))
+
+@app.route('/invoices/<int:id>/items/<int:item_id>/delete', methods=['POST'])
+@login_required
+def delete_invoice_item(id, item_id):
+    invoice = Invoice.query.get_or_404(id)
+    item = InvoiceItem.query.filter_by(id=item_id, invoice_id=id).first_or_404()
+    if len(invoice.items) <= 1:
+        flash('An invoice must keep at least one item.', 'warning')
+        return redirect(url_for('view_invoice', id=id))
+    db.session.delete(item)
+    db.session.flush()
+    subtotal = sum(i.total for i in invoice.items)
+    invoice.amount = round(subtotal, 2)
+    invoice.tax = round(max(invoice.amount - invoice.discount, 0) * 0.05, 2)
+    invoice.total = round(max(invoice.amount - invoice.discount, 0) + invoice.tax, 2)
+    db.session.commit()
+    flash('Invoice item removed.', 'info')
     return redirect(url_for('view_invoice', id=id))
 
 # ==================== INIT DB ====================
