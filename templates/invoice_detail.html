@@ -1,5 +1,7 @@
 {% extends "base.html" %}
-{% block title %}Invoice #{{ invoice.id }}<div class="card border-0 shadow-sm mt-3"><div class="card-body">
+{% block title %}Invoice #{{ invoice.id }}{% endblock %}
+{% block content %}
+<div class="card border-0 shadow-sm mt-3"><div class="card-body">
 <h5 class="mb-3">Refund / Void</h5>
 {% if invoice_refunded_amount(invoice) < invoice_paid_amount(invoice) %}
 <form method="POST" action="{{ url_for('refund_invoice', id=invoice.id) }}" class="row g-2">
@@ -11,14 +13,12 @@
 </form>
 {% else %}<p class="text-muted mb-0">No refundable payment balance.</p>{% endif %}
 </div></div>
-{% endblock %}
-{% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4 no-print"><div><h2 class="mb-1">Invoice #{{ invoice.id }}</h2><p class="text-muted mb-0">Payment and receipt details.</p></div><div><button onclick="window.print()" class="btn btn-outline-secondary">Print</button><a href="{{ url_for('invoices') }}" class="btn btn-light ms-2">Back</a></div></div>
 <div class="card shadow-sm border-0 invoice-card"><div class="card-body p-4 p-md-5">
 <div class="d-flex justify-content-between mb-4"><div><h3 class="mb-0">Salon Pro</h3><small class="text-muted">Professional salon receipt</small></div><div class="text-end"><strong>Invoice #{{ invoice.id }}</strong><br>{{ invoice.created_at.strftime('%d %b %Y, %I:%M %p') }}</div></div>
 <hr>
 <div class="row mb-4"><div class="col-md-6"><small class="text-muted">BILLED TO</small><h5 class="mt-1 mb-1">{{ invoice.customer.name if invoice.customer else 'Customer' }}</h5><div>{{ invoice.customer.phone if invoice.customer else '' }}</div></div><div class="col-md-6 text-md-end mt-3 mt-md-0"><small class="text-muted">APPOINTMENT</small><div>{{ invoice.appointment.appointment_date.strftime('%d %b %Y') if invoice.appointment else '—' }}{% if invoice.appointment %} at {{ invoice.appointment.appointment_time }}{% endif %}</div></div></div>
-<table class="table"><thead><tr><th>Description</th><th>Qty</th><th class="text-end">Unit</th><th class="text-end">Total</th><th class="no-print"></th></tr></thead><tbody>{% for item in invoice.items %}<tr><td>{{ item.description }}</td><td>{{ item.quantity:g }}</td><td class="text-end">₹{{ '%.2f'|format(item.unit_price) }}</td><td class="text-end">₹{{ '%.2f'|format(item.total) }}</td><td class="no-print"><form method="post" action="{{ url_for('delete_invoice_item', id=invoice.id, item_id=item.id) }}"><button class="btn btn-sm btn-outline-danger" title="Remove">×</button></form></td></tr>{% endfor %}<tr><td colspan="3">Discount</td><td class="text-end">− ₹{{ '%.2f'|format(invoice.discount) }}</td><td></td></tr><tr><td colspan="3">Tax</td><td class="text-end">₹{{ '%.2f'|format(invoice.tax) }}</td><td></td></tr><tr class="table-light"><th colspan="3">Total</th><th class="text-end">₹{{ '%.2f'|format(invoice.total) }}</th><th></th></tr></tbody></table>
+<table class="table"><thead><tr><th>Description</th><th>Qty</th><th class="text-end">Unit</th><th class="text-end">Total</th><th class="no-print"></th></tr></thead><tbody>{% for item in invoice.items %}<tr><td>{{ item.description }}</td><td>{{ "%.2f"|format(item.quantity) }}</td><td class="text-end">₹{{ '%.2f'|format(item.unit_price) }}</td><td class="text-end">₹{{ '%.2f'|format(item.total) }}</td><td class="no-print"><form method="post" action="{{ url_for('delete_invoice_item', id=invoice.id, item_id=item.id) }}"><button class="btn btn-sm btn-outline-danger" title="Remove">×</button></form></td></tr>{% endfor %}<tr><td colspan="3">Discount</td><td class="text-end">− ₹{{ '%.2f'|format(invoice.discount) }}</td><td></td></tr><tr><td colspan="3">Tax</td><td class="text-end">₹{{ '%.2f'|format(invoice.tax) }}</td><td></td></tr><tr class="table-light"><th colspan="3">Total</th><th class="text-end">₹{{ '%.2f'|format(invoice.total) }}</th><th></th></tr></tbody></table>
 <div class="card bg-light border-0 no-print mb-3"><div class="card-body"><h6><i class="bi bi-box-seam"></i> Add Inventory Product</h6>
 <form method="post" action="{{ url_for('add_inventory_sale', id=invoice.id) }}" class="row g-2">
 <div class="col-md-6"><select name="inventory_item_id" class="form-select" required><option value="">Select product</option>{% for p in inventory_products %}<option value="{{ p.id }}">{{ p.name }}{% if p.sku %} ({{ p.sku }}){% endif %} — ₹{{ "%.2f"|format(p.sale_price) }} — Stock {{ p.stock_qty:g }}</option>{% endfor %}</select></div>
