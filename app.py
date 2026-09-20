@@ -723,8 +723,8 @@ def update_appointment_status(id, status):
                 customer_id=appt.customer_id,
                 amount=service.price,
                 discount=0,
-                tax=round(service.price * 0.05, 2),  # 5% tax
-                total=round(service.price * 1.05, 2),
+                tax=round(service.price * get_tax_rate() / 100, 2),
+                total=round(service.price * (1 + get_tax_rate() / 100), 2),
                 payment_status='Pending'
             )
             db.session.add(inv)
