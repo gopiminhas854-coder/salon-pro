@@ -4,6 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timedelta
 from functools import wraps
 import os
+from sqlalchemy import func
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'salon-pro-secret-key-change-in-production'
@@ -134,12 +135,18 @@ def dashboard():
         Appointment.status == 'Scheduled'
     ).order_by(Appointment.appointment_date, Appointment.appointment_time).limit(5).all()
     
+    pending_invoices = Invoice.query.filter_by(payment_status='Pending').count()
+    today_revenue = sum(i.total for i in Invoice.query.join(Appointment, isouter=True).filter(Invoice.payment_status == 'Paid', func.date(Invoice.created_at) == today).all())
+    completed_today = Appointment.query.filter_by(appointment_date=today, status='Completed').count()
     return render_template('dashboard.html',
                            today_appointments=today_appointments,
                            total_customers=total_customers,
                            total_staff=total_staff,
                            total_services=total_services,
                            monthly_revenue=monthly_revenue,
+                           pending_invoices=pending_invoices,
+                           today_revenue=today_revenue,
+                           completed_today=completed_today,
                            upcoming=upcoming,
                            today=today)
 
@@ -322,15 +329,25 @@ def appointments():
 @login_required
 def add_appointment():
     if request.method == 'POST':
+        appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
+        appointment_time = request.form['appointment_time']
+        staff_id = int(request.form['staff_id'])
+        service_id = int(request.form['service_id'])
+        service = Service.query.get_or_404(service_id)
+        start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
+        end = start + timedelta(minutes=service.duration_minutes or 30)
+        conflicts = Appointment.query.filter_by(staff_id=staff_id, appointment_date=appointment_date, status='Scheduled').all()
+        for existing in conflicts:
+            existing_service = existing.service
+            existing_start = datetime.combine(appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time())
+            existing_end = existing_start + timedelta(minutes=existing_service.duration_minutes or 30)
+            if start < existing_end and existing_start < end:
+                flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
+                return redirect(url_for('add_appointment'))
         appt = Appointment(
-            customer_id=int(request.form['customer_id']),
-            staff_id=int(request.form['staff_id']),
-            service_id=int(request.form['service_id']),
-            appointment_date=datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date(),
-            appointment_time=request.form['appointment_time'],
-            notes=request.form.get('notes'),
-            status='Scheduled'
-        )
+            customer_id=int(request.form['customer_id']), staff_id=staff_id, service_id=service_id,
+            appointment_date=appointment_date, appointment_time=appointment_time,
+            notes=request.form.get('notes'), status='Scheduled')
         db.session.add(appt)
         db.session.commit()
         flash('Appointment booked successfully!', 'success')
@@ -347,11 +364,25 @@ def add_appointment():
 def edit_appointment(id):
     appt = Appointment.query.get_or_404(id)
     if request.method == 'POST':
+        appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
+        appointment_time = request.form['appointment_time']
+        staff_id = int(request.form['staff_id'])
+        service_id = int(request.form['service_id'])
+        service = Service.query.get_or_404(service_id)
+        start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
+        end = start + timedelta(minutes=service.duration_minutes or 30)
+        conflicts = Appointment.query.filter(Appointment.id != appt.id, Appointment.staff_id == staff_id, Appointment.appointment_date == appointment_date, Appointment.status == 'Scheduled').all()
+        for existing in conflicts:
+            existing_start = datetime.combine(appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time())
+            existing_end = existing_start + timedelta(minutes=existing.service.duration_minutes or 30)
+            if start < existing_end and existing_start < end:
+                flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
+                return redirect(url_for('edit_appointment', id=id))
         appt.customer_id = int(request.form['customer_id'])
         appt.staff_id = int(request.form['staff_id'])
         appt.service_id = int(request.form['service_id'])
-        appt.appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
-        appt.appointment_time = request.form['appointment_time']
+        appt.appointment_date = appointment_date
+        appt.appointment_time = appointment_time
         appt.status = request.form['status']
         appt.notes = request.form.get('notes')
         db.session.commit()
