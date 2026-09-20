@@ -256,6 +256,10 @@ def invoice_paid_amount(invoice):
 def invoice_balance(invoice):
     return round(max(invoice.total - invoice_paid_amount(invoice), 0), 2)
 
+@app.context_processor
+def template_helpers():
+    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_balance': invoice_balance}
+
 
 def recalculate_invoice(invoice):
     subtotal = round(sum(i.total for i in invoice.items), 2)
