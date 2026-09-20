@@ -407,6 +407,25 @@ def award_loyalty_for_invoice(invoice):
                                        transaction_type='Earn', reference=reference,
                                        amount=max(invoice.total, 0)))
 
+def booking_allowed(appointment_date, appointment_time, duration_minutes):
+    closure = SalonClosure.query.filter_by(closure_date=appointment_date).first()
+    if closure:
+        return False, closure.reason or 'The salon is closed on this date.'
+    hours = SalonHours.query.filter_by(day_of_week=appointment_date.weekday()).first()
+    if hours and hours.is_closed:
+        return False, 'The salon is closed on this day.'
+    if hours:
+        try:
+            start = datetime.strptime(appointment_time, '%H:%M').time()
+            opening = datetime.strptime(hours.open_time, '%H:%M').time()
+            closing = datetime.strptime(hours.close_time, '%H:%M').time()
+            end = datetime.combine(appointment_date, start) + timedelta(minutes=duration_minutes or 30)
+            if start < opening or end.time() > closing or end.date() != appointment_date:
+                return False, f'Bookings are available from {hours.open_time} to {hours.close_time}.'
+        except ValueError:
+            return False, 'Please choose a valid appointment time.'
+    return True, ''
+
 # ==================== CALENDAR / BOOKING ====================
 
 @app.route('/calendar')
@@ -443,6 +462,10 @@ def public_booking():
                 raise ValueError
             service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
             Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
+            if not allowed:
+                flash(reason, 'danger')
+                return redirect(url_for('public_booking'))
             start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
             end = start + timedelta(minutes=service.duration_minutes or 30)
             conflicts = Appointment.query.filter_by(
