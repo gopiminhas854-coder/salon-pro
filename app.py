@@ -5,7 +5,7 @@ from datetime import datetime, date, timedelta
 from functools import wraps
 import os
 import secrets
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 
 app = Flask(__name__)
 _secret = os.environ.get('SALON_PRO_SECRET_KEY', '')
@@ -317,6 +317,17 @@ ADMIN_ONLY_ENDPOINTS = {
     'reports', 'export_report_csv', 'expenses', 'delete_expense',
     'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty'
 }
+
+@app.before_request
+def ensure_database():
+    # Render can start Gunicorn workers before the SQLite file/tables exist.
+    # Bootstrap the schema on the first request if the database is missing.
+    try:
+        if not inspect(db.engine).has_table('user'):
+            init_db()
+    except Exception as exc:
+        app.logger.exception('Database bootstrap failed: %s', exc)
+        raise
 
 @app.before_request
 def csrf_guard():
