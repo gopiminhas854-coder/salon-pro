@@ -9,6 +9,9 @@
 
 <!-- Stats Cards -->
 <div class="row g-3 mb-4">
+    <div class="col-6 col-xl-2"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">Today Revenue</small><h4 class="mt-2 mb-0">₹{{ "%.0f"|format(today_revenue) }}</h4></div></div></div>
+    <div class="col-6 col-xl-2"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">Completed Today</small><h4 class="mt-2 mb-0">{{ completed_today }}</h4></div></div></div>
+    <div class="col-6 col-xl-2"><div class="card border-0 shadow-sm h-100"><div class="card-body"><small class="text-muted">Pending Invoices</small><h4 class="mt-2 mb-0">{{ pending_invoices }}</h4></div></div></div>
     <div class="col-md-3">
         <div class="card border-0 shadow-sm h-100 bg-primary text-white">
             <div class="card-body">
