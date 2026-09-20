@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="bi bi-gear"></i> Salon Settings</h2>
+<form method="POST" class="card border-0 shadow-sm"><div class="card-body">
+<div class="row g-3">
+<div class="col-md-6"><label class="form-label">Salon name</label><input name="salon_name" class="form-control" value="{{ setting.salon_name }}"></div>
+<div class="col-md-6"><label class="form-label">Phone</label><input name="phone" class="form-control" value="{{ setting.phone or '' }}"></div>
+<div class="col-12"><label class="form-label">Address</label><textarea name="address" class="form-control" rows="2">{{ setting.address or '' }}</textarea></div>
+<div class="col-md-4"><label class="form-label">Tax rate (%)</label><input type="number" min="0" max="100" step="0.1" name="tax_rate" class="form-control" value="{{ setting.tax_rate }}"></div>
+<div class="col-md-4"><label class="form-label">Loyalty points per ₹100 (%)</label><input type="number" min="0" max="100" step="0.1" name="loyalty_rate" class="form-control" value="{{ setting.loyalty_rate }}"></div>
+<div class="col-md-4"><label class="form-label">Reminder window (days)</label><input type="number" min="1" max="30" name="reminder_days" class="form-control" value="{{ setting.reminder_days }}"></div>
+</div><button class="btn btn-primary mt-4">Save Settings</button></div></form>
+<div class="card border-0 shadow-sm mt-4"><div class="card-body"><h5>Security</h5><p class="text-muted">Change the current account password before using Salon Pro in production.</p><a href="{{ url_for('change_password') }}" class="btn btn-outline-danger">Change Password</a></div></div>
+{% endblock %}
