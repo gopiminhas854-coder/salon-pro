@@ -1297,7 +1297,8 @@ def appointments():
         query = query.filter_by(status=status_filter)
     if date_filter:
         try:
-            parsed_date = datetime.strptime(date_filter, '%Y-%m-%d').date()            query = query.filter_by(appointment_date=parsed_date)
+            parsed_date = datetime.strptime(date_filter, '%Y-%m-%d').date()
+            query = query.filter_by(appointment_date=parsed_date)
         except ValueError:
             flash('Invalid appointment date filter. Showing all appointments.', 'warning')
             date_filter = ''
