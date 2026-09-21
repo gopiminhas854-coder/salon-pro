@@ -204,9 +204,9 @@ def test_refund_reverses_loyalty_and_inventory(client):
         assert salon.InventoryItem.query.get(item_id).stock_qty == before + 1
         assert salon.LoyaltyTransaction.query.filter_by(transaction_type='Refund').count() == 1
 
-def test_completed_appointment_invoice_is_created_atomically():
-    with salon.app.test_client() as client:
-        login(client)
+def test_completed_appointment_invoice_is_created_atomically(client):
+    client, _ = client
+    login(client)
         with salon.app.app_context():
             customer = salon.Customer.query.first()
             service = salon.Service.query.first()
