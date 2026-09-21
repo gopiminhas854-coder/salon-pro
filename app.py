@@ -982,8 +982,11 @@ def customer_detail(id):
     ).all()
     customer_invoices = Invoice.query.filter_by(customer_id=id).order_by(Invoice.created_at.desc()).all()
     completed_visits = Appointment.query.filter_by(customer_id=id, status='Completed').count()
-    total_spend = sum(i.total for i in customer_invoices if i.payment_status == 'Paid')
-    pending_amount = sum(i.total for i in customer_invoices if i.payment_status == 'Pending')
+    # Use the same payment/refund accounting as invoices and BI. This prevents
+    # refunded revenue from remaining in the customer profile and includes
+    # partial-payment balances.
+    total_spend = round(sum(invoice_net_paid_amount(i) for i in customer_invoices), 2)
+    pending_amount = round(sum(invoice_balance(i) for i in customer_invoices), 2)
     last_visit = Appointment.query.filter_by(customer_id=id, status='Completed').order_by(
         Appointment.appointment_date.desc()
     ).first()
@@ -1653,11 +1656,12 @@ def staff_performance(id):
     ).order_by(Appointment.appointment_date.desc(), Appointment.appointment_time.desc()).all()
 
     completed = [a for a in appointments if a.status == 'Completed']
-    paid_revenue = sum(
-        inv.total for inv in Invoice.query.join(Appointment, Invoice.appointment_id == Appointment.id)
-        .filter(Appointment.staff_id == id, Invoice.payment_status == 'Paid',
-                func.date(Invoice.created_at) >= start, func.date(Invoice.created_at) <= end).all()
-    )
+    staff_invoices = Invoice.query.join(Appointment, Invoice.appointment_id == Appointment.id).filter(
+        Appointment.staff_id == id,
+        func.date(Invoice.created_at) >= start,
+        func.date(Invoice.created_at) <= end
+    ).all()
+    paid_revenue = round(sum(invoice_net_paid_amount(inv) for inv in staff_invoices), 2)
     settings = StaffCommission.query.filter_by(staff_id=id).first()
     rate = settings.commission_rate if settings else 0
     commission = round(paid_revenue * rate / 100, 2)
