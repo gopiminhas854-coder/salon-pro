@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timedelta, timezone
@@ -20,7 +20,7 @@ def commit_or_rollback():
         raise
 
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=None)
 _secret = os.environ.get('SALON_PRO_SECRET_KEY', '')
 if os.environ.get('FLASK_ENV') == 'production' and len(_secret) < 32:
     raise RuntimeError('SALON_PRO_SECRET_KEY must be set to a strong 32+ character value in production.')
@@ -34,6 +34,12 @@ app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
+
+# Serve static assets explicitly so production deployments cannot accidentally
+# return empty/default static responses when the Flask static folder is disabled.
+@app.route('/static/<path:filename>')
+def static_assets(filename):
+    return send_from_directory(os.path.join(app.root_path, 'static'), filename)
 
 # ==================== MODELS ====================
 
