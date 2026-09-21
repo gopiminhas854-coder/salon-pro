@@ -9,6 +9,8 @@ services:
     envVars:
       - key: SALON_PRO_SECRET_KEY
         generateValue: true
+      - key: FLASK_ENV
+        value: "production"
       - key: SALON_PRO_AUTO_CREATE_DB
         value: "0"
       - key: SESSION_COOKIE_SECURE
