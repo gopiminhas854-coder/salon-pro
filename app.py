@@ -588,7 +588,7 @@ def download_backup():
         io.BytesIO(compressed),
         mimetype='application/gzip',
         as_attachment=True,
-        download_name=f"salon-pro-backup-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}Z.json.gz'
+        download_name=f"salon-pro-backup-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}Z.json.gz"
     )
 
 @app.route('/backup/restore', methods=['POST'])
