@@ -556,21 +556,25 @@ def dashboard():
     total_staff = Staff.query.filter_by(is_active=True).count()
     total_services = Service.query.filter_by(is_active=True).count()
     first_day = today.replace(day=1)
-    paid_invoices = Invoice.query.filter(Invoice.payment_status == 'Paid', Invoice.created_at >= first_day).all()
-    monthly_revenue = sum(inv.total for inv in paid_invoices)
-    monthly_expenses = sum(e.amount for e in Expense.query.filter(Expense.expense_date >= first_day, Expense.expense_date <= today).all())
-    monthly_profit = monthly_revenue - monthly_expenses
+    paid_invoices = Invoice.query.filter(Invoice.created_at >= first_day).all()
+    # Use net collected revenue consistently with billing and BI, including
+    # partial payments and refunds.
+    monthly_revenue = round(sum(invoice_net_paid_amount(inv) for inv in paid_invoices), 2)
+    monthly_expenses = round(sum(e.amount for e in Expense.query.filter(Expense.expense_date >= first_day, Expense.expense_date <= today).all()), 2)
+    monthly_profit = round(monthly_revenue - monthly_expenses, 2)
     next_week = today + timedelta(days=7)
     upcoming = Appointment.query.filter(Appointment.appointment_date > today, Appointment.appointment_date <= next_week, Appointment.status == 'Scheduled').order_by(Appointment.appointment_date, Appointment.appointment_time).limit(5).all()
-    pending_invoices = Invoice.query.filter_by(payment_status='Pending').count()
-    today_revenue = sum(i.total for i in Invoice.query.filter(Invoice.payment_status == 'Paid', func.date(Invoice.created_at) == today).all())
+    pending_invoices = Invoice.query.filter(Invoice.payment_status.in_(['Pending', 'Partial'])).count()
+    today_invoices = Invoice.query.filter(func.date(Invoice.created_at) == today).all()
+    today_revenue = round(sum(invoice_net_paid_amount(i) for i in today_invoices), 2)
     completed_today = Appointment.query.filter_by(appointment_date=today, status='Completed').count()
     low_stock_count = InventoryItem.query.filter(InventoryItem.is_active == True, InventoryItem.stock_qty <= InventoryItem.reorder_level).count()
     revenue_by_day = []
     for offset in range(6, -1, -1):
         day = today - timedelta(days=offset)
-        day_revenue = sum(i.total for i in Invoice.query.filter(Invoice.payment_status == 'Paid', func.date(Invoice.created_at) == day).all())
-        revenue_by_day.append({'label': day.strftime('%a'), 'date': day.isoformat(), 'revenue': round(day_revenue, 2)})
+        day_invoices = Invoice.query.filter(func.date(Invoice.created_at) == day).all()
+        day_revenue = round(sum(invoice_net_paid_amount(i) for i in day_invoices), 2)
+        revenue_by_day.append({'label': day.strftime('%a'), 'date': day.isoformat(), 'revenue': day_revenue})
     service_counts = {}
     for appointment in Appointment.query.filter(Appointment.appointment_date >= first_day, Appointment.appointment_date <= today, Appointment.status == 'Completed').all():
         if appointment.service:
@@ -1182,7 +1186,12 @@ def appointments():
     if status_filter:
         query = query.filter_by(status=status_filter)
     if date_filter:
-        query = query.filter_by(appointment_date=datetime.strptime(date_filter, '%Y-%m-%d').date())
+        try:
+            parsed_date = datetime.strptime(date_filter, '%Y-%m-%d').date()
+            query = query.filter_by(appointment_date=parsed_date)
+        except ValueError:
+            flash('Invalid appointment date filter. Showing all appointments.', 'warning')
+            date_filter = ''
     
     appointments_list = query.order_by(Appointment.appointment_date.desc(), Appointment.appointment_time).all()
     return render_template('appointments.html', appointments=appointments_list,
