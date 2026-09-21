@@ -1,11 +1,8 @@
 """Alembic environment for Salon Pro."""
-from logging.config import fileConfig
 from alembic import context
 from app import app, db
 
 config = context.config
-if config.config_file_name:
-    fileConfig(config.config_file_name)
 target_metadata = db.metadata
 
 def run_migrations_offline():
