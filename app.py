@@ -385,7 +385,14 @@ def security_headers(response):
 
 @app.route('/health')
 def health():
-    return jsonify({'status': 'ok', 'service': 'Salon Pro'}), 200
+    # Health must verify database connectivity; otherwise Render can report
+    # a healthy web process while the application database is unavailable.
+    try:
+        db.session.execute(db.text('SELECT 1'))
+        return jsonify({'status': 'ok', 'service': 'Salon Pro', 'database': 'ok'}), 200
+    except Exception:
+        db.session.rollback()
+        return jsonify({'status': 'degraded', 'service': 'Salon Pro', 'database': 'unavailable'}), 503
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
