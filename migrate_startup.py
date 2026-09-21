@@ -3,10 +3,11 @@
 Existing installations created before Alembic was introduced are stamped at the
 baseline only after all baseline tables are present. Fresh databases are created
 through the baseline migration. Future migrations always run through upgrade().
+The application bootstrap runs only after migrations complete.
 """
 from sqlalchemy import inspect
 from flask_migrate import stamp, upgrade
-from app import app, db
+from app import app, db, init_db
 
 BASELINE = "0001_initial_schema"
 EXPECTED_TABLES = {
@@ -32,4 +33,11 @@ with app.app_context():
             )
         stamp(BASELINE)
 
+    # Apply the schema first. This is the only migration/bootstrap path used by
+    # Render before Gunicorn starts, so there is no concurrent init_db() race.
     upgrade()
+
+    # Seed/repair application data only after the schema is fully migrated.
+    # This also creates the default admin on a fresh database and backfills
+    # invoice line items from older installations.
+    init_db()
