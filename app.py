@@ -5,6 +5,9 @@ from datetime import datetime, date, timedelta
 from functools import wraps
 import os
 import secrets
+import io
+import json
+import gzip
 from sqlalchemy import func, inspect
 from flask_migrate import Migrate
 
@@ -27,7 +30,7 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
-app.config['MAX_CONTENT_LENGTH'] = 2 * 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -397,8 +400,7 @@ def health():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
+        username = request.form.get('username')        password = request.form.get('password')
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
@@ -541,16 +543,114 @@ def public_booking():
     staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
     return render_template('booking.html', services=services, staff_list=staff_list, today_iso=date.today().isoformat())
 
+def _backup_json():
+    tables = {}
+    for table in db.metadata.sorted_tables:
+        rows = []
+        for row in db.session.execute(table.select()).mappings():
+            item = {}
+            for key, value in row.items():
+                if isinstance(value, (datetime, date)):
+                    item[key] = value.isoformat()
+                else:
+                    item[key] = value
+            rows.append(item)
+        tables[table.name] = rows
+    return {
+        'format': 'salon-pro-backup',
+        'version': 1,
+        'created_at': datetime.utcnow().isoformat() + 'Z',
+        'database': db.engine.url.get_backend_name(),
+        'tables': tables,
+    }
+
+def _restore_value(column, value):
+    if value is None:
+        return None
+    try:
+        python_type = column.type.python_type
+    except (AttributeError, NotImplementedError):
+        return value
+    if python_type is date:
+        return date.fromisoformat(value)
+    if python_type is datetime:
+        return datetime.fromisoformat(value.replace('Z', '+00:00')).replace(tzinfo=None)
+    if python_type is bool and isinstance(value, str):
+        return value.lower() in {'1', 'true', 'yes', 'on'}
+    return value
+
 @app.route('/backup/download')
 @admin_required
 def download_backup():
-    db_path = os.path.join(app.instance_path, 'salon.db')
-    if not os.path.exists(db_path):
-        db_path = os.path.abspath('salon.db')
-    if not os.path.exists(db_path):
-        flash('Database file was not found.', 'danger')
-        return redirect(url_for('dashboard'))
-    return send_file(db_path, as_attachment=True, download_name=f"salon-pro-backup-{date.today().isoformat()}.db")
+    payload = json.dumps(_backup_json(), ensure_ascii=False, separators=(',', ':')).encode('utf-8')
+    compressed = gzip.compress(payload, compresslevel=6)
+    return send_file(
+        io.BytesIO(compressed),
+        mimetype='application/gzip',
+        as_attachment=True,
+        download_name=f"salon-pro-backup-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}Z.json.gz'
+    )
+
+@app.route('/backup/restore', methods=['POST'])
+@admin_required
+def restore_backup():
+    upload = request.files.get('backup_file')
+    confirmation = (request.form.get('restore_confirmation') or '').strip().upper()
+    if not upload or not upload.filename:
+        flash('Choose a Salon Pro backup file first.', 'danger')
+        return redirect(url_for('settings'))
+    if confirmation != 'RESTORE':
+        flash('Type RESTORE to confirm replacing the current database data.', 'danger')
+        return redirect(url_for('settings'))
+    try:
+        raw = upload.read()
+        if upload.filename.lower().endswith(('.gz', '.gzip')):
+            raw = gzip.decompress(raw)
+        backup = json.loads(raw.decode('utf-8'))
+        if backup.get('format') != 'salon-pro-backup' or backup.get('version') != 1:
+            raise ValueError('Unsupported backup format.')
+        tables = backup.get('tables')
+        if not isinstance(tables, dict):
+            raise ValueError('Backup table data is invalid.')
+
+        known = set(db.metadata.tables)
+        unknown = set(tables) - known
+        if unknown:
+            raise ValueError(f'Backup contains unknown tables: {", ".join(sorted(unknown))}')
+
+        db.session.rollback()
+        # Delete children before parents so foreign keys remain valid.
+        for table in reversed(db.metadata.sorted_tables):
+            db.session.execute(table.delete())
+        # Restore in dependency order.
+        for table in db.metadata.sorted_tables:
+            rows = tables.get(table.name, [])
+            if not rows:
+                continue
+            valid_columns = {c.name: c for c in table.columns}
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError(f'Invalid row in {table.name}.')
+                values = {key: _restore_value(valid_columns[key], value)
+                          for key, value in row.items() if key in valid_columns}
+                db.session.execute(table.insert().values(**values))
+
+        # PostgreSQL integer sequences must be moved past restored primary keys.
+        if db.engine.dialect.name == 'postgresql':
+            for table in db.metadata.sorted_tables:
+                pk = next(iter(table.primary_key.columns), None)
+                if pk is not None and getattr(pk.type, 'python_type', None) is int:
+                    db.session.execute(db.text(
+                        "SELECT setval(pg_get_serial_sequence(:table_name, :column_name), "
+                        "COALESCE((SELECT MAX(" + pk.name + ") FROM " + table.name + "), 1), true)"
+                    ), {'table_name': table.name, 'column_name': pk.name})
+        db.session.commit()
+        flash('Database restore completed successfully.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('Database restore failed: %s', exc)
+        flash(f'Database restore failed: {exc}', 'danger')
+    return redirect(url_for('settings'))
 
 # ==================== DASHBOARD ====================
 
@@ -797,8 +897,7 @@ def business_intelligence():
             'net_revenue': net_revenue,
             'expenses': expense_total,
             'profit_before_tax_and_other_adjustments': round(net_revenue - expense_total, 2),
-            'average_paid_invoice': round(net_revenue / len([i for i in invoices if invoice_net_paid_amount(i) > 0]), 2) if any(invoice_net_paid_amount(i) > 0 for i in invoices) else 0,
-            'commissions': commissions,
+            'average_paid_invoice': round(net_revenue / len([i for i in invoices if invoice_net_paid_amount(i) > 0]), 2) if any(invoice_net_paid_amount(i) > 0 for i in invoices) else 0,            'commissions': commissions,
         },
         'appointments': {
             'total': len(appointments),
@@ -1197,8 +1296,7 @@ def appointments():
         query = query.filter_by(status=status_filter)
     if date_filter:
         try:
-            parsed_date = datetime.strptime(date_filter, '%Y-%m-%d').date()
-            query = query.filter_by(appointment_date=parsed_date)
+            parsed_date = datetime.strptime(date_filter, '%Y-%m-%d').date()            query = query.filter_by(appointment_date=parsed_date)
         except ValueError:
             flash('Invalid appointment date filter. Showing all appointments.', 'warning')
             date_filter = ''
@@ -1597,8 +1695,7 @@ def add_invoice_item(id):
         return redirect(url_for('view_invoice', id=id))
     item = InvoiceItem(invoice_id=invoice.id, description=description,
                        quantity=quantity, unit_price=unit_price,
-                       total=round(quantity * unit_price, 2))
-    db.session.add(item)
+                       total=round(quantity * unit_price, 2))    db.session.add(item)
     db.session.flush()
     subtotal = sum(i.total for i in invoice.items)
     invoice.amount = round(subtotal, 2)
@@ -1997,8 +2094,7 @@ def change_password():
     if request.method == 'POST':
         current = request.form.get('current_password','')
         new = request.form.get('new_password','')
-        confirm = request.form.get('confirm_password','')
-        if not check_password_hash(user.password_hash, current):
+        confirm = request.form.get('confirm_password','')        if not check_password_hash(user.password_hash, current):
             flash('Current password is incorrect.', 'danger')
         elif len(new) < 8:
             flash('New password must be at least 8 characters.', 'danger')
