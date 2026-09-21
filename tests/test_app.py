@@ -205,34 +205,34 @@ def test_refund_reverses_loyalty_and_inventory(client):
         assert salon.LoyaltyTransaction.query.filter_by(transaction_type='Refund').count() == 1
 
 def test_completed_appointment_invoice_is_created_atomically(client):
-    client, _ = client
+    client, salon = client
     login(client)
-        with salon.app.app_context():
-            customer = salon.Customer.query.first()
-            service = salon.Service.query.first()
-            staff = salon.Staff.query.first()
-            appt = salon.Appointment(
-                customer_id=customer.id,
-                staff_id=staff.id,
-                service_id=service.id,
-                appointment_date=salon.date.today(),
-                appointment_time="14:00",
-                status="Scheduled",
-            )
-            salon.db.session.add(appt)
-            salon.db.session.commit()
-            appointment_id = appt.id
-            service_price = service.price
+    with salon.app.app_context():
+        customer = salon.Customer.query.first()
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+        appt = salon.Appointment(
+            customer_id=customer.id,
+            staff_id=staff.id,
+            service_id=service.id,
+            appointment_date=salon.date.today(),
+            appointment_time="14:00",
+            status="Scheduled",
+        )
+        salon.db.session.add(appt)
+        salon.db.session.commit()
+        appointment_id = appt.id
+        service_price = service.price
 
-        response = client.post(f'/appointments/status/{appointment_id}/Completed')
-        assert response.status_code == 302
+    response = client.post(f'/appointments/status/{appointment_id}/Completed')
+    assert response.status_code == 302
 
-        with salon.app.app_context():
-            invoice = salon.Invoice.query.filter_by(appointment_id=appointment_id).first()
-            assert invoice is not None
-            assert invoice.payment_status == 'Pending'
-            assert invoice.amount == service_price
-            assert invoice.total > invoice.amount
+    with salon.app.app_context():
+        invoice = salon.Invoice.query.filter_by(appointment_id=appointment_id).first()
+        assert invoice is not None
+        assert invoice.payment_status == 'Pending'
+        assert invoice.amount == service_price
+        assert invoice.total > invoice.amount
 
 
 def test_migration_extension_is_configured():
