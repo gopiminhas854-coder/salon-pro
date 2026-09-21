@@ -1,7 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from functools import wraps
 import os
 import secrets
@@ -559,7 +559,7 @@ def _backup_json():
     return {
         'format': 'salon-pro-backup',
         'version': 1,
-        'created_at': datetime.utcnow().isoformat() + 'Z',
+        'created_at': datetime.now(timezone.utc).isoformat(),
         'database': db.engine.url.get_backend_name(),
         'tables': tables,
     }
@@ -588,7 +588,7 @@ def download_backup():
         io.BytesIO(compressed),
         mimetype='application/gzip',
         as_attachment=True,
-        download_name=f"salon-pro-backup-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}Z.json.gz"
+        download_name=f"salon-pro-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}Z.json.gz"
     )
 
 @app.route('/backup/restore', methods=['POST'])
