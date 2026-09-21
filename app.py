@@ -1494,7 +1494,8 @@ def refund_invoice(id):
                 loyalty.points = max(0, loyalty.points - points)
                 loyalty.lifetime_spend = max(0, round(loyalty.lifetime_spend - amount, 2))
                 db.session.add(LoyaltyTransaction(customer_id=invoice.customer_id, points=-points,
-                    transaction_type='Refund', reference=f'refund:{invoice.id}:{secrets.token_hex(8)}', amount=-amount))        if amount >= remaining - 0.01:
+                    transaction_type='Refund', reference=f'refund:{invoice.id}:{secrets.token_hex(8)}', amount=-amount))
+        if amount >= remaining - 0.01:
             for line in invoice.items:
                 sale_line = InventorySaleLine.query.filter_by(invoice_item_id=line.id).first()
                 if sale_line:
