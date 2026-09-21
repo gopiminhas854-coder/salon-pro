@@ -400,7 +400,8 @@ def health():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')        password = request.form.get('password')
+        username = request.form.get('username')
+        password = request.form.get('password')
         user = User.query.filter_by(username=username).first()
         if user and check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
@@ -1695,7 +1696,8 @@ def add_invoice_item(id):
         return redirect(url_for('view_invoice', id=id))
     item = InvoiceItem(invoice_id=invoice.id, description=description,
                        quantity=quantity, unit_price=unit_price,
-                       total=round(quantity * unit_price, 2))    db.session.add(item)
+                       total=round(quantity * unit_price, 2))
+    db.session.add(item)
     db.session.flush()
     subtotal = sum(i.total for i in invoice.items)
     invoice.amount = round(subtotal, 2)
@@ -2094,7 +2096,8 @@ def change_password():
     if request.method == 'POST':
         current = request.form.get('current_password','')
         new = request.form.get('new_password','')
-        confirm = request.form.get('confirm_password','')        if not check_password_hash(user.password_hash, current):
+        confirm = request.form.get('confirm_password','')
+        if not check_password_hash(user.password_hash, current):
             flash('Current password is incorrect.', 'danger')
         elif len(new) < 8:
             flash('New password must be at least 8 characters.', 'danger')
