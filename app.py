@@ -20,7 +20,7 @@ def commit_or_rollback():
         raise
 
 
-app = Flask(__name__, static_folder=None)
+app = Flask(__name__, static_folder='static')
 _secret = os.environ.get('SALON_PRO_SECRET_KEY', '')
 if os.environ.get('FLASK_ENV') == 'production' and len(_secret) < 32:
     raise RuntimeError('SALON_PRO_SECRET_KEY must be set to a strong 32+ character value in production.')
@@ -34,12 +34,6 @@ app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
-
-# Serve static assets explicitly so production deployments cannot accidentally
-# return empty/default static responses when the Flask static folder is disabled.
-@app.route('/static/<path:filename>')
-def static_assets(filename):
-    return send_from_directory(os.path.join(app.root_path, 'static'), filename)
 
 # ==================== MODELS ====================
 
