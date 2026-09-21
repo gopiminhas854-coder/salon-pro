@@ -596,7 +596,8 @@ def download_backup():
 def restore_backup():
     upload = request.files.get('backup_file')
     confirmation = (request.form.get('restore_confirmation') or '').strip().upper()
-    if not upload or not upload.filename:        flash('Choose a Salon Pro backup file first.', 'danger')
+    if not upload or not upload.filename:
+        flash('Choose a Salon Pro backup file first.', 'danger')
         return redirect(url_for('settings'))
     if confirmation != 'RESTORE':
         flash('Type RESTORE to confirm replacing the current database data.', 'danger')
