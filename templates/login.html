@@ -1,35 +1,112 @@
-{% extends "base.html" %}
-{% block title %}Login{% endblock %}
-
-{% block content %}
-<div class="row justify-content-center mt-5">
-    <div class="col-md-4">
-        <div class="card shadow-lg border-0">
-            <div class="card-body p-5">
-                <div class="text-center mb-4">
-                    <i class="bi bi-scissors display-3 text-primary"></i>
-                    <h2 class="fw-bold mt-2">Salon Pro</h2>
-                    <p class="text-muted">Salon Management System</p>
-                </div>
-                <form method="POST">
-                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <div class="mb-3">
-                        <label class="form-label">Username</label>
-                        <input type="text" name="username" class="form-control form-control-lg" required autofocus>
-                    </div>
-                    <div class="mb-4">
-                        <label class="form-label">Password</label>
-                        <input type="password" name="password" class="form-control form-control-lg" required>
-                    </div>
-                    <button type="submit" class="btn btn-primary btn-lg w-100">
-                        <i class="bi bi-box-arrow-in-right"></i> Login
-                    </button>
-                </form>
-                <div class="text-center mt-4 text-muted small">
-                    Default: <strong>admin</strong> / <strong>admin123</strong>
-                </div>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#171717">
+    <title>Login | Salon Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css') }}" rel="stylesheet">
+    <style>
+        html, body { min-height: 100%; }
+        body {
+            margin: 0;
+            background: #f7f5f0;
+            color: #171717;
+            font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        .login-page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px 16px;
+        }
+        .login-card {
+            width: 100%;
+            max-width: 430px;
+            background: #fff;
+            border: 1px solid #e9e6df;
+            border-radius: 20px;
+            box-shadow: 0 12px 40px rgba(25,22,18,.08);
+        }
+        .login-mark {
+            width: 58px;
+            height: 58px;
+            margin: 0 auto;
+            display: grid;
+            place-items: center;
+            border-radius: 16px;
+            background: #171717;
+            color: #fff;
+            font-size: 25px;
+        }
+        .form-control {
+            min-height: 48px;
+            border-radius: 11px;
+            border-color: #ddd9d1;
+        }
+        .form-control:focus {
+            border-color: #b9975b;
+            box-shadow: 0 0 0 .2rem rgba(185,151,91,.12);
+        }
+        .login-btn {
+            min-height: 48px;
+            border: 0;
+            border-radius: 11px;
+            background: #171717;
+            color: #fff;
+            font-weight: 700;
+        }
+        .login-btn:hover, .login-btn:focus {
+            background: #000;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="position-fixed top-0 start-50 translate-middle-x w-100 p-3" style="max-width:520px;z-index:1050;">
+            {% for category, message in messages %}
+            <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
+            {% endfor %}
         </div>
-    </div>
-</div>
-{% endblock %}
+        {% endif %}
+    {% endwith %}
+
+    <main class="login-page">
+        <section class="login-card p-4 p-sm-5">
+            <div class="text-center">
+                <div class="login-mark"><i class="bi bi-scissors"></i></div>
+                <h1 class="h3 fw-bold mt-3 mb-1">Salon Pro</h1>
+                <p class="text-muted mb-4">Salon Management System</p>
+            </div>
+
+            <form method="POST" autocomplete="on">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+                <div class="mb-3">
+                    <label for="username" class="form-label fw-semibold">Username</label>
+                    <input id="username" type="text" name="username" class="form-control" autocomplete="username" required autofocus>
+                </div>
+
+                <div class="mb-4">
+                    <label for="password" class="form-label fw-semibold">Password</label>
+                    <input id="password" type="password" name="password" class="form-control" autocomplete="current-password" required>
+                </div>
+
+                <button type="submit" class="btn login-btn w-100">
+                    <i class="bi bi-box-arrow-in-right me-1"></i> Login
+                </button>
+            </form>
+        </section>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
