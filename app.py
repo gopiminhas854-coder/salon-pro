@@ -1976,6 +1976,26 @@ def invoices():
     invoices_list = Invoice.query.order_by(Invoice.created_at.desc()).all()
     return render_template('invoices.html', invoices=invoices_list)
 
+@app.route('/invoices/<int:id>/tip', methods=['POST'])
+@login_required
+def update_invoice_tip(id):
+    invoice = Invoice.query.get_or_404(id)
+    if invoice.payment_status in {'Paid','Refunded'} or invoice_net_paid_amount(invoice) > 0:
+        flash('Tip cannot be edited after payment. Create a new charge if needed.', 'warning')
+        return redirect(url_for('view_invoice', id=id))
+    try:
+        tip = round(float(request.form.get('tip', 0) or 0), 2)
+        if tip < 0:
+            raise ValueError
+        invoice.tip = tip
+        recalculate_invoice(invoice)
+        db.session.commit()
+        flash('Tip updated.', 'success')
+    except (ValueError, TypeError):
+        db.session.rollback()
+        flash('Enter a valid tip amount.', 'danger')
+    return redirect(url_for('view_invoice', id=id))
+
 @app.route('/invoices/<int:id>')
 @login_required
 def view_invoice(id):
