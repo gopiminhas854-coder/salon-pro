@@ -53,7 +53,8 @@ def test_invalid_appointment_status_is_rejected():
             salon.db.session.commit()
             appt_id = appt.id
         response = client.post(f"/appointments/status/{appt_id}/INVALID")
-        assert response.status_code == 302
+        assert response.status_code == 400
+        assert response.get_json()["ok"] is False
         with salon.app.app_context():
             assert salon.Appointment.query.get(appt_id).status == "Scheduled"
 
@@ -194,9 +195,10 @@ def test_internal_booking_respects_closed_hours():
             "customer_id": "1", "staff_id": "1", "service_id": "1",
             "appointment_date": salon.date.today().isoformat(), "appointment_time": "09:00",
         })
-        assert response.status_code == 302
+        assert response.status_code == 200
         with salon.app.app_context():
             assert salon.Appointment.query.count() == 0
+        assert b"Bookings are available from 10:00 to 18:00" in response.data
 
 
 def test_public_booking_page_renders_for_logged_out_users():
