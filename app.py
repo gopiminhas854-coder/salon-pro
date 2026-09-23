@@ -2128,7 +2128,7 @@ def export_report_csv():
     writer = csv.writer(output)
     writer.writerow(['Salon Pro Report', start.isoformat(), end.isoformat()])
     writer.writerow([])
-    writer.writerow(['Paid Invoice ID', 'Date', 'Customer', 'Total', 'Payment Method'])
+    writer.writerow(['Collected Invoice ID', 'Date', 'Customer', 'Collected Amount', 'Payment Method'])
     for inv in paid:
         writer.writerow([inv.id, inv.created_at.strftime('%Y-%m-%d'), inv.customer.name if inv.customer else '',
                          f'{invoice_net_paid_amount(inv):.2f}', inv.payment_method or ''])
