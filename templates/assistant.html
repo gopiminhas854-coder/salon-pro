@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}AI Assistant{% endblock %}
+{% block page_kicker %}AI Business Assistant{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-xl-9">
+<div class="card mb-4"><div class="card-body p-4"><div class="text-muted small">Database-grounded assistant</div><h2 class="mb-1">🤖 Ask Salon Pro</h2><div class="text-muted mb-4">Ask business questions and get answers from your Salon Pro data.</div>
+<form method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><textarea name="question" class="form-control mb-3" rows="3" placeholder="How much did I make this month?">{{ question }}</textarea><button class="btn btn-dark">Ask Salon Pro</button></form>
+<div class="d-flex flex-wrap gap-2 mt-3">{% for q in ['How much did I make this month?','How much money is outstanding?','Which customers have not visited recently?','Which products are running low?','Who are my top customers?','What should I focus on today?'] %}<a class="btn btn-sm btn-light" href="#" onclick="document.querySelector('[name=question]').value={{ q|tojson }}; return false;">{{ q }}</a>{% endfor %}</div>
+</div></div>
+{% if answer %}<div class="card"><div class="card-header"><strong>Answer</strong></div><div class="card-body"><div class="fs-5 mb-3">{{ answer }}</div>{% for fact in facts %}<div class="py-2 border-bottom">{{ fact }}</div>{% endfor %}</div></div>{% endif %}
+<div class="alert alert-light border mt-3 small mb-0">The current assistant uses deterministic database queries so it cannot invent financial figures. A connected LLM can be added later for natural-language reasoning while keeping the same database guardrails.</div>
+</div></div>
+{% endblock %}
