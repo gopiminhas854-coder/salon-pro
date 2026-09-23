@@ -369,6 +369,7 @@ def test_customer_milestones_and_special_reminders(client):
         customer.anniversary_date = salon.date(today.year - 5, target.month, target.day)
         salon.db.session.commit()
 
+    login(c)
     response = c.get("/reminders")
     assert response.status_code == 200
     assert b"Birthdays" in response.data
