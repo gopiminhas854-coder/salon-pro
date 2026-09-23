@@ -9,7 +9,7 @@ from app import app
 def prevent_stale_html_cache(response):
     # Dynamic pages must always reflect the current deployed UI. This avoids a
     # browser/PWA cache keeping an older HTML shell after a Render deployment.
-    if response.mimetype == "text/html":
+    if request.path.endswith("/sw.js") or response.mimetype == "text/html":
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
