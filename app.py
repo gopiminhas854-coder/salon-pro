@@ -385,6 +385,10 @@ def security_headers(response):
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
     if request.is_secure:
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    if request.path.endswith('/sw.js') or response.mimetype == 'text/html':
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
     return response
 
 @app.errorhandler(404)
