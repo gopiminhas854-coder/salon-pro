@@ -2011,7 +2011,7 @@ def loyalty():
     rows = []
     for customer in customers_list:
         loyalty = CustomerLoyalty.query.filter_by(customer_id=customer.id).first()
-        paid = sum(i.total for i in Invoice.query.filter_by(customer_id=customer.id, payment_status='Paid').all())
+        paid = sum(invoice_net_paid_amount(i) for i in Invoice.query.filter_by(customer_id=customer.id).all())
         spend = loyalty.lifetime_spend if loyalty else paid
         points = loyalty.points if loyalty else int(paid * (SalonSetting.query.first().loyalty_rate if SalonSetting.query.first() else 1) / 100)
         rows.append({'customer': customer, 'points': points, 'spend': round(spend,2)})
