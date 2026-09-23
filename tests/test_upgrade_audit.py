@@ -423,3 +423,17 @@ def test_packages_retention_inventory_staff_and_backup():
         response = client.get("/health")
         assert response.status_code == 200
         assert response.get_json()["database"] == "ok"
+
+
+def test_all_fixed_get_routes_render_without_server_errors():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        checked = 0
+        for rule in salon.app.url_map.iter_rules():
+            if 'GET' not in rule.methods or rule.endpoint == 'static' or '<' in rule.rule:
+                continue
+            response = client.get(rule.rule)
+            assert response.status_code < 500, f"{rule.endpoint} {rule.rule}: {response.status_code}"
+            checked += 1
+        assert checked >= 40
