@@ -287,6 +287,8 @@ class SalonSetting(db.Model):
     address = db.Column(db.Text)
     tax_rate = db.Column(db.Float, default=5)
     loyalty_rate = db.Column(db.Float, default=1)
+    loyalty_reward_threshold = db.Column(db.Integer, default=1000)
+    loyalty_reward_value = db.Column(db.Float, default=500)
     reminder_days = db.Column(db.Integer, default=1)
     invoice_prefix = db.Column(db.String(20), default='SP')
     gst_number = db.Column(db.String(30))
@@ -3150,8 +3152,8 @@ def loyalty():
         points = loyalty.points if loyalty else int(paid * (SalonSetting.query.first().loyalty_rate if SalonSetting.query.first() else 1) / 100)
         rows.append({'customer': customer, 'points': points, 'spend': round(spend,2)})
     setting = SalonSetting.query.first()
-    reward_threshold = 1000
-    reward_value = 500
+    reward_threshold = max(1, int(setting.loyalty_reward_threshold or 1000))
+    reward_value = max(0, float(setting.loyalty_reward_value or 500))
     for row in rows:
         row['next_reward_points'] = max(reward_threshold - row['points'], 0)
         row['reward_value'] = reward_value
@@ -3605,6 +3607,8 @@ def settings():
         try:
             setting.tax_rate = max(0, min(100, float(request.form.get('tax_rate', 5))))
             setting.loyalty_rate = max(0, min(100, float(request.form.get('loyalty_rate', 1))))
+            setting.loyalty_reward_threshold = max(1, min(1000000, int(request.form.get('loyalty_reward_threshold', 1000))))
+            setting.loyalty_reward_value = max(0, min(10000000, float(request.form.get('loyalty_reward_value', 500))))
             setting.reminder_days = max(1, min(30, int(request.form.get('reminder_days', 1))))
         except (ValueError, TypeError):
             flash('Enter valid numeric settings.', 'danger')
