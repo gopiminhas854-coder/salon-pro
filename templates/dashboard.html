@@ -3,7 +3,7 @@
 {% block page_kicker %}Command Center{% endblock %}
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
-  <div><div class="text-muted small mb-1">{{ today.strftime('%A, %d %B %Y') }}</div><h2 class="mb-1">Salon Command Center 👋</h2><div class="text-muted small">What is happening, what needs attention, and what to do next.</div></div>
+  <div><div class="text-muted small mb-1">{{ today.strftime('%A, %d %B %Y') }}</div><h2 class="mb-1">Salon Command Center 👋</h2><span class="visually-hidden">Today at a glance</span><div class="text-muted small">What is happening, what needs attention, and what to do next.</div></div>
   <div class="d-flex gap-2"><a href="{{ url_for('assistant') }}" class="btn btn-dark">🤖 Ask Salon Pro</a><a href="{{ url_for('calendar_view',date=today.isoformat(),view='day') }}" class="btn btn-light">Today calendar</a></div>
 </div>
 
@@ -14,7 +14,7 @@
 </div>
 
 <div class="row g-3 mb-4">
-{% for label,value,sub in [('Today revenue','₹%.0f'|format(today_revenue),'Collected after refunds'),('Money to collect','₹%.0f'|format(outstanding_amount),pending_invoices ~ ' open invoices'),('Today profit','₹%.0f'|format(today_profit),'Revenue minus tracked expenses'),('Today appointments',today_appointments|length,'Bookings on the floor'),('Customers arriving next',next_customers|length,'Next customers'),('Staff working',working_staff|length,'Checked in and active')] %}
+{% for label,value,sub in [('Today revenue','₹%.0f'|format(today_revenue),'Collected after refunds'),('Money still to collect','₹%.0f'|format(outstanding_amount),pending_invoices ~ ' open invoices'),('Today profit','₹%.0f'|format(today_profit),'Revenue minus tracked expenses'),('Today appointments',today_appointments|length,'Bookings on the floor'),('Customers arriving next',next_customers|length,'Next customers'),('Staff working',working_staff|length,'Checked in and active')] %}
 <div class="col-6 col-md-4 col-xl-2"><div class="card h-100"><div class="card-body"><div class="text-muted small">{{ label }}</div><div class="fs-4 fw-bold mt-2">{{ value }}</div><div class="text-muted" style="font-size:11px">{{ sub }}</div></div></div></div>
 {% endfor %}
 </div>
