@@ -28,6 +28,9 @@ if os.environ.get('FLASK_ENV') == 'production' and len(_secret) < 32:
     raise RuntimeError('SALON_PRO_SECRET_KEY must be set to a strong 32+ character value in production.')
 app.config['SECRET_KEY'] = _secret or 'change-this-secret-key'
 app.config['GOOGLE_CLIENT_ID'] = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
+app.config['TWILIO_ACCOUNT_SID'] = os.environ.get('TWILIO_ACCOUNT_SID', '').strip()
+app.config['TWILIO_AUTH_TOKEN'] = os.environ.get('TWILIO_AUTH_TOKEN', '').strip()
+app.config['TWILIO_VERIFY_SERVICE_SID'] = os.environ.get('TWILIO_VERIFY_SERVICE_SID', '').strip()
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///salon.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -45,6 +48,7 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), default='admin')  # admin / staff
+    phone_number = db.Column(db.String(20), unique=True)
 
 class GoogleIdentity(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -547,6 +551,151 @@ def login():
             return redirect(url_for('dashboard'))
         flash('Invalid username or password.', 'danger')
     return render_template('login.html')
+
+def normalize_phone_number(value):
+    """Normalize Indian +91 phone numbers for OTP authentication."""
+    raw = (value or '').strip().replace(' ', '').replace('-', '')
+    if raw.startswith('0'):
+        raw = '+91' + raw[1:]
+    elif raw.isdigit() and len(raw) == 10:
+        raw = '+91' + raw
+    if not raw.startswith('+') or not raw[1:].isdigit() or len(raw) < 10:
+        return None
+    return raw
+
+
+def twilio_verify_configured():
+    return all((
+        app.config.get('TWILIO_ACCOUNT_SID'),
+        app.config.get('TWILIO_AUTH_TOKEN'),
+        app.config.get('TWILIO_VERIFY_SERVICE_SID'),
+    ))
+
+
+def twilio_verify_request(path, data):
+    if not twilio_verify_configured():
+        raise RuntimeError('Phone OTP is not configured on the server.')
+    import requests
+    url = f"https://verify.twilio.com/v2/Services/{app.config['TWILIO_VERIFY_SERVICE_SID']}/{path}"
+    response = requests.post(
+        url,
+        data=data,
+        auth=(app.config['TWILIO_ACCOUNT_SID'], app.config['TWILIO_AUTH_TOKEN']),
+        timeout=15,
+    )
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    if not response.ok:
+        raise RuntimeError(payload.get('message') or 'Phone verification service request failed.')
+    return payload
+
+
+@app.route('/auth/phone/send', methods=['POST'])
+def phone_send_otp():
+    phone = normalize_phone_number(request.form.get('phone'))
+    if not phone:
+        flash('Enter a valid phone number, for example +91 98765 43210.', 'danger')
+        return redirect(url_for('login'))
+    if not twilio_verify_configured():
+        flash('Phone login is not configured yet. Add the Twilio Verify settings on the server.', 'warning')
+        return redirect(url_for('login'))
+    try:
+        twilio_verify_request('Verifications', {'To': phone, 'Channel': 'sms'})
+        session['phone_login_number'] = phone
+        flash('OTP sent to your phone.', 'success')
+        return redirect(url_for('phone_login'))
+    except Exception as exc:
+        app.logger.exception('Phone OTP send failed: %s', exc)
+        flash('Could not send the OTP. Please try again.', 'danger')
+        return redirect(url_for('login'))
+
+
+@app.route('/auth/phone', methods=['GET', 'POST'])
+def phone_login():
+    phone = session.get('phone_login_number')
+    if not phone:
+        return redirect(url_for('login'))
+    if request.method == 'POST':
+        code = (request.form.get('code') or '').strip()
+        if not code.isdigit() or len(code) < 4 or len(code) > 8:
+            flash('Enter the OTP sent to your phone.', 'danger')
+            return render_template('phone_login.html', phone=phone)
+        try:
+            result = twilio_verify_request('VerificationCheck', {'To': phone, 'Code': code})
+            if result.get('status') != 'approved':
+                flash('Invalid or expired OTP.', 'danger')
+                return render_template('phone_login.html', phone=phone)
+            user = User.query.filter_by(phone_number=phone).first()
+            if not user:
+                flash('This phone number is not linked to a Salon Pro account. Log in with your password and link it in Settings first.', 'warning')
+                return redirect(url_for('login'))
+            link = UserStaffLink.query.filter_by(user_id=user.id).first()
+            if link and (not link.staff or not link.staff.is_active):
+                flash('This Salon Pro account is inactive.', 'danger')
+                return redirect(url_for('login'))
+            establish_login_session(user)
+            flash('Welcome back!', 'success')
+            return redirect(url_for('dashboard'))
+        except Exception as exc:
+            app.logger.exception('Phone OTP verification failed: %s', exc)
+            flash('Could not verify the OTP. Please try again.', 'danger')
+    return render_template('phone_login.html', phone=phone)
+
+
+@app.route('/account/phone/send', methods=['POST'])
+@login_required
+def phone_link_send():
+    phone = normalize_phone_number(request.form.get('phone'))
+    if not phone:
+        flash('Enter a valid phone number, for example +91 98765 43210.', 'danger')
+        return redirect(url_for('settings'))
+    existing = User.query.filter(User.phone_number == phone, User.id != session['user_id']).first()
+    if existing:
+        flash('That phone number is already linked to another Salon Pro account.', 'danger')
+        return redirect(url_for('settings'))
+    if not twilio_verify_configured():
+        flash('Phone login is not configured yet. Add the Twilio Verify settings on the server.', 'warning')
+        return redirect(url_for('settings'))
+    try:
+        twilio_verify_request('Verifications', {'To': phone, 'Channel': 'sms'})
+        session['phone_link_number'] = phone
+        flash('OTP sent. Enter it below to link your phone.', 'success')
+    except Exception as exc:
+        app.logger.exception('Phone link OTP send failed: %s', exc)
+        flash('Could not send the OTP. Please try again.', 'danger')
+    return redirect(url_for('settings'))
+
+
+@app.route('/account/phone/verify', methods=['POST'])
+@login_required
+def phone_link_verify():
+    phone = session.get('phone_link_number')
+    code = (request.form.get('code') or '').strip()
+    if not phone:
+        flash('Start phone linking first.', 'warning')
+        return redirect(url_for('settings'))
+    try:
+        result = twilio_verify_request('VerificationCheck', {'To': phone, 'Code': code})
+        if result.get('status') != 'approved':
+            flash('Invalid or expired OTP.', 'danger')
+            return redirect(url_for('settings'))
+        user = User.query.get_or_404(session['user_id'])
+        existing = User.query.filter(User.phone_number == phone, User.id != user.id).first()
+        if existing:
+            flash('That phone number is already linked to another Salon Pro account.', 'danger')
+            return redirect(url_for('settings'))
+        user.phone_number = phone
+        db.session.commit()
+        session.pop('phone_link_number', None)
+        flash('Phone number linked successfully. You can now log in with OTP.', 'success')
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception('Phone link verification failed: %s', exc)
+        flash('Could not verify the OTP. Please try again.', 'danger')
+    return redirect(url_for('settings'))
+
 
 @app.route('/logout')
 def logout():
