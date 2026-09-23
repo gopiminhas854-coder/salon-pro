@@ -120,7 +120,8 @@ class Invoice(db.Model):
     discount = db.Column(db.Float, default=0)
     tax = db.Column(db.Float, default=0)
     total = db.Column(db.Float, nullable=False)
-    payment_status = db.Column(db.String(20), default='Pending')  # Pending, Paid
+    payment_status = db.Column(db.String(20), default='Pending')  # Pending, Paid, Partial, Refunded
+    commission_rate = db.Column(db.Float, nullable=True)
     payment_method = db.Column(db.String(30))  # Cash, Card, UPI
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     appointment = db.relationship('Appointment')
@@ -1552,6 +1553,8 @@ def edit_appointment(id):
                         tax=invoice_tax,
                         total=round(invoice_amount + invoice_tax, 2),
                         payment_status='Pending',
+                        commission_rate=(StaffCommission.query.filter_by(staff_id=appt.staff_id).first().commission_rate
+                                         if StaffCommission.query.filter_by(staff_id=appt.staff_id).first() else 0),
                     )
                     db.session.add(invoice)
                     db.session.flush()
@@ -1613,7 +1616,9 @@ def update_appointment_status(id, status):
                     discount=0,
                     tax=round(service.price * get_tax_rate() / 100, 2),
                     total=round(service.price * (1 + get_tax_rate() / 100), 2),
-                    payment_status='Pending'
+                    payment_status='Pending',
+                    commission_rate=(StaffCommission.query.filter_by(staff_id=appt.staff_id).first().commission_rate
+                                     if StaffCommission.query.filter_by(staff_id=appt.staff_id).first() else 0)
                 )
                 db.session.add(inv)
                 db.session.flush()
