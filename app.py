@@ -1873,236 +1873,96 @@ def create_staff_account(id):
 @app.route('/appointments')
 @login_required
 def appointments():
-    status_filter = request.args.get('status', '')
-    date_filter = request.args.get('date', '')
-    
-    query = Appointment.query
+    status_filter=request.args.get('status',''); date_filter=request.args.get('date','')
+    query=Appointment.query
     if status_filter:
-        query = query.filter_by(status=status_filter)
+        query=query.filter(Appointment.status.in_(['Booked','Scheduled']) if status_filter=='Booked' else Appointment.status==status_filter)
     if date_filter:
-        try:
-            parsed_date = datetime.strptime(date_filter, '%Y-%m-%d').date()
-            query = query.filter_by(appointment_date=parsed_date)
-        except ValueError:
-            flash('Invalid appointment date filter. Showing all appointments.', 'warning')
-            date_filter = ''
-    
-    appointments_list = query.order_by(Appointment.appointment_date.desc(), Appointment.appointment_time).all()
-    return render_template('appointments.html', appointments=appointments_list,
-                           status_filter=status_filter, date_filter=date_filter)
+        try: query=query.filter_by(appointment_date=datetime.strptime(date_filter,'%Y-%m-%d').date())
+        except ValueError: flash('Invalid appointment date.','warning'); date_filter=''
+    return render_template('appointments.html',appointments=query.order_by(Appointment.appointment_date.desc(),Appointment.appointment_time).all(),status_filter=status_filter,date_filter=date_filter,status_options=APPOINTMENT_STATUSES)
 
-@app.route('/appointments/add', methods=['GET', 'POST'])
+@app.route('/appointments/add',methods=['GET','POST'])
 @login_required
 def add_appointment():
-    if request.method == 'POST':
+    if request.method=='POST':
         try:
-            appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
-            appointment_time = request.form['appointment_time']
-            datetime.strptime(appointment_time, '%H:%M')
-            staff_id = int(request.form['staff_id'])
-            service_id = int(request.form['service_id'])
-            customer_id = int(request.form['customer_id'])
-            service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
-            Staff.query.filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
-            Customer.query.get_or_404(customer_id)
-            allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
-            if not allowed:
-                flash(reason, 'danger')
-                return redirect(url_for('add_appointment'))
+            appointment_date=datetime.strptime(request.form['appointment_date'],'%Y-%m-%d').date(); appointment_time=request.form['appointment_time']; datetime.strptime(appointment_time,'%H:%M')
+            staff_id=int(request.form['staff_id']); service_id=int(request.form['service_id']); customer_id=int(request.form['customer_id'])
+            service=Service.query.filter_by(id=service_id,is_active=True).first_or_404(); Staff.query.filter_by(id=staff_id,is_active=True).first_or_404(); Customer.query.get_or_404(customer_id)
+            allowed,reason=booking_allowed(appointment_date,appointment_time,service.duration_minutes or 30)
+            if not allowed: raise ValueError(reason)
+            conflict=appointment_conflict(staff_id,appointment_date,appointment_time,service.duration_minutes or 30)
+            if conflict: raise ValueError(conflict)
+            status=normalize_appointment_status(request.form.get('status','Booked')); recurrence=request.form.get('recurrence_rule','None')
+            end_text=request.form.get('recurrence_end_date','').strip(); recurrence_end=datetime.strptime(end_text,'%Y-%m-%d').date() if end_text else None
+            if recurrence not in {'None','Weekly','Biweekly','Monthly'}: recurrence='None'
+            if recurrence!='None' and not recurrence_end: raise ValueError('Choose an end date for recurring appointments.')
+            if recurrence_end and recurrence_end<appointment_date: raise ValueError('Recurring end date must be after the first appointment.')
+            created=[]; current=appointment_date
+            while True:
+                allowed,_=booking_allowed(current,appointment_time,service.duration_minutes or 30); conflict=appointment_conflict(staff_id,current,appointment_time,service.duration_minutes or 30)
+                if allowed and not conflict:
+                    created.append(Appointment(customer_id=customer_id,staff_id=staff_id,service_id=service_id,appointment_date=current,appointment_time=appointment_time,notes=request.form.get('notes'),status=status,recurrence_rule=recurrence,recurrence_end_date=recurrence_end))
+                if recurrence=='None' or not recurrence_end or current>=recurrence_end: break
+                if recurrence=='Weekly': current+=timedelta(days=7)
+                elif recurrence=='Biweekly': current+=timedelta(days=14)
+                else:
+                    nm=(current.replace(day=1)+timedelta(days=32)).replace(day=1); current=nm.replace(day=min(current.day,28))
+            if not created: raise ValueError('No available appointment slots matched this request.')
+            db.session.add_all(created); db.session.commit(); flash(f'{len(created)} appointment(s) booked.','success'); return redirect(url_for('appointments'))
+        except (KeyError,TypeError,ValueError) as exc:
+            db.session.rollback(); flash(str(exc) or 'Please enter valid appointment details.','danger')
+    return render_template('appointment_form.html',appointment=None,customers=Customer.query.order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),status_options=APPOINTMENT_STATUSES,recurrence_options=['None','Weekly','Biweekly','Monthly'])
 
-            start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
-            end = start + timedelta(minutes=service.duration_minutes or 30)
-            conflicts = Appointment.query.filter_by(
-                staff_id=staff_id, appointment_date=appointment_date, status='Scheduled'
-            ).all()
-            for existing in conflicts:
-                existing_service = existing.service
-                existing_start = datetime.combine(
-                    appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time()
-                )
-                existing_end = existing_start + timedelta(minutes=existing_service.duration_minutes or 30)
-                if start < existing_end and existing_start < end:
-                    flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
-                    return redirect(url_for('add_appointment'))
-
-            db.session.add(Appointment(
-                customer_id=customer_id,
-                staff_id=staff_id,
-                service_id=service_id,
-                appointment_date=appointment_date,
-                appointment_time=appointment_time,
-                notes=request.form.get('notes'),
-                status='Scheduled',
-            ))
-            db.session.commit()
-            flash('Appointment booked successfully!', 'success')
-            return redirect(url_for('appointments'))
-        except (KeyError, TypeError, ValueError):
-            db.session.rollback()
-            flash('Please enter valid appointment details.', 'danger')
-            return redirect(url_for('add_appointment'))
-
-    customers = Customer.query.order_by(Customer.name).all()
-    staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
-    services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
-    return render_template('appointment_form.html', appointment=None,
-                           customers=customers, staff_list=staff_list, services=services)
-
-
-@app.route('/appointments/edit/<int:id>', methods=['GET', 'POST'])
+@app.route('/appointments/edit/<int:id>',methods=['GET','POST'])
 @login_required
 def edit_appointment(id):
-    appt = Appointment.query.get_or_404(id)
-    existing_invoice = Invoice.query.filter_by(appointment_id=appt.id).first()
-    if request.method == 'POST':
-        if existing_invoice and appt.status == 'Completed':
-            flash('Completed appointments with invoices cannot be edited. Correct the invoice separately to preserve financial history.', 'warning')
-            return redirect(url_for('appointments'))
+    appt=Appointment.query.get_or_404(id); existing_invoice=Invoice.query.filter_by(appointment_id=appt.id).first()
+    if request.method=='POST':
+        if existing_invoice and appt.status=='Completed': flash('Completed appointments with invoices are locked. Edit the invoice instead.','warning'); return redirect(url_for('appointments'))
         try:
-            appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
-            appointment_time = request.form['appointment_time']
-            datetime.strptime(appointment_time, '%H:%M')
-            staff_id = int(request.form['staff_id'])
-            service_id = int(request.form['service_id'])
-            customer_id = int(request.form['customer_id'])
-            service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
-            Staff.query.filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
-            Customer.query.get_or_404(customer_id)
-            allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
-            if not allowed:
-                flash(reason, 'danger')
-                return redirect(url_for('edit_appointment', id=id))
+            appt_date=datetime.strptime(request.form['appointment_date'],'%Y-%m-%d').date(); appt_time=request.form['appointment_time']; datetime.strptime(appt_time,'%H:%M')
+            staff_id=int(request.form['staff_id']); service_id=int(request.form['service_id']); customer_id=int(request.form['customer_id'])
+            service=Service.query.filter_by(id=service_id,is_active=True).first_or_404(); Staff.query.filter_by(id=staff_id,is_active=True).first_or_404(); Customer.query.get_or_404(customer_id)
+            allowed,reason=booking_allowed(appt_date,appt_time,service.duration_minutes or 30)
+            if not allowed: raise ValueError(reason)
+            conflict=appointment_conflict(staff_id,appt_date,appt_time,service.duration_minutes or 30,exclude_id=appt.id)
+            if conflict: raise ValueError(conflict)
+            status=normalize_appointment_status(request.form.get('status','Booked'));
+            if status not in APPOINTMENT_STATUSES: raise ValueError('Invalid appointment status.')
+            appt.customer_id=customer_id; appt.staff_id=staff_id; appt.service_id=service_id; appt.appointment_date=appt_date; appt.appointment_time=appt_time; appt.status=status; appt.notes=request.form.get('notes')
+            appt.recurrence_rule=request.form.get('recurrence_rule','None'); end_text=request.form.get('recurrence_end_date','').strip(); appt.recurrence_end_date=datetime.strptime(end_text,'%Y-%m-%d').date() if end_text else None
+            if status=='Completed' and not existing_invoice:
+                comm=StaffCommission.query.filter_by(staff_id=appt.staff_id).first(); price=service.price; tax=round(price*get_tax_rate()/100,2)
+                inv=Invoice(appointment_id=appt.id,customer_id=appt.customer_id,amount=price,discount=0,tax=tax,tip=0,total=round(price+tax,2),payment_status='Pending',commission_rate=comm.commission_rate if comm else 0)
+                db.session.add(inv); db.session.flush(); db.session.add(InvoiceItem(invoice_id=inv.id,description=service.name,quantity=1,unit_price=price,total=price))
+            if status in {'Cancelled','No-Show'} and existing_invoice and invoice_net_paid_amount(existing_invoice)>0: raise ValueError('Refund the invoice before cancelling this appointment.')
+            if status in {'Cancelled','No-Show'} and existing_invoice: db.session.delete(existing_invoice)
+            db.session.commit(); flash('Appointment updated.','success'); return redirect(url_for('appointments'))
+        except (KeyError,TypeError,ValueError) as exc:
+            db.session.rollback(); flash(str(exc) or 'Please enter valid appointment details.','danger')
+    return render_template('appointment_form.html',appointment=appt,customers=Customer.query.order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),status_options=APPOINTMENT_STATUSES,recurrence_options=['None','Weekly','Biweekly','Monthly'])
 
-            start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
-            end = start + timedelta(minutes=service.duration_minutes or 30)
-            conflicts = Appointment.query.filter(
-                Appointment.id != appt.id,
-                Appointment.staff_id == staff_id,
-                Appointment.appointment_date == appointment_date,
-                Appointment.status == 'Scheduled'
-            ).all()
-            for existing in conflicts:
-                existing_start = datetime.combine(
-                    appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time()
-                )
-                existing_end = existing_start + timedelta(minutes=existing.service.duration_minutes or 30)
-                if start < existing_end and existing_start < end:
-                    flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
-                    return redirect(url_for('edit_appointment', id=id))
-
-            status = request.form.get('status', 'Scheduled')
-            if status not in {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}:
-                raise ValueError
-                flash('Invalid appointment status.', 'danger')
-                return redirect(url_for('edit_appointment', id=id))
-
-            appt.customer_id = customer_id
-            appt.staff_id = staff_id
-            appt.service_id = service_id
-            appt.appointment_date = appointment_date
-            appt.appointment_time = appointment_time
-            appt.status = status
-            appt.notes = request.form.get('notes')
-
-            if status == 'Completed':
-                existing_invoice = Invoice.query.filter_by(appointment_id=appt.id).first()
-                if not existing_invoice:
-                    completed_service = Service.query.get(appt.service_id)
-                    tax_rate = get_tax_rate()
-                    invoice_amount = round(completed_service.price, 2)
-                    invoice_tax = round(invoice_amount * tax_rate / 100, 2)
-                    invoice = Invoice(
-                        appointment_id=appt.id,
-                        customer_id=appt.customer_id,
-                        amount=invoice_amount,
-                        discount=0,
-                        tax=invoice_tax,
-                        total=round(invoice_amount + invoice_tax, 2),
-                        payment_status='Pending',
-                        commission_rate=(StaffCommission.query.filter_by(staff_id=appt.staff_id).first().commission_rate
-                                         if StaffCommission.query.filter_by(staff_id=appt.staff_id).first() else 0),
-                    )
-                    db.session.add(invoice)
-                    db.session.flush()
-                    db.session.add(InvoiceItem(
-                        invoice_id=invoice.id,
-                        description=completed_service.name,
-                        quantity=1,
-                        unit_price=completed_service.price,
-                        total=completed_service.price,
-                    ))
-
-            # Cancelled and No-Show appointments must not retain an unpaid invoice.
-            if status in {'Cancelled', 'No-Show'} and existing_invoice:
-                if invoice_net_paid_amount(existing_invoice) > 0:
-                    raise ValueError('This appointment has payments. Refund the invoice before cancelling the appointment.')
-                db.session.delete(existing_invoice)
-            db.session.commit()
-            flash('Appointment updated!' + (' Invoice created.' if status == 'Completed' and not existing_invoice else ''), 'success')
-            return redirect(url_for('appointments'))
-        except (KeyError, TypeError, ValueError):
-            db.session.rollback()
-            flash('Please enter valid appointment details.', 'danger')
-            return redirect(url_for('edit_appointment', id=id))
-
-    customers = Customer.query.order_by(Customer.name).all()
-    staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
-    services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
-    return render_template('appointment_form.html', appointment=appt,
-                           customers=customers, staff_list=staff_list, services=services)
-
-@app.route('/appointments/status/<int:id>/<status>', methods=['POST'])
+@app.route('/appointments/status/<int:id>/<status>',methods=['POST'])
 @login_required
-def update_appointment_status(id, status):
-    allowed_statuses = {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}
-    if status not in allowed_statuses:
-        flash('Invalid appointment status.', 'danger')
-        return redirect(url_for('appointments'))
-    appt = Appointment.query.get_or_404(id)
-    if status == 'Completed' and appt.appointment_date > date.today():
-        flash('A future appointment cannot be marked as Completed.', 'warning')
-        return redirect(url_for('appointments'))
-    existing = Invoice.query.filter_by(appointment_id=appt.id).first()
-    if status in {'Cancelled', 'No-Show'} and existing and invoice_net_paid_amount(existing) > 0:
-        flash('This appointment has payments. Refund the invoice before cancelling the appointment.', 'warning')
-        return redirect(url_for('appointments'))
-    appt.status = status
-    # Keep status change and automatic invoice creation in one database transaction.
-    # A failure must not leave a completed appointment without its invoice.
+def update_appointment_status(id,status):
+    status=normalize_appointment_status(status)
+    if status not in APPOINTMENT_STATUSES: return jsonify({'ok':False,'error':'Invalid appointment status.'}),400
+    appt=Appointment.query.get_or_404(id); existing=Invoice.query.filter_by(appointment_id=appt.id).first()
+    if status=='Completed' and appt.appointment_date>date.today(): return jsonify({'ok':False,'error':'Future appointment cannot be completed.'}),400
+    if status in {'Cancelled','No-Show'} and existing and invoice_net_paid_amount(existing)>0: return jsonify({'ok':False,'error':'Refund the invoice first.'}),409
     try:
-        # Auto-create invoice when completed
-        if status == 'Completed':
-            existing = Invoice.query.filter_by(appointment_id=appt.id).first()
-            if not existing:
-                service = Service.query.get(appt.service_id)
-                inv = Invoice(
-                    appointment_id=appt.id,
-                    customer_id=appt.customer_id,
-                    amount=service.price,
-                    discount=0,
-                    tax=round(service.price * get_tax_rate() / 100, 2),
-                    total=round(service.price * (1 + get_tax_rate() / 100), 2),
-                    payment_status='Pending',
-                    commission_rate=(StaffCommission.query.filter_by(staff_id=appt.staff_id).first().commission_rate
-                                     if StaffCommission.query.filter_by(staff_id=appt.staff_id).first() else 0)
-                )
-                db.session.add(inv)
-                db.session.flush()
-                db.session.add(InvoiceItem(invoice_id=inv.id, description=service.name,
-                                           quantity=1, unit_price=service.price,
-                                           total=service.price))
-                flash(f'Appointment marked as Completed. Invoice created (₹{inv.total}).', 'success')
-            else:
-                flash('Status updated.', 'success')
-        if status in {'Cancelled', 'No-Show'} and existing:
-            db.session.delete(existing)
-        commit_or_rollback()
+        appt.status=status
+        if status=='Completed' and not existing:
+            service=Service.query.get(appt.service_id); comm=StaffCommission.query.filter_by(staff_id=appt.staff_id).first(); tax=round(service.price*get_tax_rate()/100,2)
+            inv=Invoice(appointment_id=appt.id,customer_id=appt.customer_id,amount=service.price,discount=0,tax=tax,tip=0,total=round(service.price+tax,2),payment_status='Pending',commission_rate=comm.commission_rate if comm else 0)
+            db.session.add(inv); db.session.flush(); db.session.add(InvoiceItem(invoice_id=inv.id,description=service.name,quantity=1,unit_price=service.price,total=service.price))
+        if status in {'Cancelled','No-Show'} and existing and invoice_net_paid_amount(existing)<=0: db.session.delete(existing)
+        db.session.commit(); result={'ok':True,'status':status}; return jsonify(result) if request.is_json else redirect(request.referrer or url_for('appointments'))
     except Exception:
-        db.session.rollback()
-        flash('Could not update appointment status. No changes were saved.', 'danger')
-    return redirect(url_for('appointments'))
-
-# ==================== INVOICES / BILLING ====================
+        db.session.rollback();
+        return (jsonify({'ok':False,'error':'Could not update appointment. No changes were saved.'}),500) if request.is_json else redirect(url_for('appointments'))
 
 @app.route('/invoices')
 @login_required
