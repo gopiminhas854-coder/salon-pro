@@ -4,10 +4,10 @@
 <div class="row justify-content-center"><div class="col-lg-6">
 <div class="card border-0 shadow-sm"><div class="card-body p-4">
 <h3><i class="bi bi-person-lock"></i> Create Staff Login</h3>
-<p class="text-muted">Create a separate login for <strong>{{ member.name }}</strong>. Staff accounts have restricted admin access.</p>
+<p class="text-muted">Create a separate login for <strong>{{ member.name }}</strong>. Choose the minimum access needed. Managers can handle operations; receptionists and staff cannot see sensitive business reports.</p>
 <form method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 <div class="mb-3"><label class="form-label">Username</label><input name="username" class="form-control" minlength="3" required></div>
-<div class="mb-3"><label class="form-label">Temporary password</label><input name="password" type="password" class="form-control" minlength="8" required></div>
+<div class="mb-3"><label class="form-label">Role</label><select name="role" class="form-select"><option value="staff">Staff</option><option value="receptionist">Receptionist</option><option value="manager">Manager</option></select></div><div class="mb-3"><label class="form-label">Temporary password</label><input name="password" type="password" class="form-control" minlength="8" required></div>
 <button class="btn btn-primary"><i class="bi bi-person-plus"></i> Create Account</button>
 <a href="{{ url_for('staff') }}" class="btn btn-outline-secondary">Cancel</a>
 </form></div></div></div></div>
