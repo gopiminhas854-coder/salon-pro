@@ -320,7 +320,14 @@ def test_calendar_move_and_staff_availability_endpoints():
 
         response = client.get(f"/api/staff/{staff_id}/availability?date={target.isoformat()}")
         assert response.status_code == 200
-        assert response.get_json()["available"] is True
+        availability = response.get_json()
+        assert any(
+            row["day_of_week"] == target.weekday()
+            and row["start_time"] == "10:00"
+            and row["end_time"] == "18:00"
+            and row["is_working"] is True
+            for row in availability["availability"]
+        )
 
         response = client.get(f"/api/staff/{staff_id}/breaks?date={target.isoformat()}")
         assert response.status_code == 200
