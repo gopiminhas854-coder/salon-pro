@@ -289,6 +289,15 @@ class InvoiceItem(db.Model):
     total = db.Column(db.Float, nullable=False)
     invoice = db.relationship('Invoice', backref=db.backref('items', lazy=True, cascade='all, delete-orphan'))
 
+class StaffSchedule(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
+    day_of_week = db.Column(db.Integer, nullable=False)
+    start_time = db.Column(db.String(5), nullable=False, default='09:00')
+    end_time = db.Column(db.String(5), nullable=False, default='20:00')
+    is_working = db.Column(db.Boolean, default=True)
+    staff = db.relationship('Staff', backref='schedules')
+
 class StaffBreak(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
@@ -842,6 +851,16 @@ def booking_allowed(appointment_date, appointment_time, duration_minutes):
     return True, ''
 
 def appointment_conflict(staff_id, appointment_date, appointment_time, duration_minutes, exclude_id=None):
+    schedule = StaffSchedule.query.filter_by(staff_id=staff_id, day_of_week=appointment_date.weekday()).first()
+    if schedule and not schedule.is_working:
+        return 'This staff member is not available on this day.'
+    if schedule:
+        start_time = datetime.strptime(appointment_time, '%H:%M').time()
+        start_limit = datetime.strptime(schedule.start_time, '%H:%M').time()
+        end_limit = datetime.strptime(schedule.end_time, '%H:%M').time()
+        end_candidate = datetime.combine(appointment_date, start_time) + timedelta(minutes=duration_minutes or 30)
+        if start_time < start_limit or end_candidate.time() > end_limit or end_candidate.date() != appointment_date:
+            return f'Staff availability is {schedule.start_time}–{schedule.end_time}.'
     start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
     end = start + timedelta(minutes=duration_minutes or 30)
     breaks = StaffBreak.query.filter_by(
@@ -1975,6 +1994,61 @@ def update_appointment_status(id,status):
 def invoices():
     invoices_list = Invoice.query.order_by(Invoice.created_at.desc()).all()
     return render_template('invoices.html', invoices=invoices_list)
+
+@app.route('/api/staff/<int:staff_id>/availability', methods=['GET','POST'])
+@login_required
+def staff_availability_api(staff_id):
+    Staff.query.get_or_404(staff_id)
+    if request.method == 'POST':
+        payload = request.get_json(silent=True) or {}
+        try:
+            day = int(payload.get('day_of_week'))
+            start_time = payload.get('start_time', '09:00')
+            end_time = payload.get('end_time', '20:00')
+            is_working = bool(payload.get('is_working', True))
+            datetime.strptime(start_time, '%H:%M')
+            datetime.strptime(end_time, '%H:%M')
+            if day not in range(7) or start_time >= end_time:
+                raise ValueError
+            row = StaffSchedule.query.filter_by(staff_id=staff_id, day_of_week=day).first()
+            if not row:
+                row = StaffSchedule(staff_id=staff_id, day_of_week=day)
+                db.session.add(row)
+            row.start_time = start_time
+            row.end_time = end_time
+            row.is_working = is_working
+            db.session.commit()
+            return jsonify({'ok': True, 'day_of_week': day, 'start_time': start_time, 'end_time': end_time, 'is_working': is_working})
+        except (TypeError, ValueError):
+            db.session.rollback()
+            return jsonify({'ok': False, 'error': 'Invalid staff availability.'}), 400
+    rows = StaffSchedule.query.filter_by(staff_id=staff_id).order_by(StaffSchedule.day_of_week).all()
+    breaks = StaffBreak.query.filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
+    return jsonify({
+        'availability': [{'day_of_week': r.day_of_week, 'start_time': r.start_time, 'end_time': r.end_time, 'is_working': r.is_working} for r in rows],
+        'breaks': [{'id': b.id, 'day_of_week': b.day_of_week, 'start_time': b.start_time, 'end_time': b.end_time, 'is_active': b.is_active} for b in breaks]
+    })
+
+@app.route('/api/staff/<int:staff_id>/breaks', methods=['POST'])
+@login_required
+def staff_break_create_api(staff_id):
+    Staff.query.get_or_404(staff_id)
+    payload = request.get_json(silent=True) or {}
+    try:
+        day = int(payload.get('day_of_week'))
+        start_time = payload.get('start_time')
+        end_time = payload.get('end_time')
+        datetime.strptime(start_time, '%H:%M')
+        datetime.strptime(end_time, '%H:%M')
+        if day not in range(7) or start_time >= end_time:
+            raise ValueError
+        row = StaffBreak(staff_id=staff_id, day_of_week=day, start_time=start_time, end_time=end_time, is_active=bool(payload.get('is_active', True)))
+        db.session.add(row)
+        db.session.commit()
+        return jsonify({'ok': True, 'id': row.id})
+    except (TypeError, ValueError):
+        db.session.rollback()
+        return jsonify({'ok': False, 'error': 'Invalid staff break.'}), 400
 
 @app.route('/invoices/<int:id>/tip', methods=['POST'])
 @login_required
