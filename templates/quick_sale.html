@@ -30,6 +30,6 @@
 const customer=document.getElementById('customerSelect'), name=document.getElementById('newName'), phone=document.getElementById('newPhone'), service=document.getElementById('service'), paid=document.getElementById('paidAmount');
 customer.addEventListener('change',()=>{const isNew=!customer.value; name.parentElement.style.display=isNew?'block':'none'; phone.parentElement.style.display=isNew?'block':'none'; if(!isNew){name.value='';phone.value='';}});
 customer.dispatchEvent(new Event('change'));
-function syncAmount(){const opt=service.options[service.selectedIndex];if(!opt)return;const price=parseFloat(opt.dataset.price||0), discount=parseFloat(document.querySelector('[name="discount"]').value||0), tip=parseFloat(document.querySelector('[name="tip"]').value||0); const tax=Math.max(price-discount,0)*0.05; paid.value=Math.max(price-discount,0)+tax+tip;}
+function syncAmount(){const opt=service.options[service.selectedIndex];if(!opt)return;const price=parseFloat(opt.dataset.price||0), discount=parseFloat(document.querySelector('[name="discount"]').value||0), tip=parseFloat(document.querySelector('[name="tip"]').value||0); const tax=Math.max(price-discount,0)*({{ tax_rate or 0 }}/100); paid.value=Math.max(price-discount,0)+tax+tip;}
 service.addEventListener('change',syncAmount); document.querySelector('[name="discount"]').addEventListener('input',syncAmount); document.querySelector('[name="tip"]').addEventListener('input',syncAmount);
 </script>{% endblock %}
