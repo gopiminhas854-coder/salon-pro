@@ -873,22 +873,49 @@ def appointment_conflict(staff_id, appointment_date, appointment_time, duration_
 @app.route('/calendar')
 @login_required
 def calendar_view():
-    selected_text = request.args.get('date', date.today().isoformat())
+    selected_text=request.args.get('date',date.today().isoformat())
+    view=request.args.get('view','week').lower()
+    if view not in {'day','week','month'}: view='week'
     try:
-        selected = datetime.strptime(selected_text, '%Y-%m-%d').date()
+        selected=datetime.strptime(selected_text,'%Y-%m-%d').date()
     except ValueError:
-        selected = date.today()
-        selected_text = selected.isoformat()
-    week_start = selected - timedelta(days=selected.weekday())
-    days = [week_start + timedelta(days=i) for i in range(7)]
-    appointments_by_day = {
-        d: Appointment.query.filter_by(appointment_date=d).order_by(Appointment.appointment_time).all()
-        for d in days
-    }
-    return render_template('calendar.html', selected=selected, selected_text=selected_text,
-                           week_start=week_start, days=days, appointments_by_day=appointments_by_day,
-                           previous_week=(selected - timedelta(days=7)).isoformat(),
-                           next_week=selected + timedelta(days=7), today_iso=date.today().isoformat())
+        selected=date.today(); selected_text=selected.isoformat()
+    if view=='day':
+        days=[selected]; previous_date=selected-timedelta(days=1); next_date=selected+timedelta(days=1)
+    elif view=='month':
+        month_start=selected.replace(day=1)
+        next_month=(month_start+timedelta(days=32)).replace(day=1)
+        grid_start=month_start-timedelta(days=month_start.weekday())
+        grid_end=next_month-timedelta(days=1)
+        grid_end += timedelta(days=6-grid_end.weekday())
+        days=[]; d=grid_start
+        while d<=grid_end:
+            days.append(d); d+=timedelta(days=1)
+        previous_date=(month_start-timedelta(days=1)).replace(day=1); next_date=next_month
+    else:
+        week_start=selected-timedelta(days=selected.weekday())
+        days=[week_start+timedelta(days=i) for i in range(7)]
+        previous_date=selected-timedelta(days=7); next_date=selected+timedelta(days=7)
+    appointments_by_day={d:Appointment.query.filter_by(appointment_date=d).order_by(Appointment.appointment_time).all() for d in days}
+    return render_template('calendar.html',selected=selected,selected_text=selected_text,days=days,
+        appointments_by_day=appointments_by_day,previous_date=previous_date.isoformat(),next_date=next_date.isoformat(),
+        today_iso=date.today().isoformat(),view=view,month_label=selected.strftime('%B %Y'))
+
+@app.route('/appointments/move',methods=['POST'])
+@login_required
+def move_appointment():
+    appt=Appointment.query.get_or_404(request.form.get('appointment_id',type=int))
+    try:
+        new_date=datetime.strptime(request.form['appointment_date'],'%Y-%m-%d').date()
+        new_time=request.form.get('appointment_time',appt.appointment_time)
+        allowed,reason=booking_allowed(new_date,new_time,appt.service.duration_minutes or 30)
+        if not allowed: return jsonify({'ok':False,'error':reason}),400
+        conflict=appointment_conflict(appt.staff_id,new_date,new_time,appt.service.duration_minutes or 30,exclude_id=appt.id)
+        if conflict: return jsonify({'ok':False,'error':conflict}),409
+        appt.appointment_date=new_date; appt.appointment_time=new_time; db.session.commit()
+        return jsonify({'ok':True,'date':new_date.isoformat(),'time':new_time})
+    except (KeyError,ValueError,TypeError):
+        db.session.rollback(); return jsonify({'ok':False,'error':'Invalid appointment move.'}),400
 
 @app.route('/book', methods=['GET', 'POST'])
 def public_booking():
