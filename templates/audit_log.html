@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}Audit Log{% endblock %}
+{% block page_kicker %}Security{% endblock %}
+{% block content %}
+<div class="mb-4"><div class="text-muted small">Security trail</div><h2 class="mb-1">Audit Log 🔐</h2><div class="text-muted small">Recent operational events.</div></div>
+<div class="card"><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Path</th><th>Details</th></tr></thead><tbody>{% for row in rows %}<tr><td>{{ row.created_at.strftime('%d %b %Y %I:%M %p') }}</td><td>{{ row.user.username if row.user else 'System' }}</td><td><strong>{{ row.action }}</strong></td><td class="small">{{ row.path }}</td><td>{{ row.details }}</td></tr>{% else %}<tr><td colspan="5" class="text-center py-5 text-muted">No audit events recorded yet.</td></tr>{% endfor %}</tbody></table></div></div>
+{% endblock %}
