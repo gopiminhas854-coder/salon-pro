@@ -2002,7 +2002,11 @@ def staff_performance(id):
     paid_revenue = round(sum(invoice_net_paid_amount(inv) for inv in staff_invoices), 2)
     settings = StaffCommission.query.filter_by(staff_id=id).first()
     rate = settings.commission_rate if settings else 0
-    commission = round(paid_revenue * rate / 100, 2)
+    commission = round(sum(
+        max(invoice_net_paid_amount(inv), 0) *
+        ((inv.commission_rate if inv.commission_rate is not None else rate) / 100)
+        for inv in staff_invoices
+    ), 2)
     return render_template('staff_performance.html', member=member, appointments=appointments,
                            completed_count=len(completed), paid_revenue=paid_revenue,
                            rate=rate, commission=commission, start=start_text, end=end_text)
@@ -2114,7 +2118,15 @@ def reports():
         )
         settings = StaffCommission.query.filter_by(staff_id=member.id).first()
         rate = settings.commission_rate if settings else 0
-        commission = round(member_paid * rate / 100, 2)
+        member_invoices = [
+            inv for inv in paid
+            if inv.appointment and inv.appointment.staff_id == member.id
+        ]
+        commission = round(sum(
+            max(invoice_net_paid_amount(inv), 0) *
+            ((inv.commission_rate if inv.commission_rate is not None else rate) / 100)
+            for inv in member_invoices
+        ), 2)
         staff_rows.append({
             'member': member,
             'appointments': len(member_appts),
