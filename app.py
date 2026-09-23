@@ -115,6 +115,22 @@ class Appointment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     service = db.relationship('Service')
 
+class WaitlistEntry(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    service_id = db.Column(db.Integer, db.ForeignKey('service.id'), nullable=False)
+    preferred_staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'))
+    preferred_date = db.Column(db.Date)
+    preferred_time = db.Column(db.String(5))
+    status = db.Column(db.String(20), default='Open')
+    notes = db.Column(db.Text)
+    notified_at = db.Column(db.DateTime)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    customer = db.relationship('Customer', backref='waitlist_entries')
+    service = db.relationship('Service')
+    preferred_staff = db.relationship('Staff')
+
+
 class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(120), nullable=False)
@@ -934,6 +950,46 @@ def appointment_conflict(staff_id, appointment_date, appointment_time, duration_
         if start < existing_end and existing_start < end:
             return f'Staff member is already booked from {existing.appointment_time}.'
     return None
+
+def smart_schedule_slots(service_id, target_date, preferred_staff_id=None, limit=8):
+    service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+    staff_rows = []
+    if preferred_staff_id:
+        preferred = Staff.query.filter_by(id=preferred_staff_id, is_active=True).first()
+        if preferred:
+            staff_rows.append(preferred)
+    for member in Staff.query.filter_by(is_active=True).order_by(Staff.name).all():
+        if all(member.id != row.id for row in staff_rows):
+            staff_rows.append(member)
+
+    hours = SalonHours.query.filter_by(day_of_week=target_date.weekday()).first()
+    if hours and hours.is_closed:
+        return []
+    opening = datetime.strptime(hours.open_time, '%H:%M').time() if hours else datetime.strptime('09:00', '%H:%M').time()
+    closing = datetime.strptime(hours.close_time, '%H:%M').time() if hours else datetime.strptime('20:00', '%H:%M').time()
+    slots = []
+    now = datetime.now()
+    for member in staff_rows:
+        schedule = StaffSchedule.query.filter_by(staff_id=member.id, day_of_week=target_date.weekday()).first()
+        if schedule and not schedule.is_working:
+            continue
+        start = datetime.strptime(schedule.start_time, '%H:%M').time() if schedule else opening
+        end = datetime.strptime(schedule.end_time, '%H:%M').time() if schedule else closing
+        start_dt = max(datetime.combine(target_date, opening), datetime.combine(target_date, start))
+        end_dt = min(datetime.combine(target_date, closing), datetime.combine(target_date, end))
+        cursor = start_dt
+        while cursor + timedelta(minutes=service.duration_minutes or 30) <= end_dt:
+            if target_date > date.today() or cursor >= now:
+                hhmm = cursor.strftime('%H:%M')
+                allowed, _ = booking_allowed(target_date, hhmm, service.duration_minutes or 30)
+                conflict = appointment_conflict(member.id, target_date, hhmm, service.duration_minutes or 30) if allowed else 'blocked'
+                if allowed and not conflict:
+                    slots.append({'date': target_date.isoformat(), 'time': hhmm, 'staff_id': member.id, 'staff_name': member.name, 'service_id': service.id, 'service_name': service.name})
+                    if len(slots) >= limit:
+                        return slots
+            cursor += timedelta(minutes=15)
+    return slots
+
 
 # ==================== CALENDAR / BOOKING ====================
 
@@ -1998,6 +2054,113 @@ def create_staff_account(id):
 
 # ==================== APPOINTMENTS ====================
 
+@app.route('/waitlist', methods=['GET', 'POST'])
+@login_required
+def waitlist():
+    if request.method == 'POST':
+        try:
+            customer_id = int(request.form['customer_id'])
+            service_id = int(request.form['service_id'])
+            staff_text = request.form.get('preferred_staff_id', '').strip()
+            preferred_staff_id = int(staff_text) if staff_text else None
+            date_text = request.form.get('preferred_date', '').strip()
+            preferred_date = datetime.strptime(date_text, '%Y-%m-%d').date() if date_text else None
+            preferred_time = request.form.get('preferred_time', '').strip() or None
+            Customer.query.get_or_404(customer_id)
+            Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+            if preferred_staff_id:
+                Staff.query.filter_by(id=preferred_staff_id, is_active=True).first_or_404()
+            if preferred_date and preferred_date < date.today():
+                raise ValueError('Preferred date cannot be in the past.')
+            db.session.add(WaitlistEntry(
+                customer_id=customer_id, service_id=service_id, preferred_staff_id=preferred_staff_id,
+                preferred_date=preferred_date, preferred_time=preferred_time,
+                notes=request.form.get('notes', '').strip() or None
+            ))
+            db.session.commit()
+            flash('Customer added to the waitlist.', 'success')
+            return redirect(url_for('waitlist'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Please choose a valid customer, service, and preferred slot.', 'danger')
+    rows = WaitlistEntry.query.filter(WaitlistEntry.status == 'Open').order_by(WaitlistEntry.preferred_date.is_(None), WaitlistEntry.preferred_date, WaitlistEntry.created_at).all()
+    return render_template('waitlist.html', rows=rows, customers=Customer.query.order_by(Customer.name).all(),
+        services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),
+        staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(), today=date.today())
+
+@app.route('/waitlist/<int:id>/book', methods=['POST'])
+@login_required
+def book_waitlist(id):
+    row = WaitlistEntry.query.get_or_404(id)
+    if row.status != 'Open':
+        flash('This waitlist entry is no longer open.', 'warning')
+        return redirect(url_for('waitlist'))
+    try:
+        appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
+        appointment_time = request.form['appointment_time']
+        staff_id = int(request.form['staff_id'])
+        service = Service.query.filter_by(id=row.service_id, is_active=True).first_or_404()
+        Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+        allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
+        if not allowed:
+            raise ValueError(reason)
+        conflict = appointment_conflict(staff_id, appointment_date, appointment_time, service.duration_minutes or 30)
+        if conflict:
+            raise ValueError(conflict)
+        appt = Appointment(customer_id=row.customer_id, staff_id=staff_id, service_id=row.service_id,
+                           appointment_date=appointment_date, appointment_time=appointment_time, status='Confirmed',
+                           notes=row.notes)
+        db.session.add(appt)
+        row.status = 'Booked'
+        db.session.commit()
+        flash('Waitlist customer booked and removed from the open list.', 'success')
+    except (KeyError, TypeError, ValueError) as exc:
+        db.session.rollback()
+        flash(str(exc) or 'Could not book this waitlist entry.', 'danger')
+    return redirect(url_for('waitlist'))
+
+@app.route('/waitlist/<int:id>/cancel', methods=['POST'])
+@login_required
+def cancel_waitlist(id):
+    row = WaitlistEntry.query.get_or_404(id)
+    if row.status == 'Open':
+        row.status = 'Cancelled'
+        db.session.commit()
+    return redirect(url_for('waitlist'))
+
+@app.route('/smart-schedule')
+@login_required
+def smart_schedule():
+    selected_text = request.args.get('date', date.today().isoformat())
+    try:
+        selected = datetime.strptime(selected_text, '%Y-%m-%d').date()
+    except ValueError:
+        selected = date.today()
+    service_id = request.args.get('service_id', type=int)
+    preferred_staff_id = request.args.get('staff_id', type=int)
+    slots = []
+    if service_id:
+        try:
+            slots = smart_schedule_slots(service_id, selected, preferred_staff_id, limit=12)
+        except Exception:
+            slots = []
+    return render_template('smart_schedule.html', services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),
+        staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(), selected=selected,
+        service_id=service_id, preferred_staff_id=preferred_staff_id, slots=slots)
+
+@app.route('/api/smart-schedule')
+@login_required
+def smart_schedule_api():
+    service_id = request.args.get('service_id', type=int)
+    staff_id = request.args.get('staff_id', type=int)
+    date_text = request.args.get('date', date.today().isoformat())
+    if not service_id:
+        return jsonify({'ok': False, 'error': 'service_id is required'}), 400
+    try:
+        target_date = datetime.strptime(date_text, '%Y-%m-%d').date()
+        return jsonify({'ok': True, 'slots': smart_schedule_slots(service_id, target_date, staff_id, limit=12)})
+    except ValueError:
+        return jsonify({'ok': False, 'error': 'date must be YYYY-MM-DD'}), 400
 @app.route('/appointments')
 @login_required
 def appointments():
@@ -2088,6 +2251,12 @@ def update_appointment_status(id,status):
             inv=Invoice(appointment_id=appt.id,customer_id=appt.customer_id,amount=service.price,discount=0,tax=tax,tip=0,total=round(service.price+tax,2),payment_status='Pending',commission_rate=comm.commission_rate if comm else 0)
             db.session.add(inv); db.session.flush(); db.session.add(InvoiceItem(invoice_id=inv.id,description=service.name,quantity=1,unit_price=service.price,total=service.price))
         if status in {'Cancelled','No-Show'} and existing and invoice_net_paid_amount(existing)<=0: db.session.delete(existing)
+        if status == 'Cancelled':
+            matching_waitlist = WaitlistEntry.query.filter_by(service_id=appt.service_id, status='Open').filter(
+                db.or_(WaitlistEntry.preferred_staff_id.is_(None), WaitlistEntry.preferred_staff_id == appt.staff_id)
+            ).order_by(WaitlistEntry.created_at).limit(3).all()
+            if matching_waitlist:
+                flash(f'{len(matching_waitlist)} waitlist customer(s) match this cancelled slot. Open Waitlist to fill it.', 'warning')
         db.session.commit(); result={'ok':True,'status':status}; return jsonify(result) if request.is_json else redirect(request.referrer or url_for('appointments'))
     except Exception:
         db.session.rollback();
@@ -3160,7 +3329,8 @@ DEFAULT_WHATSAPP_TEMPLATES = {
     'birthday': ('Birthday', 'Happy Birthday {{name}}! 🎂 We would love to celebrate with you at {{salon_name}}.'),
     'return': ('Return reminder', 'Hello {{name}}, it has been {{days_since}} days since your last visit. We would love to see you again at {{salon_name}}.'),
     'payment': ('Payment receipt', 'Hello {{name}}, your payment has been received. Thank you for visiting {{salon_name}}.'),
-    'package_expiry': ('Package expiry', 'Hello {{name}}, your {{package}} expires on {{expiry}}. Contact {{salon_name}} if you would like to renew.')
+    'package_expiry': ('Package expiry', 'Hello {{name}}, your {{package}} expires on {{expiry}}. Contact {{salon_name}} if you would like to renew.'),
+    'waitlist': ('Waitlist opening', 'Hello {{name}}, a {{service}} slot has opened at {{date}} {{time}} at {{salon_name}}. Reply to confirm if you would like it.')
 }
 
 def service_retention_window(service, fallback_interval=None):
