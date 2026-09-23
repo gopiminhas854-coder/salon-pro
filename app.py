@@ -3035,12 +3035,13 @@ def reminders():
                 package_expiry.append({'customer': customer, 'package': customer_package})
 
         days_since = metrics['days_since_visit']
-        interval = metrics['avg_visit_interval_days'] or 30
+        last_service = metrics['last_visit'].service if metrics['last_visit'] else None
+        low_days, high_days = service_retention_window(last_service, metrics['avg_visit_interval_days'])
         if metrics['visits'] > 0 and days_since is not None:
-            if days_since >= max(60, int(interval * 2)):
-                retention_at_risk.append({'customer': customer, 'metrics': metrics})
-            elif days_since >= max(30, int(interval * 1.25)):
-                retention_due.append({'customer': customer, 'metrics': metrics})
+            if days_since >= high_days:
+                retention_at_risk.append({'customer': customer, 'metrics': metrics, 'retention_min_days': low_days, 'retention_max_days': high_days})
+            elif days_since >= low_days:
+                retention_due.append({'customer': customer, 'metrics': metrics, 'retention_min_days': low_days, 'retention_max_days': high_days})
 
     birthday_reminders.sort(key=lambda row: (row['date'], row['customer'].name.lower()))
     anniversary_reminders.sort(key=lambda row: (row['date'], row['customer'].name.lower()))
