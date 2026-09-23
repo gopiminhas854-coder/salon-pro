@@ -2,20 +2,19 @@
 {% block title %}Customers{% endblock %}
 {% block page_kicker %}Customer CRM{% endblock %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3"><div><div class="text-muted small">CRM</div><h2 class="mb-1">Customers</h2><div class="text-muted small">Turn customer history into useful follow-up lists.</div></div><a href="{{ url_for('add_customer') }}" class="btn btn-primary"><i class="bi bi-person-plus me-1"></i>Add customer</a></div>
-<div class="d-flex flex-wrap gap-2 mb-3">
-{% for key,label in [('','All'),('vip','🔥 VIP'),('returning','🔁 Returning'),('at_risk','⚠️ At risk'),('new','🆕 New')] %}<a href="{{ url_for('customers',segment=key,search=search) }}" class="btn btn-sm {% if segment==key %}btn-primary{% else %}btn-light{% endif %}">{{ label }}</a>{% endfor %}
-</div>
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3"><div><div class="text-muted small">CRM</div><h2 class="mb-1">Customers</h2><div class="text-muted small">Every profile ends with a next best action.</div></div><a href="{{ url_for('add_customer') }}" class="btn btn-primary"><i class="bi bi-person-plus me-1"></i>Add customer</a></div>
+<div class="d-flex flex-wrap gap-2 mb-3">{% for key,label in [('','All'),('vip','🔥 VIP'),('returning','🔁 Returning'),('at_risk','⚠️ At risk'),('new','🆕 New')] %}<a href="{{ url_for('customers',segment=key,search=search) }}" class="btn btn-sm {% if segment==key %}btn-primary{% else %}btn-light{% endif %}">{{ label }}</a>{% endfor %}</div>
 <form method="GET" class="mb-4"><input type="hidden" name="segment" value="{{ segment }}"><div class="input-group" style="max-width:560px"><span class="input-group-text"><i class="bi bi-search"></i></span><input type="text" name="search" class="form-control" placeholder="Search name or phone..." value="{{ search }}"><button class="btn btn-light">Search</button></div></form>
-<div class="card"><div class="card-header"><strong>{{ total_count }} customers</strong><div class="text-muted small">Visits · lifetime value · last visit · outstanding</div></div>
-<div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Customer</th><th>Segment</th><th>Visits</th><th>Lifetime spend</th><th>Avg bill</th><th>Last visit</th><th>Staff</th><th>Balance</th><th></th></tr></thead><tbody>
+<div class="card"><div class="card-header"><strong>{{ total_count }} customers</strong><div class="text-muted small">Visits · lifetime value · next action</div></div>
+<div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Customer</th><th>Segment</th><th>Visits</th><th>Lifetime</th><th>Avg bill</th><th>Last visit</th><th>Favorite</th><th>Balance</th><th>Next best action</th><th></th></tr></thead><tbody>
 {% for row in rows %}{% set c=row.customer %}{% set m=row.metrics %}<tr>
 <td><div class="d-flex align-items-center gap-2"><div class="sp-avatar">{{ c.name[0]|upper }}</div><div><strong>{{ c.name }}</strong><div class="text-muted small">{{ c.phone }}</div></div></div></td>
 <td><span class="badge text-bg-light">{{ row.category_label }}</span></td><td>{{ m.visits }}</td><td><strong>₹{{ "%.0f"|format(m.lifetime_spend) }}</strong></td><td>₹{{ "%.0f"|format(m.avg_ticket) }}</td>
-<td>{% if m.last_visit %}{{ m.last_visit.appointment_date.strftime('%d %b %Y') }}<div class="text-muted small">{{ m.days_since_visit }} days ago</div>{% else %}Never{% endif %}</td>
-<td>{{ m.most_used_staff or '—' }}<div class="text-muted small">{{ m.favorite_service or '—' }}</div></td>
-<td>{% if m.outstanding_balance > 0 %}<strong class="text-danger">₹{{ "%.0f"|format(m.outstanding_balance) }}</strong>{% else %}<span class="text-muted">₹0</span>{% endif %}</td>
-<td><div class="d-flex gap-1"><a class="btn btn-sm btn-outline-success" target="_blank" href="https://wa.me/{{ c.phone|replace('+','')|replace(' ','') }}?text=Hello%20{{ c.name|urlencode }},%20we%20would%20love%20to%20see%20you%20again!"><i class="bi bi-whatsapp"></i></a><a class="btn btn-sm btn-light" href="tel:{{ c.phone }}"><i class="bi bi-telephone"></i></a><a href="{{ url_for('customer_detail',id=c.id) }}" class="btn btn-sm btn-primary">Open</a></div></td>
-</tr>{% else %}<tr><td colspan="9" class="text-center py-5 text-muted">No customers found.</td></tr>{% endfor %}
+<td>{% if m.last_visit %}{{ m.last_visit.appointment_date.strftime('%d %b %Y') }}<div class="text-muted small">{{ m.days_since_visit }} days{% endif %}</div></td>
+<td>{{ m.favorite_service or '—' }}<div class="text-muted small">{{ m.most_used_staff or '—' }}</div></td>
+<td>{% if m.outstanding_balance > 0 %}<strong class="text-danger">₹{{ "%.0f"|format(m.outstanding_balance) }}</strong>{% else %}₹0{% endif %}</td>
+<td><div class="small">{{ row.next_action.label }}</div></td>
+<td><div class="d-flex gap-1"><a class="btn btn-sm btn-outline-success" href="{{ url_for('whatsapp_send',customer_id=c.id,key='return') }}">WA</a><a class="btn btn-sm btn-primary" href="{{ url_for('customer_detail',id=c.id) }}">Open</a></div></td>
+</tr>{% else %}<tr><td colspan="10" class="text-center py-5 text-muted">No customers found.</td></tr>{% endfor %}
 </tbody></table></div></div>
 {% endblock %}
