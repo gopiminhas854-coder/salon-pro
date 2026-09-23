@@ -34,6 +34,7 @@
             <a class="{% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view') }}"><i class="bi bi-calendar3"></i><span>Calendar</span></a>
             <a class="{% if 'customer' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('customers') }}"><i class="bi bi-people"></i><span>Clients</span></a>
             <a class="{% if 'invoice' in (request.endpoint or '') or request.endpoint == 'quick_sale' %}active{% endif %}" href="{{ url_for('quick_sale') }}"><i class="bi bi-receipt"></i><span>Quick Sale</span></a>
+            <a class="{% if request.endpoint == 'payments' %}active{% endif %}" href="{{ url_for('payments') }}"><i class="bi bi-credit-card"></i><span>Collect payment</span></a>
             <a class="{% if request.endpoint == 'money_center' %}active{% endif %}" href="{{ url_for('money_center') }}"><i class="bi bi-cash-stack"></i><span>Money Center</span></a>
         </nav>
         <div class="sp-sidebar-label">MANAGE</div>
