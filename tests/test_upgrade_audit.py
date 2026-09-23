@@ -626,3 +626,43 @@ def test_role_permissions_and_backup_history():
             log = salon.BackupLog.query.order_by(salon.BackupLog.id.desc()).first()
             assert log is not None
             assert log.size_bytes > 0
+
+
+def test_gift_card_can_pay_invoice():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        customer_id, service_id, staff_id, _ = ids()
+        with salon.app.app_context():
+            appointment = salon.Appointment(
+                customer_id=customer_id, staff_id=staff_id, service_id=service_id,
+                appointment_date=date.today(), appointment_time="13:00", status="Completed"
+            )
+            salon.db.session.add(appointment)
+            salon.db.session.flush()
+            invoice = salon.Invoice(
+                appointment_id=appointment.id, customer_id=customer_id,
+                amount=100, discount=0, tax=0, total=100, payment_status="Pending"
+            )
+            salon.db.session.add(invoice)
+            salon.db.session.flush()
+            salon.db.session.add(salon.InvoiceItem(
+                invoice_id=invoice.id, description="Audit Haircut", quantity=1, unit_price=100, total=100
+            ))
+            card = salon.GiftCard(code="TEST-GC-1000", purchaser_customer_id=customer_id, original_amount=1000, balance=1000, status="Active")
+            salon.db.session.add(card)
+            salon.db.session.commit()
+            invoice_id, card_id = invoice.id, card.id
+
+        response = client.post(
+            f"/invoices/pay/{invoice_id}",
+            data={"amount": "100", "payment_method": "Gift Card", "gift_card_code": "TEST-GC-1000"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        with salon.app.app_context():
+            invoice = salon.db.session.get(salon.Invoice, invoice_id)
+            card = salon.db.session.get(salon.GiftCard, card_id)
+            assert invoice.payment_status == "Paid"
+            assert card.balance == 900
+            assert salon.GiftCardTransaction.query.filter_by(gift_card_id=card_id, invoice_id=invoice_id, transaction_type="Redeem").count() == 1
