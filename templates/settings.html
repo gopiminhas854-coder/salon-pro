@@ -1,9 +1,63 @@
 {% extends "base.html" %}
-{% block title %}Settings{% endblock %}
+{% block title %}Settings{% if config.GOOGLE_CLIENT_ID %}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+(function(){
+    const nativeButton = document.getElementById('native-google-settings');
+    const gsi = document.querySelector('#google-settings-container .g_id_signin');
+    if (nativeButton && window.SalonProAndroid) {
+        nativeButton.style.display = 'inline-block';
+        if (gsi) gsi.style.display = 'none';
+        nativeButton.addEventListener('click', function(){
+            window.SalonProAndroid.signInWithGoogle();
+        });
+    }
+})();
+</script>
+{% endif %}
+{% endblock %}
 {% block content %}
 <div class="mb-4"><div class="text-muted small mb-1">Configuration</div><h2 class="mb-1">Settings</h2><div class="text-muted small">Manage your salon identity, pricing rules, hours and security.</div></div>
 <form method="POST" class="card border-0 shadow-sm"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="card-body">
 <div class="card border-0 shadow-sm mb-4"><div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3"><div><h5 class="mb-1">Appearance</h5><div class="text-muted small">Choose how Salon Pro looks on this device.</div></div><button type="button" class="btn btn-outline-secondary sp-theme-toggle" id="spThemeToggle" aria-label="Toggle dark mode" title="Toggle dark mode"><i class="bi bi-moon-stars me-2"></i><span>Dark Mode</span></button></div></div>
+<div class="card border-0 shadow-sm mb-4"><div class="card-body">
+    <h5 class="mb-1">Google Sign-In</h5>
+    {% if google_identity %}
+    <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+        <div>
+            <div class="small text-muted">Connected Google account</div>
+            <strong>{{ google_identity.email }}</strong>
+        </div>
+        <span class="badge text-bg-success">Connected</span>
+    </div>
+    {% else %}
+    <p class="text-muted small mb-3">Connect your Google account once. After that, the same Google account can sign you into Salon Pro directly from the login screen.</p>
+    {% if config.GOOGLE_CLIENT_ID %}
+    <div id="google-settings-container">
+        <div id="g_id_onload"
+             data-client_id="{{ config.GOOGLE_CLIENT_ID }}"
+             data-login_uri="{{ url_for('google_auth', _external=True) }}"
+             data-ux_mode="redirect"
+             data-auto_prompt="false">
+        </div>
+        <div class="g_id_signin"
+             data-type="standard"
+             data-size="large"
+             data-theme="outline"
+             data-text="continue_with"
+             data-shape="rectangular"
+             data-logo_alignment="left"
+             data-width="390">
+        </div>
+        <button type="button" id="native-google-settings" class="btn btn-outline-dark" style="display:none;">
+            <i class="bi bi-google me-2"></i>Connect Google
+        </button>
+    </div>
+    {% else %}
+    <div class="alert alert-light border small mb-0">Set <code>GOOGLE_CLIENT_ID</code> on the server to enable Google Sign-In.</div>
+    {% endif %}
+    {% endif %}
+</div></div>
 <div class="row g-3">
 <div class="col-md-6"><label class="form-label">Salon name</label><input name="salon_name" class="form-control" value="{{ setting.salon_name }}"></div>
 <div class="col-md-6"><label class="form-label">Phone</label><input name="phone" class="form-control" value="{{ setting.phone or '' }}"></div>
