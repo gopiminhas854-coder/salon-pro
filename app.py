@@ -1199,18 +1199,28 @@ def services():
 @login_required
 def add_service():
     if request.method == 'POST':
-        service = Service(
-            name=request.form['name'],
-            description=request.form.get('description'),
-            duration_minutes=int(request.form.get('duration_minutes', 30)),
-            price=float(request.form['price']),
-            category=request.form.get('category'),
-            is_active=True
-        )
-        db.session.add(service)
-        db.session.commit()
-        flash('Service added successfully!', 'success')
-        return redirect(url_for('services'))
+        try:
+            name = request.form.get('name', '').strip()
+            duration = int(request.form.get('duration_minutes', 30))
+            price = float(request.form.get('price', 0))
+            if not name or duration <= 0 or price < 0:
+                raise ValueError
+            service = Service(
+                name=name,
+                description=request.form.get('description'),
+                duration_minutes=duration,
+                price=price,
+                category=request.form.get('category'),
+                is_active=True,
+            )
+            db.session.add(service)
+            db.session.commit()
+            flash('Service added successfully!', 'success')
+            return redirect(url_for('services'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Enter a valid service name, duration and non-negative price.', 'danger')
+            return redirect(url_for('add_service'))
     return render_template('service_form.html', service=None)
 
 @app.route('/services/edit/<int:id>', methods=['GET', 'POST'])
@@ -1218,15 +1228,25 @@ def add_service():
 def edit_service(id):
     service = Service.query.get_or_404(id)
     if request.method == 'POST':
-        service.name = request.form['name']
-        service.description = request.form.get('description')
-        service.duration_minutes = int(request.form.get('duration_minutes', 30))
-        service.price = float(request.form['price'])
-        service.category = request.form.get('category')
-        service.is_active = 'is_active' in request.form
-        db.session.commit()
-        flash('Service updated!', 'success')
-        return redirect(url_for('services'))
+        try:
+            name = request.form.get('name', '').strip()
+            duration = int(request.form.get('duration_minutes', 30))
+            price = float(request.form.get('price', 0))
+            if not name or duration <= 0 or price < 0:
+                raise ValueError
+            service.name = name
+            service.description = request.form.get('description')
+            service.duration_minutes = duration
+            service.price = price
+            service.category = request.form.get('category')
+            service.is_active = 'is_active' in request.form
+            db.session.commit()
+            flash('Service updated!', 'success')
+            return redirect(url_for('services'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Enter a valid service name, duration and non-negative price.', 'danger')
+            return redirect(url_for('edit_service', id=id))
     return render_template('service_form.html', service=service)
 @app.route('/services/delete/<int:id>', methods=['POST'])
 @login_required
