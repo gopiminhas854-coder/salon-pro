@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Business Insights{% endblock %}
+{% block page_kicker %}Business Insights{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4"><div><div class="text-muted small">Business intelligence</div><h2 class="mb-1">Business Insights 📊</h2><div class="text-muted small">Understand revenue, customers, services and inventory without digging through reports.</div></div><a href="{{ url_for('assistant') }}" class="btn btn-dark">🤖 Ask Salon Pro</a></div>
+<div class="row g-3 mb-4">
+{% for label,value,sub in [('This month','₹%.0f'|format(revenue),'collected'),('Profit','₹%.0f'|format(profit),'after tracked expenses'),('Growth',(growth|string ~ '%') if growth is not none else '—','vs previous month'),('New customers',new_customers,'created this month'),('Returning',returning,'2+ completed visits'),('VIP',vip,'₹25k+ lifetime spend'),('At risk',at_risk,'60+ days'),('Lost',lost,'120+ days')] %}
+<div class="col-6 col-md-4 col-xl-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">{{ label }}</div><div class="fs-4 fw-bold mt-2">{{ value }}</div><div class="text-muted" style="font-size:10px">{{ sub }}</div></div></div></div>
+{% endfor %}
+</div>
+<div class="row g-4">
+<div class="col-xl-6"><div class="card h-100"><div class="card-header"><strong>Services by revenue</strong><div class="text-muted small">Current month</div></div><div class="card-body">{% for name,value in service_revenue %}<div class="mb-3"><div class="d-flex justify-content-between small"><strong>{{ name }}</strong><span>₹{{ "%.0f"|format(value) }}</span></div><div class="progress mt-1" style="height:7px"><div class="progress-bar" style="width:{{ (value/service_revenue[0][1]*100) if service_revenue and service_revenue[0][1] else 0 }}%"></div></div></div>{% else %}<div class="text-muted small">No service revenue yet.</div>{% endfor %}</div></div></div>
+<div class="col-xl-6"><div class="card h-100"><div class="card-header"><strong>Most booked services</strong><div class="text-muted small">Completed visits this month</div></div><div class="card-body">{% for name,count in booking_rows %}<div class="d-flex justify-content-between py-2 border-bottom"><strong>{{ name }}</strong><span class="badge text-bg-light">{{ count }} visits</span></div>{% else %}<div class="text-muted small">No completed services yet.</div>{% endfor %}</div></div></div>
+<div class="col-12"><div class="card"><div class="card-header"><strong>📦 Inventory intelligence</strong><div class="text-muted small">Estimated usage from the last 90 days</div></div><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Product</th><th>Stock</th><th>Avg weekly use</th><th>Estimated days</th><th>Recommended reorder</th></tr></thead><tbody>{% for row in fast_inventory %}<tr><td><strong>{{ row.item.name }}</strong></td><td>{{ "%.1f"|format(row.item.stock_qty) }}</td><td>{{ "%.1f"|format(row.weekly_usage) }}</td><td>{% if row.days_left is not none %}{{ row.days_left }}{% else %}Learning{% endif %}</td><td><strong>{{ "%.0f"|format(row.recommended_qty) }}</strong></td></tr>{% else %}<tr><td colspan="5" class="text-center py-4 text-muted">No reorder recommendations right now.</td></tr>{% endfor %}</tbody></table></div></div></div>
+</div>
+{% endblock %}
