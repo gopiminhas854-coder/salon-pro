@@ -469,7 +469,7 @@ def award_loyalty_for_invoice(invoice):
         return
     setting = SalonSetting.query.first()
     rate = setting.loyalty_rate if setting else 1
-    points = max(0, int(round(max(invoice.total, 0) * rate)))
+    points = max(0, int(round(max(invoice.total, 0) * rate / 100)))
     loyalty = CustomerLoyalty.query.filter_by(customer_id=invoice.customer_id).first()
     if not loyalty:
         loyalty = CustomerLoyalty(customer_id=invoice.customer_id, points=0, lifetime_spend=0)
@@ -537,7 +537,7 @@ def public_booking():
             if not name or not phone:
                 raise ValueError
             service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
-            Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            staff = Staff.query.filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
             allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
             if not allowed:
                 flash(reason, 'danger')
@@ -1395,7 +1395,7 @@ def add_appointment():
             service_id = int(request.form['service_id'])
             customer_id = int(request.form['customer_id'])
             service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
-            Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            Staff.query.filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
             Customer.query.get_or_404(customer_id)
             allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
             if not allowed:
@@ -1454,7 +1454,7 @@ def edit_appointment(id):
             service_id = int(request.form['service_id'])
             customer_id = int(request.form['customer_id'])
             service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
-            Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            Staff.query.filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
             Customer.query.get_or_404(customer_id)
             allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
             if not allowed:
@@ -1635,6 +1635,7 @@ def refund_invoice(id):
     if remaining <= 0:
         flash('Only paid invoices can be refunded.', 'warning')
         return redirect(url_for('view_invoice', id=id))
+    was_fully_paid = remaining >= invoice.total - 0.01
     try:
         amount = round(float(request.form.get('amount', remaining)), 2)
         if amount <= 0 or amount > remaining + 0.01:
@@ -1649,14 +1650,17 @@ def refund_invoice(id):
         if invoice.customer_id:
             setting = SalonSetting.query.first()
             rate = setting.loyalty_rate if setting else 1
-            points = int(round(amount * rate))
+            points = int(round(amount * rate / 100))
             loyalty = CustomerLoyalty.query.filter_by(customer_id=invoice.customer_id).first()
             if loyalty and points:
                 loyalty.points = max(0, loyalty.points - points)
                 loyalty.lifetime_spend = max(0, round(loyalty.lifetime_spend - amount, 2))
                 db.session.add(LoyaltyTransaction(customer_id=invoice.customer_id, points=-points,
                     transaction_type='Refund', reference=f'refund:{invoice.id}:{secrets.token_hex(8)}', amount=-amount))
-        if amount >= remaining - 0.01:
+        net_after_refund = round(remaining - amount, 2)
+        if was_fully_paid and amount >= remaining - 0.01:
+            # Only a full refund of a fully-paid invoice closes the invoice and
+            # restores linked retail stock.
             for line in invoice.items:
                 sale_line = InventorySaleLine.query.filter_by(invoice_item_id=line.id).first()
                 if sale_line:
@@ -1666,8 +1670,12 @@ def refund_invoice(id):
                         record_inventory_transaction(item, 'Return', sale_line.quantity, item.cost_price,
                             reference=f'refund:{invoice.id}:item:{line.id}', notes=f'Restored after invoice #{invoice.id} refund.')
             invoice.payment_status = 'Refunded'
-        else:
+        elif net_after_refund >= invoice.total - 0.01:
+            invoice.payment_status = 'Paid'
+        elif net_after_refund > 0:
             invoice.payment_status = 'Partial'
+        else:
+            invoice.payment_status = 'Pending'
         commit_or_rollback()
         flash(f'Refund of ₹{amount:.2f} recorded.', 'success')
     except Exception:
@@ -2142,8 +2150,8 @@ def reminders():
 @login_required
 def add_inventory_sale(id):
     invoice = Invoice.query.get_or_404(id)
-    if invoice.payment_status == 'Refunded':
-        flash('A refunded invoice cannot receive new products.', 'danger')
+    if invoice.payment_status in ('Paid', 'Refunded') or invoice_net_paid_amount(invoice) > 0:
+        flash('An invoice with payments cannot receive new products. Create a new invoice for additional charges.', 'warning')
         return redirect(url_for('view_invoice', id=id))
     try:
         item_id = int(request.form['inventory_item_id'])
@@ -2278,6 +2286,11 @@ def init_db():
                 db.session.add(InvoiceItem(invoice_id=inv.id, description=svc.name,
                                            quantity=1, unit_price=svc.price,
                                            total=svc.price))
+        # Ensure the application always has a complete seven-day schedule. This
+        # also repairs existing installations that predate SalonHours initialization.
+        for day in range(7):
+            if not SalonHours.query.filter_by(day_of_week=day).first():
+                db.session.add(SalonHours(day_of_week=day, open_time='09:00', close_time='20:00', is_closed=False))
         db.session.commit()
         # Create default admin if not exists
         if not User.query.filter_by(username='admin').first():
