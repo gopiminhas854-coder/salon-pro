@@ -23,5 +23,10 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - run: python -m pip install pytest
       - run: python -m compileall -q app.py migrate_startup.py wsgi.py migrations tests
+      - name: Verify production migration path
+        env:
+          DATABASE_URL: "sqlite:////tmp/salon_migration_ci.db"
+          SALON_PRO_AUTO_CREATE_DB: "0"
+        run: rm -f /tmp/salon_migration_ci.db && python migrate_startup.py
       - run: python -c "import app; assert app.app.test_client().get('/health').status_code == 200"
       - run: python -m pytest -q tests
