@@ -1654,7 +1654,7 @@ def view_invoice(id):
 @app.route('/invoices/pay/<int:id>', methods=['POST'])
 @login_required
 def mark_paid(id):
-    invoice = Invoice.query.get_or_404(id)
+    invoice = Invoice.query.filter_by(id=id).with_for_update().first_or_404()
     if invoice.payment_status == 'Refunded':
         flash('A refunded invoice cannot receive another payment.', 'danger')
         return redirect(url_for('view_invoice', id=id))
@@ -1794,7 +1794,7 @@ def add_inventory():
 @app.route('/inventory/adjust/<int:id>', methods=['POST'])
 @login_required
 def adjust_inventory(id):
-    item = InventoryItem.query.get_or_404(id)
+    item = InventoryItem.query.filter_by(id=id).with_for_update().first_or_404()
     try:
         change = float(request.form['change'])
         new_qty = item.stock_qty + change
@@ -1878,7 +1878,7 @@ def purchases():
 def add_purchase():
     if request.method == 'POST':
         try:
-            item = InventoryItem.query.get_or_404(int(request.form['inventory_item_id']))
+            item = InventoryItem.query.filter_by(id=int(request.form['inventory_item_id'])).with_for_update().first_or_404()
             quantity = float(request.form.get('quantity', 0))
             unit_cost = float(request.form.get('unit_cost', 0))
             purchase_date = datetime.strptime(request.form.get('purchase_date',''), '%Y-%m-%d').date()
@@ -2238,7 +2238,7 @@ def add_inventory_sale(id):
     except (KeyError, ValueError, TypeError):
         flash('Enter a valid product and quantity.', 'danger')
         return redirect(url_for('view_invoice', id=id))
-    item = InventoryItem.query.get_or_404(item_id)
+    item = InventoryItem.query.filter_by(id=item_id).with_for_update().first_or_404()
     if not item.is_active or item.stock_qty < quantity:
         flash(f'Not enough stock for {item.name}. Available: {item.stock_qty:g}.', 'danger')
         return redirect(url_for('view_invoice', id=id))
