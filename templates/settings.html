@@ -3,6 +3,7 @@
 {% block content %}
 <div class="mb-4"><div class="text-muted small mb-1">Configuration</div><h2 class="mb-1">Settings</h2><div class="text-muted small">Manage your salon identity, pricing rules, hours and security.</div></div>
 <form method="POST" class="card border-0 shadow-sm"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="card-body">
+<div class="card border-0 shadow-sm mb-4"><div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3"><div><h5 class="mb-1">Appearance</h5><div class="text-muted small">Choose how Salon Pro looks on this device.</div></div><button type="button" class="btn btn-outline-secondary sp-theme-toggle" id="spThemeToggle" aria-label="Toggle dark mode" title="Toggle dark mode"><i class="bi bi-moon-stars me-2"></i><span>Dark Mode</span></button></div></div>
 <div class="row g-3">
 <div class="col-md-6"><label class="form-label">Salon name</label><input name="salon_name" class="form-control" value="{{ setting.salon_name }}"></div>
 <div class="col-md-6"><label class="form-label">Phone</label><input name="phone" class="form-control" value="{{ setting.phone or '' }}"></div>
