@@ -52,7 +52,7 @@ def test_dashboard_requires_login_then_renders_after_login():
         )
         assert response.status_code == 200
         assert b"Overview" in response.data
-        assert b"Good to see you" in response.data
+        assert b"Today at a glance" in response.data
 
 
 def test_health_reports_database_and_unknown_routes_are_not_blank():
