@@ -1907,20 +1907,16 @@ def reports():
         end = today
         start_text, end_text = start.isoformat(), end.isoformat()
 
-    paid = Invoice.query.filter(
-        Invoice.payment_status == 'Paid',
+    invoices = Invoice.query.filter(
         func.date(Invoice.created_at) >= start,
         func.date(Invoice.created_at) <= end
     ).all()
-    pending = Invoice.query.filter(
-        Invoice.payment_status == 'Pending',
-        func.date(Invoice.created_at) >= start,
-        func.date(Invoice.created_at) <= end
-    ).all()
+    paid = [invoice for invoice in invoices if invoice_net_paid_amount(invoice) > 0]
+    pending = [invoice for invoice in invoices if invoice_balance(invoice) > 0]
     expenses_list = Expense.query.filter(Expense.expense_date >= start, Expense.expense_date <= end).all()
     appts = Appointment.query.filter(Appointment.appointment_date >= start, Appointment.appointment_date <= end).all()
 
-    revenue = round(sum(i.total for i in paid), 2)
+    revenue = round(sum(invoice_net_paid_amount(i) for i in paid), 2)
     expenses_total = round(sum(e.amount for e in expenses_list), 2)
     profit = round(revenue - expenses_total, 2)
     completed = sum(1 for a in appts if a.status == 'Completed')
@@ -1938,7 +1934,7 @@ def reports():
     for member in Staff.query.order_by(Staff.name).all():
         member_appts = [a for a in appts if a.staff_id == member.id]
         member_paid = sum(
-            inv.total for inv in paid
+            invoice_net_paid_amount(inv) for inv in paid
             if inv.appointment and inv.appointment.staff_id == member.id
         )
         settings = StaffCommission.query.filter_by(staff_id=member.id).first()
@@ -1961,7 +1957,7 @@ def reports():
     for inv in paid:
         day_key = inv.created_at.date().isoformat()
         if day_key in daily:
-            daily[day_key] += inv.total
+            daily[day_key] += invoice_net_paid_amount(inv)
     daily_rows = [{'date': k, 'revenue': round(v, 2)} for k, v in daily.items()]
 
     return render_template('reports.html', start=start_text, end=end_text, revenue=revenue,
@@ -1984,9 +1980,11 @@ def export_report_csv():
     except ValueError:
         start, end = today.replace(day=1), today
 
-    paid = Invoice.query.filter(Invoice.payment_status == 'Paid',
-                                 func.date(Invoice.created_at) >= start,
-                                 func.date(Invoice.created_at) <= end).all()
+    invoices = Invoice.query.filter(
+        func.date(Invoice.created_at) >= start,
+        func.date(Invoice.created_at) <= end
+    ).all()
+    paid = [invoice for invoice in invoices if invoice_net_paid_amount(invoice) > 0]
     expenses_list = Expense.query.filter(Expense.expense_date >= start, Expense.expense_date <= end).all()
     output = StringIO()
     writer = csv.writer(output)
@@ -1995,7 +1993,7 @@ def export_report_csv():
     writer.writerow(['Paid Invoice ID', 'Date', 'Customer', 'Total', 'Payment Method'])
     for inv in paid:
         writer.writerow([inv.id, inv.created_at.strftime('%Y-%m-%d'), inv.customer.name if inv.customer else '',
-                         f'{inv.total:.2f}', inv.payment_method or ''])
+                         f'{invoice_net_paid_amount(inv):.2f}', inv.payment_method or ''])
     writer.writerow([])
     writer.writerow(['Expense ID', 'Date', 'Title', 'Category', 'Amount'])
     for exp in expenses_list:
