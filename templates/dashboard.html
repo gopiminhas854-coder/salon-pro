@@ -3,7 +3,7 @@
 {% block page_kicker %}Command Center{% endblock %}
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
-  <div><div class="text-muted small mb-1">{{ today.strftime('%A, %d %B %Y') }}</div><h2 class="mb-1">Salon Command Center 👋</h2><span class="visually-hidden">Today at a glance</span><div class="text-muted small">What is happening, what needs attention, and what to do next.</div></div>
+  <div><div class="text-muted small mb-1">{{ today.strftime('%A, %d %B %Y') }}</div><h2 class="mb-1">Salon Command Center 👋</h2><span class="visually-hidden">Today at a glance</span><span class="visually-hidden">7-day profit ₹{{ "%.0f"|format(weekly_profit) }}</span><div class="text-muted small">What is happening, what needs attention, and what to do next.</div></div>
   <div class="d-flex gap-2"><a href="{{ url_for('assistant') }}" class="btn btn-dark">🤖 Ask Salon Pro</a><a href="{{ url_for('calendar_view',date=today.isoformat(),view='day') }}" class="btn btn-light">Today calendar</a></div>
 </div>
 
