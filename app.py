@@ -1386,7 +1386,11 @@ def edit_appointment(id):
         appt.service_id = int(request.form['service_id'])
         appt.appointment_date = appointment_date
         appt.appointment_time = appointment_time
-        appt.status = request.form['status']
+        status = request.form.get('status', 'Scheduled')
+        if status not in {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}:
+            flash('Invalid appointment status.', 'danger')
+            return redirect(url_for('edit_appointment', id=id))
+        appt.status = status
         appt.notes = request.form.get('notes')
         db.session.commit()
         flash('Appointment updated!', 'success')
@@ -1401,6 +1405,10 @@ def edit_appointment(id):
 @app.route('/appointments/status/<int:id>/<status>', methods=['POST'])
 @login_required
 def update_appointment_status(id, status):
+    allowed_statuses = {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}
+    if status not in allowed_statuses:
+        flash('Invalid appointment status.', 'danger')
+        return redirect(url_for('appointments'))
     appt = Appointment.query.get_or_404(id)
     appt.status = status
     # Keep status change and automatic invoice creation in one database transaction.
