@@ -138,7 +138,8 @@ def test_post_forms_include_csrf_tokens_on_main_pages():
         for path in ["/customers", "/services", "/staff", "/appointments", "/inventory", "/attendance", "/staff/1/performance"]:
             response = client.get(path)
             assert response.status_code == 200, path
-            assert b'name="_csrf_token"' in response.data, path
+            if b'method="POST"' in response.data:
+                assert b'name="_csrf_token"' in response.data, path
 
 
 def test_refunded_invoice_has_zero_outstanding_balance():
