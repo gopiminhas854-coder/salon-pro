@@ -666,3 +666,38 @@ def test_gift_card_can_pay_invoice():
             assert invoice.payment_status == "Paid"
             assert card.balance == 900
             assert salon.GiftCardTransaction.query.filter_by(gift_card_id=card_id, invoice_id=invoice_id, transaction_type="Redeem").count() == 1
+
+
+def test_configurable_loyalty_rewards():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        response = client.post(
+            "/settings",
+            data={
+                "salon_name": "Audit Salon",
+                "phone": "9876543210",
+                "address": "Test Street",
+                "tax_rate": "5",
+                "loyalty_rate": "2",
+                "loyalty_reward_threshold": "800",
+                "loyalty_reward_value": "400",
+                "reminder_days": "7",
+                "invoice_prefix": "SP",
+                "gst_number": "",
+                "open_0": "09:00", "close_0": "20:00",
+                "open_1": "09:00", "close_1": "20:00",
+                "open_2": "09:00", "close_2": "20:00",
+                "open_3": "09:00", "close_3": "20:00",
+                "open_4": "09:00", "close_4": "20:00",
+                "open_5": "09:00", "close_5": "20:00",
+                "open_6": "09:00", "close_6": "20:00",
+                "logo_file": (None, ""),
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        with salon.app.app_context():
+            setting = salon.SalonSetting.query.first()
+            assert setting.loyalty_reward_threshold == 800
+            assert setting.loyalty_reward_value == 400
