@@ -9,6 +9,8 @@ permissions:
   contents: read
 jobs:
   test:
+    env:
+      SALON_PRO_ADMIN_PASSWORD: "ci-test-password-123"
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
