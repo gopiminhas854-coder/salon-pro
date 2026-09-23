@@ -2448,10 +2448,13 @@ def mark_paid(id):
         db.session.add(AuditLog(user_id=session.get('user_id'), action='Payment recorded', path=request.path, details=f'Invoice #{invoice.id} · ₹{amount:.2f}'))
         commit_or_rollback()
         flash(f'Payment of ₹{amount:.2f} recorded. Balance: ₹{invoice_balance(invoice):.2f}.', 'success')
+    except ValueError as exc:
+        db.session.rollback()
+        flash(str(exc), 'danger')
     except Exception:
         db.session.rollback()
         flash('Payment could not be saved. No changes were made.', 'danger')
-    return redirect(url_for('view_invoice', id=id))
+    return redirect(url_for('view_invoice', id=id)
 
 @app.route('/invoices/refund/<int:id>', methods=['POST'])
 @admin_required
