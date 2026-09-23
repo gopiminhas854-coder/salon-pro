@@ -30,23 +30,23 @@
         <div class="sp-sidebar-label">WORKSPACE</div>
         <nav class="sp-nav">
             <a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span></a>
-            <a class="{% if 'appointment' in request.endpoint %}active{% endif %}" href="{{ url_for('appointments') }}"><i class="bi bi-calendar2-check"></i><span>Appointments</span></a>
+            <a class="{% if 'appointment' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('appointments') }}"><i class="bi bi-calendar2-check"></i><span>Appointments</span></a>
             <a class="{% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view') }}"><i class="bi bi-calendar3"></i><span>Calendar</span></a>
-            <a class="{% if 'customer' in request.endpoint %}active{% endif %}" href="{{ url_for('customers') }}"><i class="bi bi-people"></i><span>Clients</span></a>
-            <a class="{% if 'invoice' in request.endpoint %}active{% endif %}" href="{{ url_for('invoices') }}"><i class="bi bi-receipt"></i><span>Sales & POS</span></a>
+            <a class="{% if 'customer' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('customers') }}"><i class="bi bi-people"></i><span>Clients</span></a>
+            <a class="{% if 'invoice' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('invoices') }}"><i class="bi bi-receipt"></i><span>Sales & POS</span></a>
         </nav>
         <div class="sp-sidebar-label">MANAGE</div>
         <nav class="sp-nav">
-            <a class="{% if 'service' in request.endpoint %}active{% endif %}" href="{{ url_for('services') }}"><i class="bi bi-stars"></i><span>Services</span></a>
-            <a class="{% if 'staff' in request.endpoint %}active{% endif %} {% if 'attendance' in request.endpoint %}active{% endif %}" href="{{ url_for('staff') }}"><i class="bi bi-person-badge"></i><span>Team</span></a>
-            <a class="{% if 'inventory' in request.endpoint %}active{% endif %}" href="{{ url_for('inventory') }}"><i class="bi bi-box-seam"></i><span>Inventory</span></a>
-            <a class="{% if 'purchase' in request.endpoint %}active{% endif %}" href="{{ url_for('purchases') }}"><i class="bi bi-bag-plus"></i><span>Purchases</span></a>
-            <a class="{% if 'supplier' in request.endpoint %}active{% endif %}" href="{{ url_for('suppliers') }}"><i class="bi bi-truck"></i><span>Suppliers</span></a>
-            <a class="{% if 'expense' in request.endpoint %}active{% endif %}" href="{{ url_for('expenses') }}"><i class="bi bi-wallet2"></i><span>Expenses</span></a>
+            <a class="{% if 'service' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('services') }}"><i class="bi bi-stars"></i><span>Services</span></a>
+            <a class="{% if 'staff' in (request.endpoint or '') %}active{% endif %} {% if 'attendance' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('staff') }}"><i class="bi bi-person-badge"></i><span>Team</span></a>
+            <a class="{% if 'inventory' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('inventory') }}"><i class="bi bi-box-seam"></i><span>Inventory</span></a>
+            <a class="{% if 'purchase' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('purchases') }}"><i class="bi bi-bag-plus"></i><span>Purchases</span></a>
+            <a class="{% if 'supplier' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('suppliers') }}"><i class="bi bi-truck"></i><span>Suppliers</span></a>
+            <a class="{% if 'expense' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('expenses') }}"><i class="bi bi-wallet2"></i><span>Expenses</span></a>
         </nav>
         <div class="sp-sidebar-label">GROW</div>
         <nav class="sp-nav">
-            <a class="{% if 'report' in request.endpoint %}active{% endif %}" href="{{ url_for('reports') }}"><i class="bi bi-bar-chart-line"></i><span>Analytics</span></a>
+            <a class="{% if 'report' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('reports') }}"><i class="bi bi-bar-chart-line"></i><span>Analytics</span></a>
             <a class="{% if request.endpoint == 'loyalty' %}active{% endif %}" href="{{ url_for('loyalty') }}"><i class="bi bi-award"></i><span>Loyalty</span></a>
             <a class="{% if request.endpoint == 'reminders' %}active{% endif %}" href="{{ url_for('reminders') }}"><i class="bi bi-bell"></i><span>Reminders</span></a>
         </nav>
@@ -88,7 +88,7 @@
     <a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><i class="bi bi-grid-1x2-fill"></i><span>Home</span></a>
     <a class="{% if 'appointment' in request.endpoint or request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('appointments') }}"><i class="bi bi-calendar2-check"></i><span>Bookings</span></a>
     <a href="{{ url_for('add_appointment') }}" class="sp-mobile-add"><i class="bi bi-plus-lg"></i></a>
-    <a class="{% if 'customer' in request.endpoint %}active{% endif %}" href="{{ url_for('customers') }}"><i class="bi bi-people"></i><span>Clients</span></a>
+    <a class="{% if 'customer' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('customers') }}"><i class="bi bi-people"></i><span>Clients</span></a>
     <a href="{{ url_for('settings') }}"><i class="bi bi-gear"></i><span>More</span></a>
 </nav>
 {% endif %}
