@@ -3,9 +3,7 @@ name: Salon Pro Android APK
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "android/**"
-      - ".github/workflows/android-apk.yml"
+    branches: ["main"]
 
 jobs:
   build-apk:
