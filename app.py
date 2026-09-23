@@ -2217,6 +2217,7 @@ def mark_paid(id):
         invoice.payment_status = 'Paid' if paid >= invoice.total - 0.01 else 'Partial'
         if invoice.payment_status == 'Paid':
             award_loyalty_for_invoice(invoice)
+        db.session.add(AuditLog(user_id=session.get('user_id'), action='Payment recorded', path=request.path, details=f'Invoice #{invoice.id} · ₹{amount:.2f}'))
         commit_or_rollback()
         flash(f'Payment of ₹{amount:.2f} recorded. Balance: ₹{invoice_balance(invoice):.2f}.', 'success')
     except Exception:
@@ -2276,6 +2277,7 @@ def refund_invoice(id):
             invoice.payment_status = 'Partial'
         else:
             invoice.payment_status = 'Pending'
+        db.session.add(AuditLog(user_id=session.get('user_id'), action='Refund recorded', path=request.path, details=f'Invoice #{invoice.id} · ₹{amount:.2f}'))
         commit_or_rollback()
         flash(f'Refund of ₹{amount:.2f} recorded.', 'success')
     except Exception:
@@ -2362,6 +2364,7 @@ def adjust_inventory(id):
     item.stock_qty = new_qty
     record_inventory_transaction(item, 'Adjustment', change, item.cost_price,
                                   reference=f'adjustment:{item.id}:{datetime.utcnow().isoformat()}')
+    db.session.add(AuditLog(user_id=session.get('user_id'), action='Inventory adjusted', path=request.path, details=f'{item.name} · change {change:g}'))
     db.session.commit()
     flash(f'{item.name} stock updated to {item.stock_qty:g}.', 'success')
     return redirect(url_for('inventory'))
