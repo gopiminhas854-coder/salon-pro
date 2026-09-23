@@ -437,3 +437,99 @@ def test_all_fixed_get_routes_render_without_server_errors():
             assert response.status_code < 500, f"{rule.endpoint} {rule.rule}: {response.status_code}"
             checked += 1
         assert checked >= 40
+
+
+def test_command_center_crm_retention_growth_tools():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        for path in ["/insights", "/assistant", "/gift-cards", "/whatsapp/templates", "/audit-log"]:
+            response = client.get(path)
+            assert response.status_code == 200, path
+
+        customer_id, service_id, staff_id, _ = ids()
+        with salon.app.app_context():
+            service = salon.db.session.get(salon.Service, service_id)
+            service.retention_min_days = 14
+            service.retention_max_days = 30
+            past = salon.date.today() - salon.timedelta(days=31)
+            appt = salon.Appointment(
+                customer_id=customer_id, staff_id=staff_id, service_id=service_id,
+                appointment_date=past, appointment_time="10:00", status="Completed"
+            )
+            salon.db.session.add(appt)
+            salon.db.session.commit()
+
+        response = client.get("/")
+        assert response.status_code == 200
+        assert b"AI Priority Panel" in response.data
+        assert b"Customers arriving next" in response.data
+
+        response = client.get("/reminders")
+        assert response.status_code == 200
+        assert b"31 days since last visit" in response.data
+        assert b"follow-up 14" in response.data
+
+        response = client.post(
+            "/services/edit/" + str(service_id),
+            data={
+                "name": "Audit Haircut",
+                "duration_minutes": "30",
+                "price": "100",
+                "category": "Hair",
+                "retention_min_days": "10",
+                "retention_max_days": "25",
+                "is_active": "on",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        with salon.app.app_context():
+            service = salon.db.session.get(salon.Service, service_id)
+            assert service.retention_min_days == 10
+            assert service.retention_max_days == 25
+
+        response = client.post(
+            "/gift-cards",
+            data={"customer_id": customer_id, "amount": "1000", "recipient_name": "Gift User"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        with salon.app.app_context():
+            card = salon.GiftCard.query.first()
+            assert card is not None
+            assert card.balance == 1000
+            card_id = card.id
+
+        response = client.post(
+            f"/gift-cards/redeem/{card_id}",
+            data={"amount": "250"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        with salon.app.app_context():
+            card = salon.db.session.get(salon.GiftCard, card_id)
+            assert card.balance == 750
+
+        response = client.post(
+            "/whatsapp/templates",
+            data={
+                "name_1": "Return reminder",
+                "body_1": "Hello {{name}}, please come back!",
+                "active_1": "1",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+        response = client.get(f"/whatsapp/send/{customer_id}/return", follow_redirects=False)
+        assert response.status_code == 302
+        assert "wa.me" in response.headers["Location"]
+
+        response = client.post(
+            "/assistant",
+            data={"question": "How much money is outstanding?"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert b"outstanding" in response.data.lower()
