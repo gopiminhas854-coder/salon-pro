@@ -156,3 +156,42 @@ def test_refunded_invoice_has_zero_outstanding_balance():
                                     tax=5, total=105, payment_status="Refunded")
             salon.db.session.add(invoice); salon.db.session.commit()
             assert salon.invoice_balance(invoice) == 0.0
+
+
+def test_editing_appointment_to_completed_creates_invoice():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        with salon.app.app_context():
+            customer = salon.Customer.query.first()
+            service = salon.Service.query.first()
+            staff = salon.Staff.query.first()
+            appt = salon.Appointment(customer_id=customer.id, service_id=service.id, staff_id=staff.id,
+                                     appointment_date=salon.date.today(), appointment_time="14:00", status="Scheduled")
+            salon.db.session.add(appt); salon.db.session.commit(); appt_id = appt.id
+        response = client.post(f"/appointments/edit/{appt_id}", data={
+            "customer_id": "1", "staff_id": "1", "service_id": "1",
+            "appointment_date": salon.date.today().isoformat(), "appointment_time": "14:00",
+            "status": "Completed", "notes": "",
+        })
+        assert response.status_code == 302
+        with salon.app.app_context():
+            invoice = salon.Invoice.query.filter_by(appointment_id=appt_id).first()
+            assert invoice is not None
+            assert invoice.payment_status == "Pending"
+
+
+def test_internal_booking_respects_closed_hours():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        with salon.app.app_context():
+            salon.db.session.add(salon.SalonHours(day_of_week=salon.date.today().weekday(), open_time="10:00", close_time="18:00", is_closed=False))
+            salon.db.session.commit()
+        response = client.post("/appointments/add", data={
+            "customer_id": "1", "staff_id": "1", "service_id": "1",
+            "appointment_date": salon.date.today().isoformat(), "appointment_time": "09:00",
+        })
+        assert response.status_code == 302
+        with salon.app.app_context():
+            assert salon.Appointment.query.count() == 0
