@@ -340,7 +340,7 @@ def test_calendar_move_and_staff_availability_endpoints():
                 "appointment_time": "19:00",
             },
         )
-        assert response.status_code == 400
+        assert response.status_code == 409
 
         response = client.post(
             "/appointments/move",
