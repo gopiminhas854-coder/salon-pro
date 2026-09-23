@@ -338,7 +338,7 @@ def csrf_token():
 
 @app.context_processor
 def template_helpers():
-    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_refunded_amount': invoice_refunded_amount, 'invoice_balance': invoice_balance, 'csrf_token': csrf_token}
+    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_refunded_amount': invoice_refunded_amount, 'invoice_balance': invoice_balance, 'csrf_token': csrf_token, 'current_user': current_user()}
 
 
 def recalculate_invoice(invoice):
