@@ -357,3 +357,59 @@ def test_retention_service_and_staff_intelligence(client):
     assert staff_row["completed"] == 1
     assert staff_row["net_revenue"] == 105
     assert staff_row["revenue_per_completed_visit"] == 105
+
+
+def test_customer_milestones_and_special_reminders(client):
+    c, salon = client
+    today = salon.date.today()
+    target = today + salon.timedelta(days=7)
+    with salon.app.app_context():
+        customer = salon.Customer.query.first()
+        customer.date_of_birth = salon.date(today.year - 25, target.month, target.day)
+        customer.anniversary_date = salon.date(today.year - 5, target.month, target.day)
+        salon.db.session.commit()
+
+    response = c.get("/reminders")
+    assert response.status_code == 200
+    assert b"Birthdays" in response.data
+    assert b"Anniversaries" in response.data
+    assert b"Test Customer" in response.data
+
+def test_dashboard_owner_metrics_and_backup(client):
+    c, salon = client
+    login(c)
+    with salon.app.app_context():
+        customer = salon.Customer.query.first()
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+        appt = salon.Appointment(
+            customer_id=customer.id, staff_id=staff.id, service_id=service.id,
+            appointment_date=salon.date.today(), appointment_time="15:00",
+            status="Scheduled"
+        )
+        salon.db.session.add(appt)
+        salon.db.session.flush()
+        inv = salon.Invoice(
+            appointment_id=appt.id, customer_id=customer.id,
+            amount=100, discount=0, tax=5, total=105,
+            payment_status="Pending"
+        )
+        salon.db.session.add(inv)
+        salon.db.session.add(salon.Expense(
+            title="Rent", category="Rent", amount=20,
+            expense_date=salon.date.today()
+        ))
+        salon.db.session.commit()
+
+    dashboard = c.get("/")
+    assert dashboard.status_code == 200
+    assert b"Money to collect" in dashboard.data
+    assert b"7-day profit" in dashboard.data
+
+    backup = c.get("/backup/download")
+    assert backup.status_code == 200
+    assert backup.mimetype == "application/gzip"
+    import gzip, json
+    payload = json.loads(gzip.decompress(backup.data).decode("utf-8"))
+    assert payload["format"] == "salon-pro-backup"
+    assert "customer" in payload["tables"]
