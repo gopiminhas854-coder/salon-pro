@@ -765,9 +765,16 @@ def edit_customer(id):
 @login_required
 def delete_customer(id):
     customer = Customer.query.get_or_404(id)
-    db.session.delete(customer)
-    db.session.commit()
-    flash('Customer deleted.', 'info')
+    if Appointment.query.filter_by(customer_id=id).first() or Invoice.query.filter_by(customer_id=id).first():
+        flash('This customer has appointment or invoice history and cannot be deleted. Edit the customer instead.', 'warning')
+        return redirect(url_for('customers'))
+    try:
+        db.session.delete(customer)
+        db.session.commit()
+        flash('Customer deleted.', 'info')
+    except Exception:
+        db.session.rollback()
+        flash('Customer could not be deleted. No changes were made.', 'danger')
     return redirect(url_for('customers'))
 
 # ==================== ADVANCED CRM & BUSINESS INTELLIGENCE ====================
@@ -1223,9 +1230,16 @@ def edit_service(id):
 @login_required
 def delete_service(id):
     service = Service.query.get_or_404(id)
-    db.session.delete(service)
-    db.session.commit()
-    flash('Service deleted.', 'info')
+    if Appointment.query.filter_by(service_id=id).first():
+        flash('This service is used by appointment history and cannot be deleted. Mark it inactive instead.', 'warning')
+        return redirect(url_for('services'))
+    try:
+        db.session.delete(service)
+        db.session.commit()
+        flash('Service deleted.', 'info')
+    except Exception:
+        db.session.rollback()
+        flash('Service could not be deleted. No changes were made.', 'danger')
     return redirect(url_for('services'))
 
 # ==================== STAFF ====================
@@ -1272,9 +1286,22 @@ def edit_staff(id):
 @login_required
 def delete_staff(id):
     member = Staff.query.get_or_404(id)
-    db.session.delete(member)
-    db.session.commit()
-    flash('Staff member deleted.', 'info')
+    has_history = (
+        Appointment.query.filter_by(staff_id=id).first()
+        or StaffAttendance.query.filter_by(staff_id=id).first()
+        or StaffCommission.query.filter_by(staff_id=id).first()
+        or UserStaffLink.query.filter_by(staff_id=id).first()
+    )
+    if has_history:
+        flash('This staff member has history or a linked account and cannot be deleted. Deactivate the staff member instead.', 'warning')
+        return redirect(url_for('staff'))
+    try:
+        db.session.delete(member)
+        db.session.commit()
+        flash('Staff member deleted.', 'info')
+    except Exception:
+        db.session.rollback()
+        flash('Staff member could not be deleted. No changes were made.', 'danger')
     return redirect(url_for('staff'))
 
 # ==================== STAFF ACCOUNTS ====================
