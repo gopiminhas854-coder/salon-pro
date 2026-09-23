@@ -10,6 +10,8 @@ import secrets
 import io
 import json
 import gzip
+import base64
+from urllib.parse import quote
 from sqlalchemy import func, inspect
 from flask_migrate import Migrate
 
@@ -86,6 +88,8 @@ class Service(db.Model):
     duration_minutes = db.Column(db.Integer, default=30)
     price = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(50))  # Hair, Skin, Nails, etc.
+    retention_min_days = db.Column(db.Integer, default=30)
+    retention_max_days = db.Column(db.Integer, default=45)
     is_active = db.Column(db.Boolean, default=True)
 
 class Staff(db.Model):
@@ -260,6 +264,9 @@ class SalonSetting(db.Model):
     tax_rate = db.Column(db.Float, default=5)
     loyalty_rate = db.Column(db.Float, default=1)
     reminder_days = db.Column(db.Integer, default=1)
+    invoice_prefix = db.Column(db.String(20), default='SP')
+    gst_number = db.Column(db.String(30))
+    logo_data_url = db.Column(db.Text)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 class InvoiceRefund(db.Model):
@@ -329,6 +336,48 @@ class CustomerPackage(db.Model):
     uses_used = db.Column(db.Integer, default=0)
     prepaid_balance = db.Column(db.Float, default=0)
     status = db.Column(db.String(20), default='Active')
+
+
+class WhatsAppTemplate(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    key = db.Column(db.String(40), unique=True, nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    category = db.Column(db.String(40), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class GiftCard(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    code = db.Column(db.String(40), unique=True, nullable=False)
+    purchaser_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
+    recipient_name = db.Column(db.String(120))
+    original_amount = db.Column(db.Float, nullable=False)
+    balance = db.Column(db.Float, nullable=False)
+    expires_at = db.Column(db.Date)
+    status = db.Column(db.String(20), default='Active')
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    purchaser = db.relationship('Customer', foreign_keys=[purchaser_customer_id])
+
+class GiftCardTransaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    gift_card_id = db.Column(db.Integer, db.ForeignKey('gift_card.id'), nullable=False)
+    transaction_type = db.Column(db.String(20), nullable=False)
+    amount = db.Column(db.Float, nullable=False)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    gift_card = db.relationship('GiftCard', backref='transactions')
+    invoice = db.relationship('Invoice')
+
+class AuditLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    action = db.Column(db.String(80), nullable=False)
+    path = db.Column(db.String(255))
+    details = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user = db.relationship('User')
     customer = db.relationship('Customer', backref='packages')
     package = db.relationship('SalonPackage', backref='customer_packages')
 
@@ -429,7 +478,7 @@ ADMIN_ONLY_ENDPOINTS = {
     'update_staff_commission', 'mark_attendance',
     'export_report_csv', 'create_staff_account',
     'reports', 'export_report_csv', 'expenses', 'delete_expense',
-    'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty', 'add_package'
+    'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty', 'add_package', 'whatsapp_templates', 'audit_log', 'insights'
 }
 
 @app.before_request
@@ -1107,47 +1156,83 @@ def restore_backup():
 @app.route('/')
 @login_required
 def dashboard():
-    today=date.today()
-    today_appointments=Appointment.query.filter_by(appointment_date=today).order_by(Appointment.appointment_time).all()
-    total_customers=Customer.query.count(); total_staff=Staff.query.filter_by(is_active=True).count(); total_services=Service.query.filter_by(is_active=True).count()
-    month_start=today.replace(day=1); prev_month_end=month_start-timedelta(days=1); prev_month_start=prev_month_end.replace(day=1)
-    month_invoices=Invoice.query.filter(Invoice.created_at>=datetime.combine(month_start,datetime.min.time())).all()
-    prev_invoices=Invoice.query.filter(Invoice.created_at>=datetime.combine(prev_month_start,datetime.min.time()),Invoice.created_at<datetime.combine(month_start,datetime.min.time())).all()
-    monthly_revenue=round(sum(invoice_net_paid_amount(i) for i in month_invoices),2)
-    previous_month_revenue=round(sum(invoice_net_paid_amount(i) for i in prev_invoices),2)
-    monthly_expenses=round(sum(e.amount for e in Expense.query.filter(Expense.expense_date>=month_start,Expense.expense_date<=today).all()),2)
-    monthly_profit=round(monthly_revenue-monthly_expenses,2)
-    monthly_growth=round((monthly_revenue-previous_month_revenue)/previous_month_revenue*100,1) if previous_month_revenue else None
-    week_start=today-timedelta(days=6)
-    weekly_invoices=Invoice.query.filter(func.date(Invoice.created_at)>=week_start,func.date(Invoice.created_at)<=today).all()
-    weekly_revenue=round(sum(invoice_net_paid_amount(i) for i in weekly_invoices),2)
-    weekly_expenses=round(sum(e.amount for e in Expense.query.filter(Expense.expense_date>=week_start,Expense.expense_date<=today).all()),2)
-    weekly_profit=round(weekly_revenue-weekly_expenses,2)
-    pending=Invoice.query.filter(Invoice.payment_status.in_(['Pending','Partial'])).all()
-    outstanding_amount=round(sum(invoice_balance(i) for i in pending),2)
-    repeat_customer_count=db.session.query(Appointment.customer_id).filter(Appointment.status=='Completed').group_by(Appointment.customer_id).having(func.count(Appointment.id)>=2).count()
-    upcoming=Appointment.query.filter(Appointment.appointment_date>today,Appointment.appointment_date<=today+timedelta(days=7),Appointment.status.in_(list(ACTIVE_APPOINTMENT_STATUSES))).order_by(Appointment.appointment_date,Appointment.appointment_time).limit(6).all()
-    today_invoices=Invoice.query.filter(func.date(Invoice.created_at)==today).all()
-    today_revenue=round(sum(invoice_net_paid_amount(i) for i in today_invoices),2)
-    today_expenses=round(sum(e.amount for e in Expense.query.filter_by(expense_date=today).all()),2)
-    completed_today=Appointment.query.filter_by(appointment_date=today,status='Completed').count()
-    low_stock=InventoryItem.query.filter(InventoryItem.is_active==True,InventoryItem.stock_qty<=InventoryItem.reorder_level).all()
-    potential_inventory_profit=round(sum(max((i.sale_price or 0)-(i.cost_price or 0),0)*max(i.stock_qty or 0,0) for i in InventoryItem.query.filter_by(is_active=True).all()),2)
-    revenue_by_day=[]
-    for offset in range(6,-1,-1):
-        day=today-timedelta(days=offset); rows=Invoice.query.filter(func.date(Invoice.created_at)==day).all()
-        revenue_by_day.append({'label':day.strftime('%a'),'date':day.isoformat(),'revenue':round(sum(invoice_net_paid_amount(i) for i in rows),2)})
-    service_counts={}
+    today = date.today()
+    now_text = datetime.now().strftime('%H:%M')
+    today_appointments = Appointment.query.filter_by(appointment_date=today).order_by(Appointment.appointment_time).all()
+    total_customers = Customer.query.count()
+    total_staff = Staff.query.filter_by(is_active=True).count()
+    total_services = Service.query.filter_by(is_active=True).count()
+    month_start = today.replace(day=1)
+    prev_end = month_start - timedelta(days=1)
+    prev_start = prev_end.replace(day=1)
+    month_invoices = Invoice.query.filter(Invoice.created_at >= datetime.combine(month_start,datetime.min.time())).all()
+    prev_invoices = Invoice.query.filter(Invoice.created_at >= datetime.combine(prev_start,datetime.min.time()),Invoice.created_at < datetime.combine(month_start,datetime.min.time())).all()
+    monthly_revenue = round(sum(invoice_net_paid_amount(i) for i in month_invoices),2)
+    previous_month_revenue = round(sum(invoice_net_paid_amount(i) for i in prev_invoices),2)
+    monthly_expenses = round(sum(e.amount for e in Expense.query.filter(Expense.expense_date>=month_start,Expense.expense_date<=today).all()),2)
+    monthly_profit = round(monthly_revenue-monthly_expenses,2)
+    monthly_growth = round((monthly_revenue-previous_month_revenue)/previous_month_revenue*100,1) if previous_month_revenue else None
+    week_start = today-timedelta(days=6)
+    weekly_invoices = Invoice.query.filter(func.date(Invoice.created_at)>=week_start,func.date(Invoice.created_at)<=today).all()
+    weekly_revenue = round(sum(invoice_net_paid_amount(i) for i in weekly_invoices),2)
+    weekly_expenses = round(sum(e.amount for e in Expense.query.filter(Expense.expense_date>=week_start,Expense.expense_date<=today).all()),2)
+    weekly_profit = round(weekly_revenue-weekly_expenses,2)
+    today_invoices = Invoice.query.filter(func.date(Invoice.created_at)==today).all()
+    today_revenue = round(sum(invoice_net_paid_amount(i) for i in today_invoices),2)
+    today_expenses = round(sum(e.amount for e in Expense.query.filter_by(expense_date=today).all()),2)
+    today_profit = round(today_revenue-today_expenses,2)
+    pending = Invoice.query.filter(Invoice.payment_status.in_(['Pending','Partial'])).all()
+    outstanding_amount = round(sum(invoice_balance(i) for i in pending),2)
+    completed_today = Appointment.query.filter_by(appointment_date=today,status='Completed').count()
+    low_stock = InventoryItem.query.filter(InventoryItem.is_active==True,InventoryItem.stock_qty<=InventoryItem.reorder_level).all()
+    potential_inventory_profit = round(sum(max((i.sale_price or 0)-(i.cost_price or 0),0)*max(i.stock_qty or 0,0) for i in InventoryItem.query.filter_by(is_active=True).all()),2)
+    next_customers = [a for a in today_appointments if a.status in ACTIVE_APPOINTMENT_STATUSES and a.appointment_time >= now_text][:6] or [a for a in today_appointments if a.status in ACTIVE_APPOINTMENT_STATUSES][:6]
+    working_staff = Staff.query.filter_by(is_active=True).join(StaffAttendance, StaffAttendance.staff_id == Staff.id).filter(
+        StaffAttendance.attendance_date==today, StaffAttendance.status=='Present',
+        StaffAttendance.check_in.isnot(None),
+        db.or_(StaffAttendance.check_out.is_(None), StaffAttendance.check_out=='')
+    ).all()
+    birthday_today, anniversary_today = [], []
+    for customer in Customer.query.all():
+        if customer.date_of_birth and (customer.date_of_birth.month,customer.date_of_birth.day)==(today.month,today.day):
+            birthday_today.append(customer)
+        if customer.anniversary_date and (customer.anniversary_date.month,customer.anniversary_date.day)==(today.month,today.day):
+            anniversary_today.append(customer)
+    retention_due, retention_at_risk = [], []
+    for customer in Customer.query.all():
+        metrics = _customer_metrics(customer.id)
+        if metrics['visits'] and metrics['days_since_visit'] is not None:
+            service = metrics['last_visit'].service if metrics['last_visit'] else None
+            low, high = service_retention_window(service, metrics['avg_visit_interval_days'])
+            if metrics['days_since_visit'] >= high:
+                retention_at_risk.append((customer,metrics))
+            elif metrics['days_since_visit'] >= low:
+                retention_due.append((customer,metrics))
+    confirmed_today = Appointment.query.filter_by(appointment_date=today,status='Confirmed').count()
+    ai_priority = []
+    if retention_at_risk: ai_priority.append({'tone':'danger','icon':'🔴','text':f'{len(retention_at_risk)} customers are overdue for a return'})
+    if low_stock: ai_priority.append({'tone':'warning','icon':'🟠','text':f'{len(low_stock)} products need reordering'})
+    if confirmed_today: ai_priority.append({'tone':'success','icon':'🟢','text':f'{confirmed_today} appointments confirmed today'})
+    ai_priority.append({'tone':'dark','icon':'💰','text':f'₹{today_revenue:,.0f} collected today'})
+    if outstanding_amount: ai_priority.append({'tone':'warning','icon':'💳','text':f'₹{outstanding_amount:,.0f} is still to collect'})
+    upcoming = Appointment.query.filter(
+        Appointment.appointment_date>today, Appointment.appointment_date<=today+timedelta(days=7),
+        Appointment.status.in_(list(ACTIVE_APPOINTMENT_STATUSES))
+    ).order_by(Appointment.appointment_date,Appointment.appointment_time).limit(6).all()
+    service_counts = {}
     for a in Appointment.query.filter(Appointment.appointment_date>=month_start,Appointment.appointment_date<=today,Appointment.status=='Completed').all():
-        if a.service: service_counts[a.service.name]=service_counts.get(a.service.name,0)+1
-    top_services=sorted(service_counts.items(),key=lambda x:(-x[1],x[0]))[:5]
-    return render_template('dashboard.html',today_appointments=today_appointments,total_customers=total_customers,total_staff=total_staff,total_services=total_services,
+        if a.service: service_counts[a.service.name] = service_counts.get(a.service.name,0)+1
+    top_services = sorted(service_counts.items(),key=lambda x:(-x[1],x[0]))[:5]
+    return render_template('dashboard.html',
+        today_appointments=today_appointments,total_customers=total_customers,total_staff=total_staff,total_services=total_services,
         monthly_revenue=monthly_revenue,previous_month_revenue=previous_month_revenue,monthly_growth=monthly_growth,monthly_expenses=monthly_expenses,monthly_profit=monthly_profit,
-        weekly_revenue=weekly_revenue,weekly_expenses=weekly_expenses,weekly_profit=weekly_profit,outstanding_amount=outstanding_amount,pending_invoices=len(pending),
-        pending_invoice_rows=pending[:8],repeat_customer_count=repeat_customer_count,today=today,today_revenue=today_revenue,today_expenses=today_expenses,
-        completed_today=completed_today,low_stock_count=len(low_stock),low_stock_items=low_stock[:5],potential_inventory_profit=potential_inventory_profit,
-        upcoming=upcoming,revenue_by_day=revenue_by_day,top_services=top_services)
-
+        weekly_revenue=weekly_revenue,weekly_expenses=weekly_expenses,weekly_profit=weekly_profit,
+        outstanding_amount=outstanding_amount,pending_invoices=len(pending),pending_invoice_rows=pending[:8],
+        today=today,today_revenue=today_revenue,today_expenses=today_expenses,today_profit=today_profit,completed_today=completed_today,
+        low_stock_count=len(low_stock),low_stock_items=low_stock[:5],potential_inventory_profit=potential_inventory_profit,
+        upcoming=upcoming,top_services=top_services,next_customers=next_customers,working_staff=working_staff,
+        birthday_today=birthday_today,anniversary_today=anniversary_today,retention_due=retention_due[:8],retention_at_risk=retention_at_risk[:8],
+        ai_priority=ai_priority[:6])
 @app.route('/payments')
 @login_required
 def payments():
@@ -1213,14 +1298,26 @@ def quick_sale():
 @app.route('/customers')
 @login_required
 def customers():
-    search = request.args.get('search', '')
+    search = request.args.get('search', '').strip()
+    segment = request.args.get('segment', '').strip()
+    query = Customer.query
     if search:
-        customers_list = Customer.query.filter(
-            db.or_(Customer.name.ilike(f'%{search}%'), Customer.phone.ilike(f'%{search}%'))
-        ).order_by(Customer.name).all()
-    else:
-        customers_list = Customer.query.order_by(Customer.created_at.desc()).all()
-    return render_template('customers.html', customers=customers_list, search=search)
+        query = query.filter(db.or_(Customer.name.ilike(f'%{search}%'), Customer.phone.ilike(f'%{search}%')))
+    rows = []
+    for customer in query.order_by(Customer.name).all():
+        metrics = _customer_metrics(customer.id)
+        if metrics['visits'] == 0:
+            category, label = 'new', 'New'
+        elif metrics['lifetime_spend'] >= 25000:
+            category, label = 'vip', 'VIP'
+        elif metrics['days_since_visit'] is not None and metrics['days_since_visit'] >= 60:
+            category, label = 'at_risk', 'At risk'
+        else:
+            category, label = 'returning', 'Returning'
+        if segment and category != segment:
+            continue
+        rows.append({'customer':customer,'metrics':metrics,'category':category,'category_label':label,'next_action':customer_next_best_action(customer,metrics)})
+    return render_template('customers.html', customers=[r['customer'] for r in rows], rows=rows, total_count=len(rows), search=search, segment=segment)
 
 @app.route('/customers/add', methods=['GET', 'POST'])
 @login_required
@@ -1753,6 +1850,8 @@ def add_service():
                 duration_minutes=duration,
                 price=price,
                 category=request.form.get('category'),
+                retention_min_days=max(1,int(request.form.get('retention_min_days',30))),
+                retention_max_days=max(1,int(request.form.get('retention_max_days',45))),
                 is_active=True,
             )
             db.session.add(service)
@@ -1781,6 +1880,8 @@ def edit_service(id):
             service.duration_minutes = duration
             service.price = price
             service.category = request.form.get('category')
+            service.retention_min_days = max(1,int(request.form.get('retention_min_days',30)))
+            service.retention_max_days = max(service.retention_min_days,int(request.form.get('retention_max_days',45)))
             service.is_active = 'is_active' in request.form
             db.session.commit()
             flash('Service updated!', 'success')
@@ -3006,6 +3107,184 @@ def add_inventory_sale(id):
     flash(f'{item.name} added and {quantity:g} stock deducted.', 'success')
     return redirect(url_for('view_invoice', id=id))
 
+
+DEFAULT_WHATSAPP_TEMPLATES = {
+    'appointment': ('Appointment reminder', 'Hello {{name}}, your {{service}} appointment is tomorrow at {{time}} at {{salon_name}}.'),
+    'confirmation': ('Appointment confirmation', 'Hello {{name}}, please confirm your {{service}} appointment on {{date}} at {{time}}.'),
+    'cancellation': ('Cancellation', 'Hello {{name}}, your {{service}} appointment on {{date}} at {{time}} has been cancelled. Please contact {{salon_name}} to rebook.'),
+    'birthday': ('Birthday', 'Happy Birthday {{name}}! 🎂 We would love to celebrate with you at {{salon_name}}.'),
+    'return': ('Return reminder', 'Hello {{name}}, it has been {{days_since}} days since your last visit. We would love to see you again at {{salon_name}}.'),
+    'payment': ('Payment receipt', 'Hello {{name}}, your payment has been received. Thank you for visiting {{salon_name}}.'),
+    'package_expiry': ('Package expiry', 'Hello {{name}}, your {{package}} expires on {{expiry}}. Contact {{salon_name}} if you would like to renew.')
+}
+
+def service_retention_window(service, fallback_interval=None):
+    if service:
+        low = int(service.retention_min_days or 30)
+        high = int(service.retention_max_days or max(low, 45))
+        return low, max(high, low)
+    interval = int(fallback_interval or 30)
+    return max(14, int(interval * 0.8)), max(30, int(interval * 1.4))
+
+def customer_next_best_action(customer, metrics):
+    balance = metrics.get('outstanding_balance', 0)
+    if balance > 0:
+        return {'label': f"Collect ₹{balance:,.0f} outstanding", 'type': 'payment'}
+    if metrics.get('next_visit'):
+        appt = metrics['next_visit']
+        return {'label': f"Prepare for {appt.appointment_date.strftime('%d %b')} appointment", 'type': 'appointment'}
+    if not metrics.get('visits'):
+        return {'label': 'Invite for first visit', 'type': 'new'}
+    days_since = metrics.get('days_since_visit')
+    service = metrics['last_visit'].service if metrics.get('last_visit') else None
+    low, high = service_retention_window(service, metrics.get('avg_visit_interval_days'))
+    if days_since is not None and days_since >= high:
+        return {'label': f"Send return reminder — {days_since} days since last visit", 'type': 'return'}
+    if days_since is not None and days_since >= low:
+        return {'label': f"Customer is due — usual window {low}–{high} days", 'type': 'return'}
+    return {'label': 'Keep relationship warm', 'type': 'nurture'}
+
+def seed_default_whatsapp_templates():
+    changed = False
+    for key, values in DEFAULT_WHATSAPP_TEMPLATES.items():
+        row = WhatsAppTemplate.query.filter_by(key=key).first()
+        if not row:
+            db.session.add(WhatsAppTemplate(key=key, name=values[0], category=key, body=values[1]))
+            changed = True
+    if changed:
+        db.session.commit()
+
+def render_whatsapp_template(key, context):
+    row = WhatsAppTemplate.query.filter_by(key=key, is_active=True).first()
+    body = row.body if row else DEFAULT_WHATSAPP_TEMPLATES.get(key, ('', ''))[1]
+    for name, value in context.items():
+        body = body.replace('{{' + name + '}}', str(value or ''))
+    return body
+
+
+@app.route('/insights')
+@login_required
+def insights():
+    today=date.today(); start=today.replace(day=1); prev_end=start-timedelta(days=1); prev_start=prev_end.replace(day=1)
+    invoices=Invoice.query.filter(func.date(Invoice.created_at)>=start,func.date(Invoice.created_at)<=today).all()
+    prev=Invoice.query.filter(func.date(Invoice.created_at)>=prev_start,func.date(Invoice.created_at)<=prev_end).all()
+    revenue=round(sum(invoice_net_paid_amount(i) for i in invoices),2); previous_revenue=round(sum(invoice_net_paid_amount(i) for i in prev),2)
+    expenses=round(sum(e.amount for e in Expense.query.filter(Expense.expense_date>=start,Expense.expense_date<=today).all()),2)
+    metrics=[_customer_metrics(c.id) for c in Customer.query.all()]
+    service_revenue={}
+    for inv in invoices:
+        if inv.appointment and inv.appointment.service:
+            service_revenue[inv.appointment.service.name]=service_revenue.get(inv.appointment.service.name,0)+invoice_net_paid_amount(inv)
+    bookings={}
+    for appt in Appointment.query.filter(Appointment.appointment_date>=start,Appointment.appointment_date<=today,Appointment.status=='Completed').all():
+        if appt.service: bookings[appt.service.name]=bookings.get(appt.service.name,0)+1
+    cutoff=datetime.utcnow()-timedelta(days=90); inventory_rows=[]
+    for item in InventoryItem.query.filter_by(is_active=True).all():
+        sold=sum(tx.quantity for tx in InventoryTransaction.query.filter_by(inventory_item_id=item.id,transaction_type='Sale').filter(InventoryTransaction.created_at>=cutoff).all())
+        weekly=sold/13; days_left=(item.stock_qty/weekly*7) if weekly>0 else None
+        recommended=max(float(item.reorder_level or 0)*2,weekly*4) if weekly>0 else float(item.reorder_level or 0)
+        if item.stock_qty <= item.reorder_level or (days_left is not None and days_left<=14):
+            inventory_rows.append({'item':item,'weekly_usage':round(weekly,2),'days_left':round(days_left,1) if days_left is not None else None,'recommended_qty':round(recommended,0)})
+    return render_template('insights.html',
+        revenue=revenue,previous_revenue=previous_revenue,expenses=expenses,profit=round(revenue-expenses,2),
+        growth=round((revenue-previous_revenue)/previous_revenue*100,1) if previous_revenue else None,
+        new_customers=sum(1 for c in Customer.query.all() if c.created_at and c.created_at.date()>=start),
+        returning=sum(1 for m in metrics if m['visits']>=2),vip=sum(1 for m in metrics if m['lifetime_spend']>=25000),
+        at_risk=sum(1 for m in metrics if m['days_since_visit'] is not None and m['days_since_visit']>=60),
+        lost=sum(1 for m in metrics if m['days_since_visit'] is not None and m['days_since_visit']>=120),
+        service_revenue=sorted(service_revenue.items(),key=lambda x:(-x[1],x[0]))[:8],
+        booking_rows=sorted(bookings.items(),key=lambda x:(-x[1],x[0]))[:8],fast_inventory=inventory_rows[:12])
+
+@app.route('/assistant', methods=['GET','POST'])
+@login_required
+def assistant():
+    question=''; answer=None; facts=[]
+    if request.method=='POST':
+        question=request.form.get('question','').strip(); q=question.lower(); today=date.today()
+        if any(k in q for k in ['today revenue','today sales','today collection']):
+            invs=Invoice.query.filter(func.date(Invoice.created_at)==today).all(); answer=f"Today collected ₹{sum(invoice_net_paid_amount(i) for i in invs):,.2f}."
+        elif 'month' in q and any(k in q for k in ['made','revenue','sales','collection']):
+            start=today.replace(day=1); invs=Invoice.query.filter(func.date(Invoice.created_at)>=start,func.date(Invoice.created_at)<=today).all(); answer=f"This month collected ₹{sum(invoice_net_paid_amount(i) for i in invs):,.2f}."
+        elif 'outstanding' in q or 'collect' in q:
+            invs=Invoice.query.filter(Invoice.payment_status.in_(['Pending','Partial'])).all(); answer=f"₹{sum(invoice_balance(i) for i in invs):,.2f} is outstanding across {len([i for i in invs if invoice_balance(i)>0])} invoices."
+        elif 'low stock' in q or 'running low' in q or 'reorder' in q:
+            low=InventoryItem.query.filter(InventoryItem.is_active==True,InventoryItem.stock_qty<=InventoryItem.reorder_level).all(); answer=f"{len(low)} products need attention." if low else "No products are currently at or below reorder level."; facts=[f"{i.name}: {i.stock_qty:g} in stock" for i in low[:8]]
+        elif 'top customer' in q or 'best customer' in q:
+            rows=[(c,_customer_metrics(c.id)) for c in Customer.query.all()]; rows.sort(key=lambda x:-x[1]['lifetime_spend']); answer=f"{rows[0][0].name} has the highest lifetime spend at ₹{rows[0][1]['lifetime_spend']:,.2f}." if rows else "There are no customers yet."; facts=[f"{c.name}: ₹{m['lifetime_spend']:,.0f} · {m['visits']} visits" for c,m in rows[:5]]
+        elif 'not visited' in q or 'overdue' in q or 'recently' in q:
+            rows=[] 
+            for c in Customer.query.all():
+                m=_customer_metrics(c.id)
+                if m['days_since_visit'] is not None and m['days_since_visit']>=60: rows.append((c,m))
+            rows.sort(key=lambda x:-x[1]['days_since_visit']); answer=f"{len(rows)} customers have not visited for 60+ days."; facts=[f"{c.name}: {m['days_since_visit']} days since last visit" for c,m in rows[:8]]
+        elif 'focus' in q or 'should i do' in q or 'next' in q:
+            low=InventoryItem.query.filter(InventoryItem.is_active==True,InventoryItem.stock_qty<=InventoryItem.reorder_level).count(); overdue=sum(1 for c in Customer.query.all() if ((_customer_metrics(c.id)['days_since_visit'] or 0)>=60)); open_invoices=[i for i in Invoice.query.filter(Invoice.payment_status.in_(['Pending','Partial'])).all() if invoice_balance(i)>0]
+            answer='Start with the highest-value items on the Command Center.'; facts=[f"{overdue} customers need reactivation",f"{low} products are low stock",f"₹{sum(invoice_balance(i) for i in open_invoices):,.0f} remains to collect"]
+        else:
+            answer="I can answer revenue, outstanding payments, customers, visits, low stock and today's priorities from Salon Pro's database."
+    return render_template('assistant.html',question=question,answer=answer,facts=facts)
+
+@app.route('/whatsapp/templates', methods=['GET','POST'])
+@login_required
+@admin_required
+def whatsapp_templates():
+    seed_default_whatsapp_templates()
+    if request.method=='POST':
+        for row in WhatsAppTemplate.query.order_by(WhatsAppTemplate.id).all():
+            row.name=request.form.get(f'name_{row.id}',row.name).strip() or row.name
+            row.body=request.form.get(f'body_{row.id}',row.body).strip() or row.body
+            row.is_active=request.form.get(f'active_{row.id}')=='1'
+        db.session.commit(); flash('WhatsApp templates saved.','success'); return redirect(url_for('whatsapp_templates'))
+    return render_template('whatsapp_templates.html',templates=WhatsAppTemplate.query.order_by(WhatsAppTemplate.id).all())
+
+@app.route('/whatsapp/send/<int:customer_id>/<key>')
+@login_required
+def whatsapp_send(customer_id,key):
+    customer=Customer.query.get_or_404(customer_id); metrics=_customer_metrics(customer.id); setting=SalonSetting.query.first()
+    service=(metrics['next_visit'].service if metrics.get('next_visit') else (metrics['last_visit'].service if metrics.get('last_visit') else None))
+    context={'name':customer.name,'service':service.name if service else metrics.get('favorite_service') or 'service',
+             'date':metrics['next_visit'].appointment_date.strftime('%d %b %Y') if metrics.get('next_visit') else date.today().strftime('%d %b %Y'),
+             'time':metrics['next_visit'].appointment_time if metrics.get('next_visit') else '',
+             'days_since':metrics.get('days_since_visit') or 0,'salon_name':setting.salon_name if setting else 'Salon Pro'}
+    message=render_whatsapp_template(key,context); phone=''.join(ch for ch in (customer.phone or '') if ch.isdigit())
+    return redirect(f"https://wa.me/{phone}?text={quote(message)}")
+
+@app.route('/gift-cards', methods=['GET','POST'])
+@login_required
+def gift_cards():
+    if request.method=='POST':
+        try:
+            amount=float(request.form.get('amount',0)); customer_id=request.form.get('customer_id',type=int)
+            if amount<=0 or not customer_id: raise ValueError
+            expiry_raw=request.form.get('expires_at','').strip(); expiry=date.fromisoformat(expiry_raw) if expiry_raw else None
+            code='SPGC-'+secrets.token_hex(4).upper()
+            while GiftCard.query.filter_by(code=code).first(): code='SPGC-'+secrets.token_hex(4).upper()
+            card=GiftCard(code=code,purchaser_customer_id=customer_id,recipient_name=request.form.get('recipient_name','').strip() or None,original_amount=amount,balance=amount,expires_at=expiry)
+            db.session.add(card); db.session.flush(); db.session.add(GiftCardTransaction(gift_card_id=card.id,transaction_type='Issued',amount=amount,notes='Gift card created')); db.session.commit()
+            flash(f'Gift card {code} created with ₹{amount:,.0f}.','success')
+        except (ValueError,TypeError): db.session.rollback(); flash('Enter a valid customer, amount and expiry.','danger')
+        return redirect(url_for('gift_cards'))
+    return render_template('gift_cards.html',cards=GiftCard.query.order_by(GiftCard.created_at.desc()).limit(200).all(),customers=Customer.query.order_by(Customer.name).all())
+
+@app.route('/gift-cards/redeem/<int:id>', methods=['POST'])
+@login_required
+def redeem_gift_card(id):
+    card=GiftCard.query.get_or_404(id)
+    try:
+        amount=round(float(request.form.get('amount',0)),2)
+        if amount<=0 or amount>card.balance+0.01 or (card.expires_at and card.expires_at<date.today()): raise ValueError
+        card.balance=round(card.balance-amount,2); card.status='Redeemed' if card.balance<=0.01 else 'Active'
+        db.session.add(GiftCardTransaction(gift_card_id=card.id,transaction_type='Redeemed',amount=amount,notes=request.form.get('notes','').strip())); db.session.commit()
+        flash(f'₹{amount:,.2f} redeemed from {card.code}.','success')
+    except (ValueError,TypeError): db.session.rollback(); flash('Invalid gift card redemption.','danger')
+    return redirect(url_for('gift_cards'))
+
+@app.route('/audit-log')
+@login_required
+@admin_required
+def audit_log():
+    return render_template('audit_log.html',rows=AuditLog.query.order_by(AuditLog.created_at.desc()).limit(300).all())
+
 # ==================== SALON SETTINGS ====================
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -3022,6 +3301,19 @@ def settings():
         setting.salon_name = request.form.get('salon_name', 'Salon Pro').strip() or 'Salon Pro'
         setting.phone = request.form.get('phone', '').strip()
         setting.address = request.form.get('address', '').strip()
+        setting.invoice_prefix = request.form.get('invoice_prefix', 'SP').strip()[:20] or 'SP'
+        setting.gst_number = request.form.get('gst_number', '').strip()[:30] or None
+        upload = request.files.get('logo_file')
+        if upload and upload.filename:
+            raw = upload.read()
+            if len(raw) > 512 * 1024:
+                raise ValueError('Logo must be 512 KB or smaller.')
+            mime = (upload.mimetype or '').lower()
+            if mime not in {'image/png','image/jpeg','image/webp'}:
+                raise ValueError('Logo must be PNG, JPG or WEBP.')
+            setting.logo_data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+        elif request.form.get('remove_logo') == '1':
+            setting.logo_data_url = None
         try:
             setting.tax_rate = max(0, min(100, float(request.form.get('tax_rate', 5))))
             setting.loyalty_rate = max(0, min(100, float(request.form.get('loyalty_rate', 1))))
