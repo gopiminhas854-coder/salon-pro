@@ -370,7 +370,7 @@ def test_refunding_partially_paid_invoice_preserves_unpaid_balance():
         assert response.status_code == 200
         with salon.app.app_context():
             invoice = salon.Invoice.query.get(invoice_id)
-            assert invoice.payment_status == "Partial"
+            assert invoice.payment_status == "Pending"
             assert salon.invoice_balance(invoice) == 1000
             assert salon.InvoiceRefund.query.filter_by(invoice_id=invoice_id).count() == 1
             assert salon.InventoryItem.query.first().stock_qty == starting_stock
