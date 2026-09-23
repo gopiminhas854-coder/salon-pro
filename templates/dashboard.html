@@ -14,7 +14,7 @@
 </div>
 
 <div class="row g-3 mb-4">
-{% for label,value,sub in [('Today revenue','₹%.0f'|format(today_revenue),'Collected after refunds'),('Money still to collect','₹%.0f'|format(outstanding_amount),pending_invoices ~ ' open invoices'),('Today profit','₹%.0f'|format(today_profit),'Revenue minus tracked expenses'),('Today appointments',today_appointments|length,'Bookings on the floor'),('Customers arriving next',next_customers|length,'Next customers'),('Staff working',working_staff|length,'Checked in and active')] %}
+{% for label,value,sub in [('Today revenue','₹%.0f'|format(today_revenue),'Collected after refunds'),('Money still to collect','₹%.0f'|format(outstanding_amount),pending_invoices ~ ' open invoices'),('Today profit','₹%.0f'|format(today_profit),'Revenue minus tracked expenses') if session.get('role') in ['admin','manager'] else ('Today profit','Restricted','Owner/manager only'),('Today appointments',today_appointments|length,'Bookings on the floor'),('Customers arriving next',next_customers|length,'Next customers'),('Staff working',working_staff|length,'Checked in and active')] %}
 <div class="col-6 col-md-4 col-xl-2"><div class="card h-100"><div class="card-body"><div class="text-muted small">{{ label }}</div><div class="fs-4 fw-bold mt-2">{{ value }}</div><div class="text-muted" style="font-size:11px">{{ sub }}</div></div></div></div>
 {% endfor %}
 </div>
@@ -62,7 +62,7 @@
 
 <div class="row g-4">
  <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Month revenue</div><div class="fs-3 fw-bold">₹{{ "%.0f"|format(monthly_revenue) }}</div><div class="text-muted small mt-1">{% if monthly_growth is not none %}{{ monthly_growth }}% vs previous month{% else %}No previous-month comparison{% endif %}</div></div></div></div>
- <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Month profit</div><div class="fs-3 fw-bold">₹{{ "%.0f"|format(monthly_profit) }}</div><div class="text-muted small mt-1">After tracked expenses</div></div></div></div>
- <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Inventory opportunity</div><div class="fs-3 fw-bold">₹{{ "%.0f"|format(potential_inventory_profit) }}</div><div class="text-muted small mt-1">Potential margin across current stock</div></div></div></div>
+ <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Month profit</div>{% if session.get("role") in ["admin","manager"] %}<div class="fs-3 fw-bold">₹{{ "%.0f"|format(monthly_profit) }}</div><div class="text-muted small mt-1">After tracked expenses</div>{% else %}<div class="fs-3 fw-bold">Restricted</div><div class="text-muted small mt-1">Owner/manager only</div>{% endif %}</div></div></div>
+ <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Inventory opportunity</div>{% if session.get("role") in ["admin","manager"] %}<div class="fs-3 fw-bold">₹{{ "%.0f"|format(potential_inventory_profit) }}</div><div class="text-muted small mt-1">Potential margin across current stock</div>{% else %}<div class="fs-3 fw-bold">Restricted</div><div class="text-muted small mt-1">Owner/manager only</div>{% endif %}</div></div></div>
 </div>
 {% endblock %}
