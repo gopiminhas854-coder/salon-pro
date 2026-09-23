@@ -146,3 +146,61 @@ html,body{background:var(--sp-cream);color:var(--sp-ink);font-family:Inter,ui-sa
 .sp-flashes .alert{border-radius:12px;border:1px solid var(--sp-line)}.sp-mobile-nav{border-top:1px solid var(--sp-line)!important;background:rgba(255,255,255,.96)!important;backdrop-filter:blur(12px)}
 @media(max-width:767.98px){.sp-content{padding:22px 14px 88px}.sp-topbar{height:62px}.sp-top-title{font-size:12px}.card-body{padding:16px}.card-header{padding:15px 16px}.table td{padding:13px 11px}.btn{min-height:42px}.sp-calendar-scroll{margin-inline:-14px;padding-inline:14px}.sp-calendar-shell{border-radius:14px}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{scroll-behavior:auto!important;transition:none!important}}
+
+
+/* ===== SALON PRO DARK MODE ===== */
+html[data-theme="dark"]{
+  --sp-cream:#111214;--sp-paper:#181a1d;--sp-line:#2b2e33;--sp-ink:#f2f2f0;--sp-ink-2:#d8d8d5;
+  --sp-muted:#a3a5aa;--sp-gold:#d1ae6c;--sp-gold-soft:#2d271d;
+}
+html[data-theme="dark"],html[data-theme="dark"] body{background:#111214;color:var(--sp-ink)}
+html[data-theme="dark"] body.sp-app,.sp-app{background:var(--sp-cream);color:var(--sp-ink)}
+html[data-theme="dark"] .sp-main{background:#111214}
+html[data-theme="dark"] .sp-sidebar{background:#181a1d;border-color:#2b2e33;color:#f2f2f0}
+html[data-theme="dark"] .sp-brand strong,html[data-theme="dark"] .sp-nav a.active{color:#f2f2f0}
+html[data-theme="dark"] .sp-brand small,html[data-theme="dark"] .sp-sidebar-label{color:#85888f}
+html[data-theme="dark"] .sp-nav a{color:#b4b6bb}
+html[data-theme="dark"] .sp-nav a:hover{background:#25282d;color:#fff}
+html[data-theme="dark"] .sp-nav a.active{background:#302a20}
+html[data-theme="dark"] .sp-nav a.active i{color:var(--sp-gold)}
+html[data-theme="dark"] .sp-topbar{background:rgba(24,26,29,.94);border-color:#2b2e33}
+html[data-theme="dark"] .sp-top-title,html[data-theme="dark"] .sp-top-date{color:#a3a5aa}
+html[data-theme="dark"] .sp-top-icon,html[data-theme="dark"] .sp-top-btn{border-color:#34373d}
+html[data-theme="dark"] .sp-top-icon{background:#1d2024;color:#ddd}
+html[data-theme="dark"] .sp-top-btn{background:#f1f1ef;color:#111!important}
+html[data-theme="dark"] .sp-content .card,html[data-theme="dark"] .card{background:#181a1d!important;border-color:#2b2e33!important;color:#f2f2f0}
+html[data-theme="dark"] .card-header{background:#181a1d!important;border-color:#2b2e33!important}
+html[data-theme="dark"] .text-muted,html[data-theme="dark"] .form-text{color:#9b9ea4!important}
+html[data-theme="dark"] .table{--bs-table-color:#e7e7e4;--bs-table-bg:transparent;--bs-table-border-color:#2b2e33}
+html[data-theme="dark"] .table thead th{background:#202226;color:#a8abb1;border-color:#2b2e33}
+html[data-theme="dark"] .table td{border-color:#2b2e33}
+html[data-theme="dark"] .table-hover tbody tr:hover{background:#202226}
+html[data-theme="dark"] .form-control,html[data-theme="dark"] .form-select,html[data-theme="dark"] .input-group-text{background:#202226;border-color:#3a3d43;color:#f2f2f0}
+html[data-theme="dark"] .form-control::placeholder{color:#777b82}
+html[data-theme="dark"] .form-control:focus,html[data-theme="dark"] .form-select:focus{background:#23262a;color:#fff;border-color:#b9a77e}
+html[data-theme="dark"] .btn-light{background:#202226;border-color:#3a3d43;color:#e9e9e6}
+html[data-theme="dark"] .btn-light:hover{background:#292c31}
+html[data-theme="dark"] .btn-outline-primary{color:#e8e6df;border-color:#555a63}
+html[data-theme="dark"] .btn-outline-primary:hover{background:#f1f1ef;color:#111;border-color:#f1f1ef}
+html[data-theme="dark"] .dropdown-menu{background:#1c1f23;border-color:#34373d}
+html[data-theme="dark"] .dropdown-item{color:#e7e7e4}
+html[data-theme="dark"] .dropdown-item:hover{background:#292c31;color:#fff}
+html[data-theme="dark"] .dropdown-divider{border-color:#34373d}
+html[data-theme="dark"] .sp-booking-link{background:#29251e!important;border-color:#4a402d!important;color:#e5d4ad!important}
+html[data-theme="dark"] .sp-avatar{background:#302a20;color:#e0c58e}
+html[data-theme="dark"] .sp-user,html[data-theme="dark"] .sp-sidebar-bottom{border-color:#2b2e33}
+html[data-theme="dark"] .sp-calendar-shell,html[data-theme="dark"] .sp-calendar-day{background:#181a1d;border-color:#2b2e33}
+html[data-theme="dark"] .sp-calendar-day-head{background:#202226;border-color:#2b2e33}
+html[data-theme="dark"] .sp-calendar-day.is-today .sp-calendar-day-head{background:#302a20}
+html[data-theme="dark"] .sp-appt{background:#202226!important;border-color:#393c42!important;color:#f2f2f0!important}
+html[data-theme="dark"] .sp-appt-service,html[data-theme="dark"] .sp-appt-time,html[data-theme="dark"] .sp-appt-staff{color:#a3a5aa}
+html[data-theme="dark"] .sp-mobile-nav{background:rgba(24,26,29,.96)!important;border-color:#34373d!important}
+html[data-theme="dark"] .sp-mobile-nav a{color:#a3a5aa}
+html[data-theme="dark"] .sp-mobile-nav a.active{color:#fff}
+html[data-theme="dark"] .sp-flashes .alert{background:#202226;border-color:#34373d;color:#eee}
+html[data-theme="dark"] .alert .btn-close{filter:invert(1) grayscale(1)}
+html[data-theme="dark"] .modal-content{background:#181a1d;color:#f2f2f0;border-color:#34373d}
+html[data-theme="dark"] .modal-header,html[data-theme="dark"] .modal-footer{border-color:#34373d}
+html[data-theme="dark"] .btn-close{filter:invert(1) grayscale(1)}
+html[data-theme="dark"] .sp-theme-toggle{background:#202226!important;border-color:#3a3d43!important;color:#f2f2f0!important}
+@media print{html[data-theme="dark"] body{background:#fff;color:#000}}
