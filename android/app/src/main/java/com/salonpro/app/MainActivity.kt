@@ -52,15 +52,15 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                @Suppress("OVERRIDE_DEPRECATION")
-                override fun onReceivedError(
+                override fun onReceivedHttpError(
                     view: WebView?,
-                    errorCode: Int,
-                    description: String?,
-                    failingUrl: String?
+                    request: WebResourceRequest?,
+                    errorResponse: android.webkit.WebResourceResponse?
                 ) {
-                    super.onReceivedError(view, errorCode, description, failingUrl)
-                    showLoadError()
+                    super.onReceivedHttpError(view, request, errorResponse)
+                    if (request?.isForMainFrame == true) {
+                        showLoadError()
+                    }
                 }
             }
 
