@@ -41,6 +41,22 @@ def test_health_and_login(client):
     assert response.status_code == 200
     assert b"Overview" in response.data
 
+def test_logout_clears_session(client):
+    c, salon = client
+    login(c)
+    with c.session_transaction() as sess:
+        assert sess.get("user_id") is not None
+
+    response = c.get("/logout", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/login")
+
+    with c.session_transaction() as sess:
+        assert "user_id" not in sess
+        assert "username" not in sess
+        assert "role" not in sess
+
+
 def test_core_pages_load(client):
     c, _ = client
     login(c)
