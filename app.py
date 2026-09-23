@@ -74,6 +74,8 @@ class Customer(db.Model):
     gender = db.Column(db.String(10))
     address = db.Column(db.Text)
     notes = db.Column(db.Text)
+    date_of_birth = db.Column(db.Date)
+    anniversary_date = db.Column(db.Date)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     appointments = db.relationship('Appointment', backref='customer', lazy=True)
 
@@ -335,6 +337,28 @@ def csrf_token():
         token = secrets.token_urlsafe(32)
         session['_csrf_token'] = token
     return token
+
+def parse_optional_date(value):
+    """Parse an optional YYYY-MM-DD form value without crashing the request."""
+    value = (value or '').strip()
+    if not value:
+        return None
+    return date.fromisoformat(value)
+
+def upcoming_annual_date(source_date, reference_date=None):
+    """Return the next occurrence of a month/day, including leap-day handling."""
+    reference_date = reference_date or date.today()
+    year = reference_date.year
+    try:
+        candidate = source_date.replace(year=year)
+    except ValueError:
+        candidate = date(year, 2, 28)
+    if candidate < reference_date:
+        try:
+            candidate = source_date.replace(year=year + 1)
+        except ValueError:
+            candidate = date(year + 1, 2, 28)
+    return candidate
 
 @app.context_processor
 def template_helpers():
@@ -970,6 +994,16 @@ def dashboard():
     monthly_revenue = round(sum(invoice_net_paid_amount(inv) for inv in paid_invoices), 2)
     monthly_expenses = round(sum(e.amount for e in Expense.query.filter(Expense.expense_date >= first_day, Expense.expense_date <= today).all()), 2)
     monthly_profit = round(monthly_revenue - monthly_expenses, 2)
+    week_start = today - timedelta(days=6)
+    weekly_invoices = Invoice.query.filter(func.date(Invoice.created_at) >= week_start, func.date(Invoice.created_at) <= today).all()
+    weekly_revenue = round(sum(invoice_net_paid_amount(inv) for inv in weekly_invoices), 2)
+    weekly_expenses = round(sum(e.amount for e in Expense.query.filter(Expense.expense_date >= week_start, Expense.expense_date <= today).all()), 2)
+    weekly_profit = round(weekly_revenue - weekly_expenses, 2)
+    pending_invoice_rows = Invoice.query.filter(Invoice.payment_status.in_(['Pending', 'Partial'])).all()
+    outstanding_amount = round(sum(invoice_balance(inv) for inv in pending_invoice_rows), 2)
+    repeat_customer_count = db.session.query(Appointment.customer_id).filter(
+        Appointment.status == 'Completed'
+    ).group_by(Appointment.customer_id).having(func.count(Appointment.id) >= 2).count()
     next_week = today + timedelta(days=7)
     upcoming = Appointment.query.filter(Appointment.appointment_date > today, Appointment.appointment_date <= next_week, Appointment.status == 'Scheduled').order_by(Appointment.appointment_date, Appointment.appointment_time).limit(5).all()
     pending_invoices = Invoice.query.filter(Invoice.payment_status.in_(['Pending', 'Partial'])).count()
@@ -988,7 +1022,27 @@ def dashboard():
         if appointment.service:
             service_counts[appointment.service.name] = service_counts.get(appointment.service.name, 0) + 1
     top_services = sorted(service_counts.items(), key=lambda x: (-x[1], x[0]))[:5]
-    return render_template('dashboard.html', today_appointments=today_appointments, total_customers=total_customers, total_staff=total_staff, total_services=total_services, monthly_revenue=monthly_revenue, monthly_expenses=monthly_expenses, monthly_profit=monthly_profit, pending_invoices=pending_invoices, today=today, today_revenue=today_revenue, completed_today=completed_today, low_stock_count=low_stock_count, upcoming=upcoming, revenue_by_day=revenue_by_day, top_services=top_services)
+    return render_template('dashboard.html',
+                           today_appointments=today_appointments,
+                           total_customers=total_customers,
+                           total_staff=total_staff,
+                           total_services=total_services,
+                           monthly_revenue=monthly_revenue,
+                           monthly_expenses=monthly_expenses,
+                           monthly_profit=monthly_profit,
+                           weekly_revenue=weekly_revenue,
+                           weekly_expenses=weekly_expenses,
+                           weekly_profit=weekly_profit,
+                           outstanding_amount=outstanding_amount,
+                           repeat_customer_count=repeat_customer_count,
+                           pending_invoices=pending_invoices,
+                           today=today,
+                           today_revenue=today_revenue,
+                           completed_today=completed_today,
+                           low_stock_count=low_stock_count,
+                           upcoming=upcoming,
+                           revenue_by_day=revenue_by_day,
+                           top_services=top_services)
 
 # ==================== CUSTOMERS ====================
 
@@ -1008,16 +1062,30 @@ def customers():
 @login_required
 def add_customer():
     if request.method == 'POST':
-        customer = Customer(
-            name=request.form['name'],
-            phone=request.form['phone'],
-            email=request.form.get('email'),
-            gender=request.form.get('gender'),
-            address=request.form.get('address'),
-            notes=request.form.get('notes')
-        )
-        db.session.add(customer)
-        db.session.commit()
+        try:
+            customer = Customer(
+                name=request.form['name'].strip(),
+                phone=request.form['phone'].strip(),
+                email=request.form.get('email', '').strip() or None,
+                gender=request.form.get('gender') or None,
+                address=request.form.get('address', '').strip() or None,
+                notes=request.form.get('notes', '').strip() or None,
+                date_of_birth=parse_optional_date(request.form.get('date_of_birth')),
+                anniversary_date=parse_optional_date(request.form.get('anniversary_date')),
+            )
+            if not customer.name or not customer.phone:
+                raise ValueError('Name and phone are required.')
+            db.session.add(customer)
+            db.session.commit()
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'danger')
+            return render_template('customer_form.html', customer=None)
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Customer creation failed')
+            flash('Customer could not be saved. No changes were made.', 'danger')
+            return render_template('customer_form.html', customer=None)
         flash('Customer added successfully!', 'success')
         return redirect(url_for('customers'))
     return render_template('customer_form.html', customer=None)
@@ -1027,13 +1095,27 @@ def add_customer():
 def edit_customer(id):
     customer = Customer.query.get_or_404(id)
     if request.method == 'POST':
-        customer.name = request.form['name']
-        customer.phone = request.form['phone']
-        customer.email = request.form.get('email')
-        customer.gender = request.form.get('gender')
-        customer.address = request.form.get('address')
-        customer.notes = request.form.get('notes')
-        db.session.commit()
+        try:
+            customer.name = request.form['name'].strip()
+            customer.phone = request.form['phone'].strip()
+            customer.email = request.form.get('email', '').strip() or None
+            customer.gender = request.form.get('gender') or None
+            customer.address = request.form.get('address', '').strip() or None
+            customer.notes = request.form.get('notes', '').strip() or None
+            customer.date_of_birth = parse_optional_date(request.form.get('date_of_birth'))
+            customer.anniversary_date = parse_optional_date(request.form.get('anniversary_date'))
+            if not customer.name or not customer.phone:
+                raise ValueError('Name and phone are required.')
+            db.session.commit()
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'danger')
+            return render_template('customer_form.html', customer=customer)
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Customer update failed')
+            flash('Customer could not be updated. No changes were made.', 'danger')
+            return render_template('customer_form.html', customer=customer)
         flash('Customer updated successfully!', 'success')
         return redirect(url_for('customers'))
     return render_template('customer_form.html', customer=customer)
@@ -2461,7 +2543,27 @@ def reminders():
         Appointment.appointment_date <= until,
         Appointment.status == 'Scheduled'
     ).order_by(Appointment.appointment_date, Appointment.appointment_time).all()
-    return render_template('reminders.html', upcoming=upcoming, days=days)
+
+    birthday_reminders = []
+    anniversary_reminders = []
+    special_until = today + timedelta(days=30)
+    for customer in Customer.query.order_by(Customer.name).all():
+        if customer.date_of_birth:
+            next_birthday = upcoming_annual_date(customer.date_of_birth, today)
+            if next_birthday <= special_until:
+                birthday_reminders.append({'customer': customer, 'date': next_birthday})
+        if customer.anniversary_date:
+            next_anniversary = upcoming_annual_date(customer.anniversary_date, today)
+            if next_anniversary <= special_until:
+                anniversary_reminders.append({'customer': customer, 'date': next_anniversary})
+
+    birthday_reminders.sort(key=lambda row: (row['date'], row['customer'].name.lower()))
+    anniversary_reminders.sort(key=lambda row: (row['date'], row['customer'].name.lower()))
+    return render_template('reminders.html',
+                           upcoming=upcoming,
+                           days=days,
+                           birthday_reminders=birthday_reminders,
+                           anniversary_reminders=anniversary_reminders)
 
 # ==================== INVENTORY SALES ====================
 
