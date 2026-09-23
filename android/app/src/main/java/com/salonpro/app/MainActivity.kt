@@ -13,7 +13,7 @@ import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 
 private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/login"
-private const val APP_VERSION = "1.0.3"
+private const val APP_VERSION = "1.0.4"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
@@ -29,13 +29,20 @@ class MainActivity : AppCompatActivity() {
                 databaseEnabled = true
                 setSupportZoom(false)
                 cacheMode = WebSettings.LOAD_NO_CACHE
-                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                javaScriptCanOpenWindowsAutomatically = true
+                setSupportMultipleWindows(false)
+                loadsImagesAutomatically = true
+                allowFileAccess = false
+                allowContentAccess = true
 
                 // Web servers can reject Android WebView's default "; wv" marker.
                 // Keep the real Chrome version while presenting a browser-compatible UA.
-                userAgentString = userAgentString
+                val chromeUa = userAgentString
                     .replace("; wv", "")
-                    .replace("Version/4.0 ", "") + " SalonProAndroid/$APP_VERSION"
+                    .replace("Version/4.0 ", "")
+                    .replace(Regex("\\s+SalonProAndroid/[^\\s]+"), "")
+                userAgentString = "$chromeUa SalonProAndroid/$APP_VERSION"
             }
 
             CookieManager.getInstance().setAcceptCookie(true)
