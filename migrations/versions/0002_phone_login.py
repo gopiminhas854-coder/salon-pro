@@ -9,10 +9,13 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("user", sa.Column("phone_number", sa.String(length=20), nullable=True))
-    op.create_unique_constraint("uq_user_phone_number", "user", ["phone_number"])
+    # Batch mode keeps this migration portable across SQLite and PostgreSQL.
+    with op.batch_alter_table("user") as batch_op:
+        batch_op.add_column(sa.Column("phone_number", sa.String(length=20), nullable=True))
+        batch_op.create_unique_constraint("uq_user_phone_number", ["phone_number"])
 
 
 def downgrade():
-    op.drop_constraint("uq_user_phone_number", "user", type_="unique")
-    op.drop_column("user", "phone_number")
+    with op.batch_alter_table("user") as batch_op:
+        batch_op.drop_constraint("uq_user_phone_number", type_="unique")
+        batch_op.drop_column("phone_number")
