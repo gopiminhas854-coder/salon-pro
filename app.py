@@ -1486,8 +1486,35 @@ def edit_appointment(id):
             appt.appointment_time = appointment_time
             appt.status = status
             appt.notes = request.form.get('notes')
+
+            if status == 'Completed':
+                existing_invoice = Invoice.query.filter_by(appointment_id=appt.id).first()
+                if not existing_invoice:
+                    completed_service = Service.query.get(appt.service_id)
+                    tax_rate = get_tax_rate()
+                    invoice_amount = round(completed_service.price, 2)
+                    invoice_tax = round(invoice_amount * tax_rate / 100, 2)
+                    invoice = Invoice(
+                        appointment_id=appt.id,
+                        customer_id=appt.customer_id,
+                        amount=invoice_amount,
+                        discount=0,
+                        tax=invoice_tax,
+                        total=round(invoice_amount + invoice_tax, 2),
+                        payment_status='Pending',
+                    )
+                    db.session.add(invoice)
+                    db.session.flush()
+                    db.session.add(InvoiceItem(
+                        invoice_id=invoice.id,
+                        description=completed_service.name,
+                        quantity=1,
+                        unit_price=completed_service.price,
+                        total=completed_service.price,
+                    ))
+
             db.session.commit()
-            flash('Appointment updated!', 'success')
+            flash('Appointment updated!' + (' Invoice created.' if status == 'Completed' and not existing_invoice else ''), 'success')
             return redirect(url_for('appointments'))
         except (KeyError, TypeError, ValueError):
             db.session.rollback()
