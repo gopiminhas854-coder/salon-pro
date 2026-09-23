@@ -1,117 +1,61 @@
 {% extends "base.html" %}
-{% block title %}Overview{% endblock %}
-{% block page_kicker %}Overview{% endblock %}
-
+{% block title %}Today{% endblock %}
+{% block page_kicker %}Today{% endblock %}
 {% block content %}
-<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
-  <div>
-    <div class="text-muted small mb-1">{{ today.strftime('%A, %d %B %Y') }}</div>
-    <h2 class="mb-1">Good to see you 👋</h2>
-    <div class="text-muted small">Your salon at a glance — bookings, cash flow and daily operations.</div>
-  </div>
-  <div class="d-flex gap-2">
-    <a href="{{ url_for('calendar_view') }}" class="btn btn-light px-3"><i class="bi bi-calendar3 me-1"></i> Calendar</a>
-    <a href="{{ url_for('add_appointment') }}" class="btn btn-primary px-3"><i class="bi bi-plus-lg me-1"></i> New booking</a>
-  </div>
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-3">
+  <div><div class="text-muted small mb-1">{{ today.strftime('%A, %d %B %Y') }}</div><h2 class="mb-1">Today at a glance 👋</h2><div class="text-muted small">Everything needed for the salon floor, without hunting through menus.</div></div>
+  <a href="{{ url_for('calendar_view', date=today.isoformat(), view='day') }}" class="btn btn-light"><i class="bi bi-calendar-day me-1"></i> Today calendar</a>
+</div>
+
+<div class="row g-2 mb-4">
+  <div class="col-6 col-md-4 col-xl-2"><a class="btn btn-primary w-100 py-3" href="{{ url_for('add_appointment') }}">➕<br><span class="small">New appointment</span></a></div>
+  <div class="col-6 col-md-4 col-xl-2"><a class="btn btn-light w-100 py-3" href="{{ url_for('add_customer') }}">👤<br><span class="small">Add customer</span></a></div>
+  <div class="col-6 col-md-4 col-xl-2"><a class="btn btn-light w-100 py-3" href="{{ url_for('quick_sale') }}">💳<br><span class="small">New bill</span></a></div>
+  <div class="col-6 col-md-4 col-xl-2"><a class="btn btn-light w-100 py-3" href="{{ url_for('money_center') }}">💰<br><span class="small">Record payment</span></a></div>
+  <div class="col-6 col-md-4 col-xl-2"><a class="btn btn-light w-100 py-3" href="{{ url_for('add_inventory') }}">📦<br><span class="small">Add stock</span></a></div>
+  <div class="col-6 col-md-4 col-xl-2"><a class="btn btn-light w-100 py-3" href="{{ url_for('customers') }}">📱<br><span class="small">Contact customer</span></a></div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Today revenue</div><div class="fs-3 fw-bold mt-1">₹{{ "%.0f"|format(today_revenue) }}</div><div class="text-muted small mt-2">₹{{ "%.0f"|format(today_expenses) }} tracked expenses</div></div></div></div>
+  <div class="col-md-4"><a href="{{ url_for('money_center') }}" class="text-decoration-none text-reset"><div class="card h-100"><div class="card-body"><div class="text-muted small">Money still to collect</div><div class="fs-3 fw-bold mt-1">₹{{ "%.0f"|format(outstanding_amount) }}</div><div class="text-muted small mt-2">{{ pending_invoices }} open invoices · tap to collect</div></div></div></a></div>
+  <div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Month profit</div><div class="fs-3 fw-bold mt-1">₹{{ "%.0f"|format(monthly_profit) }}</div><div class="text-muted small mt-2">{% if monthly_growth is not none %}{{ monthly_growth }}% revenue vs previous month{% else %}Previous month has no collected revenue{% endif %}</div></div></div></div>
 </div>
 
 {% if low_stock_count %}
-<div class="alert d-flex align-items-center justify-content-between gap-3 mb-4" style="background:#fff7e6;border:1px solid #f0dfb8;border-radius:14px">
-  <div><strong><i class="bi bi-box-seam me-2"></i>Inventory attention</strong><div class="small text-muted mt-1">{{ low_stock_count }} active item{{ 's' if low_stock_count != 1 else '' }} at or below reorder level.</div></div>
-  <a href="{{ url_for('inventory') }}" class="btn btn-sm btn-light">Review stock</a>
-</div>
+<div class="alert alert-warning d-flex justify-content-between align-items-center gap-3 mb-4"><div><strong>⚠️ {{ low_stock_count }} product{{ 's' if low_stock_count != 1 else '' }} need restocking</strong><div class="small">Potential inventory profit: ₹{{ "%.0f"|format(potential_inventory_profit) }}</div></div><a href="{{ url_for('inventory') }}" class="btn btn-sm btn-light">Review</a></div>
 {% endif %}
-
-<div class="row g-3 mb-3">
-  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Today collected</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(today_revenue) }}</div><div class="text-muted small mt-3">{{ completed_today }} completed today</div></div></div></div>
-  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">7-day profit</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(weekly_profit) }}</div><div class="text-muted small mt-3">₹{{ "%.0f"|format(weekly_revenue) }} revenue · ₹{{ "%.0f"|format(weekly_expenses) }} costs</div></div></div></div>
-  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Monthly profit</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(monthly_profit) }}</div><div class="text-muted small mt-3">After tracked expenses</div></div></div></div>
-  <div class="col-12 col-sm-6 col-xl-3"><div class="card h-100"><div class="card-body"><div class="text-muted small">Money to collect</div><div class="fs-3 fw-bold mt-2">₹{{ "%.0f"|format(outstanding_amount) }}</div><div class="text-muted small mt-3">{{ pending_invoices }} pending/partial invoices</div></div></div></div>
-</div>
-
-<div class="row g-3 mb-4">
-  <div class="col-6 col-xl-3"><div class="card h-100"><div class="card-body py-3"><div class="text-muted small">Clients</div><div class="fw-bold fs-5 mt-1">{{ total_customers }}</div><div class="text-muted small mt-1">{{ repeat_customer_count }} repeat clients</div></div></div></div>
-  <div class="col-6 col-xl-3"><div class="card h-100"><div class="card-body py-3"><div class="text-muted small">Upcoming bookings</div><div class="fw-bold fs-5 mt-1">{{ upcoming|length }}</div></div></div></div>
-  <div class="col-6 col-xl-3"><div class="card h-100"><div class="card-body py-3"><div class="text-muted small">Team</div><div class="fw-bold fs-5 mt-1">{{ total_staff }}</div><div class="text-muted small mt-1">{{ total_services }} active services</div></div></div></div>
-  <div class="col-6 col-xl-3"><div class="card h-100 {% if low_stock_count %}border-warning{% endif %}"><div class="card-body py-3"><div class="text-muted small">Low stock</div><div class="fw-bold fs-5 mt-1">{{ low_stock_count }}</div><div class="text-muted small mt-1">{% if low_stock_count %}Review inventory now{% else %}Stock levels look good{% endif %}</div></div></div></div>
-</div>
-<div class="row g-3 mb-4">
-  <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Upcoming bookings</div><div class="fw-bold fs-5 mt-1">{{ upcoming|length }}</div></div></div></div>
-  <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Pending invoices</div><div class="fw-bold fs-5 mt-1">{{ pending_invoices }}</div></div></div></div>
-  <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Services</div><div class="fw-bold fs-5 mt-1">{{ total_services }}</div></div></div></div>
-  <div class="col-6 col-lg-3"><div class="card"><div class="card-body py-3"><div class="text-muted small">Monthly expenses</div><div class="fw-bold fs-5 mt-1">₹{{ "%.0f"|format(monthly_expenses) }}</div></div></div></div>
-</div>
 
 <div class="row g-4 mb-4">
   <div class="col-xl-8">
-    <div class="card h-100">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center">
-        <div><h5 class="mb-1">Today’s schedule</h5><div class="text-muted small">{{ today_appointments|length }} appointments</div></div>
-        <a href="{{ url_for('calendar_view') }}" class="btn btn-light btn-sm">Open calendar <i class="bi bi-arrow-right ms-1"></i></a>
-      </div>
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center"><div><h5 class="mb-1">Today</h5><div class="text-muted small">{{ today_appointments|length }} scheduled · quick actions below</div></div><a href="{{ url_for('appointments', date=today.isoformat()) }}" class="btn btn-sm btn-light">Open today</a></div>
       <div class="card-body p-0">
-      {% if today_appointments %}
-        <div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Time</th><th>Client</th><th>Service</th><th>Team</th><th>Status</th></tr></thead><tbody>
-        {% for appt in today_appointments %}
-        <tr><td><strong>{{ appt.appointment_time }}</strong></td><td><strong>{{ appt.customer.name }}</strong></td><td>{{ appt.service.name }}</td><td>{{ appt.staff.name }}</td><td>{% if appt.status == 'Scheduled' %}<span class="badge bg-primary">Scheduled</span>{% elif appt.status == 'Completed' %}<span class="badge bg-success">Completed</span>{% elif appt.status == 'Cancelled' %}<span class="badge bg-danger">Cancelled</span>{% else %}<span class="badge bg-secondary">{{ appt.status }}</span>{% endif %}</td></tr>
-        {% endfor %}</tbody></table></div>
-      {% else %}
-        <div class="text-center py-5"><div class="sp-avatar mx-auto mb-3" style="width:52px;height:52px;background:#eeeaff;color:#6d5dfc"><i class="bi bi-calendar2-check fs-4"></i></div><h6>No appointments today</h6><p class="text-muted small mb-3">Your schedule is clear. Add the first booking.</p><a href="{{ url_for('add_appointment') }}" class="btn btn-primary btn-sm">Create appointment</a></div>
-      {% endif %}
+        <div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Time</th><th>Customer</th><th>Service</th><th>Staff</th><th>Status</th><th></th></tr></thead><tbody>
+        {% for a in today_appointments %}
+          <tr>
+            <td><strong>{{ a.appointment_time }}</strong></td><td><strong>{{ a.customer.name }}</strong><div class="text-muted small">{{ a.customer.phone }}</div></td><td>{{ a.service.name }}<div class="text-muted small">{{ a.service.duration_minutes }} min</div></td><td>{{ a.staff.name }}</td>
+            <td><span class="badge text-bg-{% if a.status == 'Completed' %}success{% elif a.status in ['Cancelled','No-Show'] %}danger{% elif a.status in ['Arrived','In service'] %}warning{% else %}primary{% endif %}">{{ 'Booked' if a.status == 'Scheduled' else a.status }}</span></td>
+            <td class="text-end"><div class="d-flex gap-1 justify-content-end"><a class="btn btn-sm btn-light" href="tel:{{ a.customer.phone }}"><i class="bi bi-telephone"></i></a><a class="btn btn-sm btn-light" target="_blank" href="https://wa.me/{{ a.customer.phone|replace('+','')|replace(' ','') }}?text=Hello%20{{ a.customer.name|urlencode }},%20this%20is%20a%20message%20from%20the%20salon."><i class="bi bi-whatsapp"></i></a><a class="btn btn-sm btn-primary" href="{{ url_for('edit_appointment', id=a.id) }}">Open</a></div></td>
+          </tr>
+        {% else %}<tr><td colspan="6" class="text-center py-5 text-muted">No appointments today. Create the first one above.</td></tr>{% endfor %}
+        </tbody></table></div>
       </div>
     </div>
   </div>
   <div class="col-xl-4">
-    <div class="card h-100">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center"><div><h5 class="mb-1">Coming up</h5><div class="text-muted small">Next 7 days</div></div><i class="bi bi-calendar3 text-muted"></i></div>
-      <div class="card-body">
-      {% if upcoming %}
-        <div class="d-grid gap-2">
-        {% for appt in upcoming %}
-          <div class="d-flex align-items-center gap-3 p-2 rounded-3" style="background:#fafafe">
-            <div class="text-center" style="min-width:42px"><div class="fw-bold small">{{ appt.appointment_date.strftime('%d') }}</div><div class="text-muted" style="font-size:9px">{{ appt.appointment_date.strftime('%b')|upper }}</div></div>
-            <div class="flex-grow-1 min-w-0"><div class="fw-semibold small text-truncate">{{ appt.customer.name }}</div><div class="text-muted" style="font-size:11px">{{ appt.service.name }} · {{ appt.appointment_time }}</div></div>
-          </div>
-        {% endfor %}
-        </div>
-      {% else %}<div class="text-center text-muted small py-4">No upcoming appointments.</div>{% endif %}
-      </div>
-    </div>
+    <div class="card mb-3"><div class="card-header"><strong>Money Center</strong></div><div class="card-body">
+      <div class="row g-2"><div class="col-4"><div class="text-muted small">Today</div><strong>₹{{ "%.0f"|format(today_revenue) }}</strong></div><div class="col-4"><div class="text-muted small">Week</div><strong>₹{{ "%.0f"|format(weekly_revenue) }}</strong></div><div class="col-4"><div class="text-muted small">Month</div><strong>₹{{ "%.0f"|format(monthly_revenue) }}</strong></div></div>
+      <a href="{{ url_for('money_center') }}" class="btn btn-light btn-sm w-100 mt-3">Open Money Center</a>
+    </div></div>
+    <div class="card"><div class="card-header d-flex justify-content-between"><strong>Coming up</strong><span class="text-muted small">Next 7 days</span></div><div class="card-body">
+      {% for a in upcoming %}<div class="d-flex align-items-center gap-2 py-2 border-bottom"><div class="text-center" style="min-width:42px"><strong>{{ a.appointment_date.strftime('%d') }}</strong><div class="text-muted small">{{ a.appointment_date.strftime('%b') }}</div></div><div class="flex-grow-1 min-w-0"><strong class="small">{{ a.customer.name }}</strong><div class="text-muted small">{{ a.service.name }} · {{ a.appointment_time }}</div></div></div>{% else %}<div class="text-muted small">No upcoming bookings.</div>{% endfor %}
+    </div></div>
   </div>
 </div>
 
-<div class="row g-4">
-  <div class="col-xl-8">
-    <div class="card h-100">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center"><div><h5 class="mb-1">Revenue pulse</h5><div class="text-muted small">Last 7 days · paid invoices</div></div><a href="{{ url_for('reports') }}" class="btn btn-light btn-sm">View reports</a></div>
-      <div class="card-body">
-        <div class="d-flex align-items-end gap-2" style="height:190px">
-          {% set max_revenue = revenue_by_day|map(attribute='revenue')|max if revenue_by_day else 0 %}
-          {% for point in revenue_by_day %}
-          {% set height = (point.revenue / max_revenue * 150) if max_revenue else 4 %}
-          <div class="flex-fill text-center h-100 d-flex flex-column justify-content-end">
-            <div class="small text-muted mb-1">₹{{ "%.0f"|format(point.revenue) }}</div>
-            <div title="{{ point.date }} · ₹{{ '%.2f'|format(point.revenue) }}" style="height:{{ [height,4]|max }}px;background:#b9975b;border-radius:8px 8px 3px 3px;min-width:18px"></div>
-            <div class="small text-muted mt-2">{{ point.label }}</div>
-          </div>
-          {% endfor %}
-        </div>
-      </div>
-    </div>
-  </div>
-  <div class="col-xl-4">
-    <div class="card h-100">
-      <div class="card-header bg-white"><h5 class="mb-1">Popular services</h5><div class="text-muted small">Completed this month</div></div>
-      <div class="card-body">
-      {% if top_services %}
-        <div class="d-grid gap-3">
-        {% for name, count in top_services %}
-          <div><div class="d-flex justify-content-between small mb-1"><span class="fw-semibold text-truncate me-2">{{ name }}</span><span class="text-muted">{{ count }}</span></div><div style="height:7px;background:#f0eee9;border-radius:99px;overflow:hidden"><div style="width:{{ (count / top_services[0][1] * 100) if top_services[0][1] else 0 }}%;height:100%;background:#b9975b;border-radius:99px"></div></div></div>
-        {% endfor %}
-        </div>
-      {% else %}<div class="text-center text-muted small py-4">Completed service data will appear here.</div>{% endif %}
-      </div>
-    </div>
-  </div>
+<div class="row g-3">
+ <div class="col-md-6"><div class="card h-100"><div class="card-body"><div class="text-muted small">7-day profit</div><div class="fs-4 fw-bold mt-1">₹{{ "%.0f"|format(weekly_profit) }}</div><div class="text-muted small mt-2">Revenue ₹{{ "%.0f"|format(weekly_revenue) }} · expenses ₹{{ "%.0f"|format(weekly_expenses) }}</div></div></div></div>
+ <div class="col-md-6"><div class="card h-100"><div class="card-body"><div class="text-muted small">Inventory opportunity</div><div class="fs-4 fw-bold mt-1">₹{{ "%.0f"|format(potential_inventory_profit) }}</div><div class="text-muted small mt-2">Potential profit across current active stock</div></div></div></div>
 </div>
 {% endblock %}
