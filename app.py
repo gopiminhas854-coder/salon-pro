@@ -336,7 +336,8 @@ class CustomerPackage(db.Model):
     uses_used = db.Column(db.Integer, default=0)
     prepaid_balance = db.Column(db.Float, default=0)
     status = db.Column(db.String(20), default='Active')
-
+    customer = db.relationship('Customer', backref='customer_packages')
+    package = db.relationship('SalonPackage', backref='customer_packages')
 
 class WhatsAppTemplate(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -378,8 +379,6 @@ class AuditLog(db.Model):
     details = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user = db.relationship('User')
-    customer = db.relationship('Customer', backref='packages')
-    package = db.relationship('SalonPackage', backref='customer_packages')
 
 
 # ==================== AUTH ====================
