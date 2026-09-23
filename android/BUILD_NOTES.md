@@ -1,0 +1,1 @@
+Salon Pro Android test APK builds use a stable debug signing key so updates can be installed over the previous test build. This key is for testing only; production releases require a private Play App Signing key.
