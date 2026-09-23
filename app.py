@@ -298,6 +298,8 @@ def invoice_refunded_amount(invoice):
 def invoice_net_paid_amount(invoice):
     return round(max(invoice_paid_amount(invoice) - invoice_refunded_amount(invoice), 0), 2)
 def invoice_balance(invoice):
+    if invoice.payment_status == 'Refunded':
+        return 0.0
     return round(max(invoice.total - invoice_net_paid_amount(invoice), 0), 2)
 
 def csrf_token():
