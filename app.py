@@ -1203,7 +1203,7 @@ def quick_sale():
             return redirect(url_for('view_invoice',id=inv.id))
         except (ValueError,TypeError,KeyError) as exc:
             db.session.rollback(); flash(str(exc) or 'Quick checkout failed.','danger')
-    return render_template('quick_sale.html',customers=Customer.query.order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),today_iso=date.today().isoformat())
+    return render_template('quick_sale.html',customers=Customer.query.order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),today_iso=date.today().isoformat(),tax_rate=get_tax_rate())
 
 # ==================== CUSTOMERS ====================
 
@@ -1905,7 +1905,7 @@ def appointments():
     if date_filter:
         try: query=query.filter_by(appointment_date=datetime.strptime(date_filter,'%Y-%m-%d').date())
         except ValueError: flash('Invalid appointment date.','warning'); date_filter=''
-    return render_template('appointments.html',appointments=query.order_by(Appointment.appointment_date.desc(),Appointment.appointment_time).all(),status_filter=status_filter,date_filter=date_filter,status_options=APPOINTMENT_STATUSES)
+    return render_template('appointments.html',appointments=query.order_by(Appointment.appointment_date.desc(),Appointment.appointment_time).all(),status_filter=status_filter,date_filter=date_filter,status_options=APPOINTMENT_STATUSES,today=date.today())
 
 @app.route('/appointments/add',methods=['GET','POST'])
 @login_required
@@ -2075,7 +2075,8 @@ def update_invoice_tip(id):
 def view_invoice(id):
     invoice = Invoice.query.get_or_404(id)
     inventory_products = InventoryItem.query.filter_by(is_active=True).order_by(InventoryItem.name).all()
-    return render_template('invoice_detail.html', invoice=invoice, inventory_products=inventory_products)
+    salon_setting = SalonSetting.query.first()
+    return render_template('invoice_detail.html', invoice=invoice, inventory_products=inventory_products, salon_setting=salon_setting)
 
 @app.route('/invoices/pay/<int:id>', methods=['POST'])
 @login_required
