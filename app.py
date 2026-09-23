@@ -2033,10 +2033,13 @@ def staff_availability_api(staff_id):
         'breaks': [{'id': b.id, 'day_of_week': b.day_of_week, 'start_time': b.start_time, 'end_time': b.end_time, 'is_active': b.is_active} for b in breaks]
     })
 
-@app.route('/api/staff/<int:staff_id>/breaks', methods=['POST'])
+@app.route('/api/staff/<int:staff_id>/breaks', methods=['GET','POST'])
 @login_required
 def staff_break_create_api(staff_id):
     Staff.query.get_or_404(staff_id)
+    if request.method == 'GET':
+        rows = StaffBreak.query.filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
+        return jsonify({'breaks': [{'id': b.id, 'day_of_week': b.day_of_week, 'start_time': b.start_time, 'end_time': b.end_time, 'is_active': b.is_active} for b in rows]})
     payload = request.get_json(silent=True) or {}
     try:
         day = int(payload.get('day_of_week'))
