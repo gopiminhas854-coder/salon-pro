@@ -4,6 +4,8 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timedelta, timezone
 from functools import wraps
 import os
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_auth_requests
 import secrets
 import io
 import json
@@ -25,6 +27,7 @@ _secret = os.environ.get('SALON_PRO_SECRET_KEY', '')
 if os.environ.get('FLASK_ENV') == 'production' and len(_secret) < 32:
     raise RuntimeError('SALON_PRO_SECRET_KEY must be set to a strong 32+ character value in production.')
 app.config['SECRET_KEY'] = _secret or 'change-this-secret-key'
+app.config['GOOGLE_CLIENT_ID'] = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///salon.db')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
@@ -42,6 +45,15 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), default='admin')  # admin / staff
+
+class GoogleIdentity(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    google_sub = db.Column(db.String(255), unique=True, nullable=False)
+    email = db.Column(db.String(320), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    user = db.relationship('User', backref=db.backref('google_identity', uselist=False))
 
 class UserStaffLink(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -351,8 +363,11 @@ def ensure_database():
     if os.environ.get('SALON_PRO_AUTO_CREATE_DB', '1') != '1':
         return None
     try:
-        if not inspect(db.engine).has_table('user'):
+        inspector = inspect(db.engine)
+        if not inspector.has_table('user'):
             init_db()
+        elif not inspector.has_table('google_identity'):
+            GoogleIdentity.__table__.create(bind=db.engine, checkfirst=True)
     except Exception as exc:
         app.logger.exception('Database bootstrap failed: %s', exc)
         raise
@@ -360,6 +375,8 @@ def ensure_database():
 @app.before_request
 def csrf_guard():
     if request.method in {'POST','PUT','PATCH','DELETE'}:
+        if request.endpoint == 'google_auth' and request.form.get('credential'):
+            return None
         token = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
         if token and secrets.compare_digest(token, session.get('_csrf_token', '')):
             return None
@@ -439,6 +456,84 @@ def health():
         db.session.rollback()
         return jsonify({'status': 'degraded', 'service': 'Salon Pro', 'database': 'unavailable'}), 503
 
+def establish_login_session(user):
+    session.clear()
+    session['user_id'] = user.id
+    session['username'] = user.username
+    session['role'] = user.role or 'staff'
+
+
+@app.route('/auth/google', methods=['POST'])
+def google_auth():
+    """Verify a Google ID token and link/sign in the matching Salon Pro account."""
+    destination = url_for('settings') if session.get('user_id') else url_for('login')
+    if not app.config.get('GOOGLE_CLIENT_ID'):
+        flash('Google Sign-In is not configured yet. Set GOOGLE_CLIENT_ID on the server.', 'warning')
+        return redirect(destination)
+
+    credential = request.form.get('credential', '').strip()
+    if not credential:
+        flash('Google Sign-In did not return a credential.', 'danger')
+        return redirect(destination)
+
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            credential,
+            google_auth_requests.Request(),
+            app.config['GOOGLE_CLIENT_ID']
+        )
+    except Exception:
+        app.logger.exception('Google ID token verification failed')
+        flash('Google Sign-In could not be verified. Please try again.', 'danger')
+        return redirect(destination)
+
+    google_sub = str(claims.get('sub') or '').strip()
+    email = str(claims.get('email') or '').strip().lower()
+    if not google_sub or not email or claims.get('email_verified') is not True:
+        flash('Google did not provide a verified account identity.', 'danger')
+        return redirect(destination)
+
+    identity = GoogleIdentity.query.filter_by(google_sub=google_sub).first()
+    current = current_user() if session.get('user_id') else None
+
+    if current:
+        existing_for_user = GoogleIdentity.query.filter_by(user_id=current.id).first()
+        if identity and identity.user_id != current.id:
+            flash('That Google account is already connected to another Salon Pro account.', 'danger')
+            return redirect(url_for('settings'))
+        if existing_for_user and existing_for_user.google_sub != google_sub:
+            flash('This Salon Pro account already has a different Google account connected.', 'warning')
+            return redirect(url_for('settings'))
+        if not identity:
+            identity = GoogleIdentity(user_id=current.id, google_sub=google_sub, email=email)
+            db.session.add(identity)
+        else:
+            identity.email = email
+        db.session.commit()
+        flash('Google account connected successfully. You can now use Continue with Google at login.', 'success')
+        return redirect(url_for('settings'))
+
+    if not identity:
+        flash('This Google account is not connected yet. Log in normally first, then open Settings → Google Sign-In → Connect Google.', 'warning')
+        return redirect(url_for('login'))
+
+    user = db.session.get(User, identity.user_id)
+    if not user:
+        db.session.delete(identity)
+        db.session.commit()
+        flash('The linked Salon Pro account no longer exists.', 'danger')
+        return redirect(url_for('login'))
+
+    link = UserStaffLink.query.filter_by(user_id=user.id).first()
+    if link and (not link.staff or not link.staff.is_active):
+        flash('This Salon Pro account is inactive.', 'danger')
+        return redirect(url_for('login'))
+
+    establish_login_session(user)
+    flash('Welcome back!', 'success')
+    return redirect(url_for('dashboard'))
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
@@ -447,9 +542,7 @@ def login():
         user = User.query.filter_by(username=username).first()
         link = UserStaffLink.query.filter_by(user_id=user.id).first() if user else None
         if user and (not link or (link.staff and link.staff.is_active)) and check_password_hash(user.password_hash, password):
-            session['user_id'] = user.id
-            session['username'] = user.username
-            session['role'] = user.role or 'staff'
+            establish_login_session(user)
             flash('Welcome back!', 'success')
             return redirect(url_for('dashboard'))
         flash('Invalid username or password.', 'danger')
@@ -2294,7 +2387,8 @@ def settings():
             flash('Enter valid numeric settings.', 'danger')
             hours = {h.day_of_week: h for h in SalonHours.query.all()}
             closures = SalonClosure.query.order_by(SalonClosure.closure_date).all()
-            return render_template('settings.html', setting=setting, hours=hours, closures=closures)
+            google_identity = GoogleIdentity.query.filter_by(user_id=session['user_id']).first()
+            return render_template('settings.html', setting=setting, hours=hours, closures=closures, google_identity=google_identity)
 
         # Save the seven-day business-hours schedule.
         for day in range(7):
@@ -2327,7 +2421,8 @@ def settings():
                 flash('Enter a valid closure date.', 'danger')
                 hours = {h.day_of_week: h for h in SalonHours.query.all()}
                 closures = SalonClosure.query.order_by(SalonClosure.closure_date).all()
-                return render_template('settings.html', setting=setting, hours=hours, closures=closures)
+                google_identity = GoogleIdentity.query.filter_by(user_id=session['user_id']).first()
+                return render_template('settings.html', setting=setting, hours=hours, closures=closures, google_identity=google_identity)
 
         db.session.commit()
         flash('Salon settings and business hours saved.', 'success')
@@ -2335,7 +2430,8 @@ def settings():
 
     hours = {h.day_of_week: h for h in SalonHours.query.all()}
     closures = SalonClosure.query.order_by(SalonClosure.closure_date).all()
-    return render_template('settings.html', setting=setting, hours=hours, closures=closures)
+    google_identity = GoogleIdentity.query.filter_by(user_id=session['user_id']).first()
+    return render_template('settings.html', setting=setting, hours=hours, closures=closures, google_identity=google_identity)
 
 @app.route('/account/password', methods=['GET', 'POST'])
 @login_required
