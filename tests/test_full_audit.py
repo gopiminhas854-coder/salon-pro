@@ -19,6 +19,7 @@ def setup_database():
             salon.Customer(name="Audit Customer", phone="9999999999"),
             salon.Service(name="Audit Haircut", duration_minutes=30, price=100, category="Hair", is_active=True),
             salon.Staff(name="Audit Stylist", is_active=True),
+            salon.InventoryItem(name="Audit Shampoo", sku="AUDIT-1", stock_qty=10, reorder_level=2, cost_price=20, sale_price=50, is_active=True),
         ])
         salon.db.session.commit()
 
