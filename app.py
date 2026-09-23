@@ -385,6 +385,30 @@ def security_headers(response):
         response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
+@app.errorhandler(404)
+def handle_not_found(error):
+    return (
+        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>Salon Pro - Page not found</title></head><body style=\"font-family:system-ui;padding:40px\">"
+        "<h1>Page not found</h1><p>The Salon Pro page you requested does not exist.</p>"
+        "<a href=\"/\">Return to Salon Pro</a></body></html>",
+        404,
+    )
+
+
+@app.errorhandler(500)
+def handle_server_error(error):
+    db.session.rollback()
+    app.logger.exception("Unhandled Salon Pro request error")
+    return (
+        "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "<title>Salon Pro - Temporary error</title></head><body style=\"font-family:system-ui;padding:40px\">"
+        "<h1>Salon Pro is temporarily unavailable</h1><p>The server hit an unexpected error. Please refresh once.</p>"
+        "<a href=\"/health\">Check service health</a></body></html>",
+        500,
+    )
+
+
 @app.route('/health')
 def health():
     # Health must verify database connectivity; otherwise Render can report
