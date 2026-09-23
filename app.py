@@ -478,6 +478,8 @@ def award_loyalty_for_invoice(invoice):
                                        amount=max(invoice.total, 0)))
 
 def booking_allowed(appointment_date, appointment_time, duration_minutes):
+    if appointment_date < date.today():
+        return False, 'Appointments cannot be booked for a past date.'
     closure = SalonClosure.query.filter_by(closure_date=appointment_date).first()
     if closure:
         return False, closure.reason or 'The salon is closed on this date.'
@@ -1391,6 +1393,10 @@ def add_appointment():
             service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
             Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
             Customer.query.get_or_404(customer_id)
+            allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
+            if not allowed:
+                flash(reason, 'danger')
+                return redirect(url_for('add_appointment'))
 
             start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
             end = start + timedelta(minutes=service.duration_minutes or 30)
@@ -1446,6 +1452,10 @@ def edit_appointment(id):
             service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
             Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
             Customer.query.get_or_404(customer_id)
+            allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
+            if not allowed:
+                flash(reason, 'danger')
+                return redirect(url_for('edit_appointment', id=id))
 
             start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
             end = start + timedelta(minutes=service.duration_minutes or 30)
