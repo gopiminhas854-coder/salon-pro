@@ -38,7 +38,8 @@ with app.app_context():
         baseline_excluded_columns = {
             "user": {"phone_number"},
             "customer": {"date_of_birth", "anniversary_date"},
-            "invoice": {"commission_rate"},
+            "appointment": {"recurrence_rule", "recurrence_end_date"},
+            "invoice": {"commission_rate", "tip"},
         }
         model_tables = {
             table.name: {
