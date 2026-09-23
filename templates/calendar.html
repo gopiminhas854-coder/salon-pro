@@ -3,44 +3,36 @@
 {% block page_kicker %}Schedule{% endblock %}
 {% block content %}
 <div class="sp-calendar-toolbar">
-  <div>
-    <div class="text-muted small mb-1">Appointments</div>
-    <h2 class="sp-calendar-title">Calendar</h2>
-    <div class="sp-calendar-range">{{ week_start.strftime('%d %b') }} — {{ next_week.strftime('%d %b %Y') }}</div>
-  </div>
+  <div><div class="text-muted small mb-1">Appointments</div><h2 class="sp-calendar-title">Calendar</h2><div class="sp-calendar-range">{{ month_label if view=='month' else selected.strftime('%d %b %Y') }}</div></div>
   <div class="d-flex gap-2 flex-wrap">
-    <a class="btn btn-light btn-sm" href="{{ url_for('calendar_view', date=previous_week) }}"><i class="bi bi-chevron-left"></i></a>
-    <a class="btn btn-light btn-sm" href="{{ url_for('calendar_view', date=today_iso) }}">Today</a>
-    <a class="btn btn-light btn-sm" href="{{ url_for('calendar_view', date=next_week) }}"><i class="bi bi-chevron-right"></i></a>
-    <a class="btn btn-primary btn-sm" href="{{ url_for('add_appointment') }}"><i class="bi bi-plus-lg me-1"></i> New booking</a>
+    <div class="btn-group"><a class="btn btn-sm {% if view=='day' %}btn-primary{% else %}btn-light{% endif %}" href="{{ url_for('calendar_view',date=selected_text,view='day') }}">Day</a><a class="btn btn-sm {% if view=='week' %}btn-primary{% else %}btn-light{% endif %}" href="{{ url_for('calendar_view',date=selected_text,view='week') }}">Week</a><a class="btn btn-sm {% if view=='month' %}btn-primary{% else %}btn-light{% endif %}" href="{{ url_for('calendar_view',date=selected_text,view='month') }}">Month</a></div>
+    <a class="btn btn-light btn-sm" href="{{ url_for('calendar_view',date=previous_date,view=view) }}"><i class="bi bi-chevron-left"></i></a><a class="btn btn-light btn-sm" href="{{ url_for('calendar_view',date=today_iso,view=view) }}">Today</a><a class="btn btn-light btn-sm" href="{{ url_for('calendar_view',date=next_date,view=view) }}"><i class="bi bi-chevron-right"></i></a><a class="btn btn-primary btn-sm" href="{{ url_for('add_appointment') }}">➕ New booking</a>
   </div>
 </div>
-
-<div class="sp-calendar-scroll">
-  <div class="sp-calendar-shell">
-    <div class="sp-calendar-grid">
-      {% for day in days %}
-      <section class="sp-calendar-day {% if day == selected %}is-today{% endif %}">
-        <div class="sp-calendar-day-head">
-          <div class="sp-calendar-day-name">{{ day.strftime('%a') }}</div>
-          <div class="sp-calendar-day-number">{{ day.strftime('%d') }}</div>
-          <div class="text-muted" style="font-size:10px">{{ day.strftime('%b') }}</div>
-        </div>
-        <div class="sp-calendar-items">
-          {% for a in appointments_by_day[day] %}
-            <a href="{{ url_for('edit_appointment', id=a.id) }}" class="sp-appt {% if a.status == 'Completed' %}is-completed{% elif a.status == 'Cancelled' %}is-cancelled{% elif a.status == 'No-Show' %}is-noshow{% endif %}">
-              <div class="sp-appt-time">{{ a.appointment_time }} · {{ a.status }}</div>
-              <div class="sp-appt-name">{{ a.customer.name }}</div>
-              <div class="sp-appt-service">{{ a.service.name }}</div>
-              <div class="sp-appt-staff"><i class="bi bi-person"></i> {{ a.staff.name }}</div>
-            </a>
-          {% else %}
-            <div class="sp-calendar-empty">No bookings</div>
-          {% endfor %}
-        </div>
-      </section>
-      {% endfor %}
-    </div>
-  </div>
-</div>
+<div class="alert alert-light border small no-print mb-3"><i class="bi bi-arrows-move me-1"></i> Drag an appointment card onto another day to reschedule it. Conflict detection runs automatically.</div>
+<div class="sp-calendar-scroll"><div class="sp-calendar-shell"><div class="sp-calendar-grid {% if view=='month' %}sp-calendar-month{% endif %}">
+{% for day in days %}<section class="sp-calendar-day {% if day==selected %}is-today{% endif %}" data-date="{{ day.isoformat() }}" ondragover="event.preventDefault(); this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="moveAppointment(event,this)">
+  <div class="sp-calendar-day-head"><div class="sp-calendar-day-name">{{ day.strftime('%a') }}</div><div class="sp-calendar-day-number">{{ day.strftime('%d') }}</div><div class="text-muted" style="font-size:10px">{{ day.strftime('%b') }}</div></div>
+  <div class="sp-calendar-items">
+  {% for a in appointments_by_day[day] %}<a draggable="true" ondragstart="event.dataTransfer.setData('text/plain','{{ a.id }}')" href="{{ url_for('edit_appointment',id=a.id) }}" class="sp-appt {% if a.status=='Completed' %}is-completed{% elif a.status=='Cancelled' %}is-cancelled{% elif a.status=='No-Show' %}is-noshow{% endif %}" title="Drag to reschedule"><div class="sp-appt-time">{{ a.appointment_time }} · {{ 'Booked' if a.status=='Scheduled' else a.status }}</div><div class="sp-appt-name">{{ a.customer.name }}</div><div class="sp-appt-service">{{ a.service.name }} · {{ a.service.duration_minutes }}m</div><div class="sp-appt-staff"><i class="bi bi-person"></i> {{ a.staff.name }}</div></a>{% else %}<div class="sp-calendar-empty">No bookings</div>{% endfor %}
+  </div></section>{% endfor %}
+</div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function moveAppointment(event,day){
+  event.preventDefault(); day.classList.remove('drag-over');
+  const id=event.dataTransfer.getData('text/plain'); if(!id) return;
+  const form=new URLSearchParams(); form.set('appointment_id',id); form.set('appointment_date',day.dataset.date);
+  const card=document.querySelector('.sp-appt[draggable="true"][href*="edit/'+id+'"]');
+  const originalTime=card ? card.querySelector('.sp-appt-time').textContent.split(' ')[0] : '09:00';
+  form.set('appointment_time',originalTime);
+  form.set('_csrf_token','{{ csrf_token() }}');
+  try{
+    const res=await fetch('{{ url_for("move_appointment") }}',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded','Accept':'application/json'},body:form});
+    const data=await res.json(); if(!data.ok) throw new Error(data.error||'Unable to move appointment.');
+    window.location.reload();
+  }catch(err){ alert(err.message); }
+}
+</script>
 {% endblock %}
