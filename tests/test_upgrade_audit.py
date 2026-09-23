@@ -533,3 +533,57 @@ def test_command_center_crm_retention_growth_tools():
         )
         assert response.status_code == 200
         assert b"outstanding" in response.data.lower()
+
+
+def test_waitlist_and_smart_scheduling():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        customer_id, service_id, staff_id, _ = ids()
+        target = date.today() + timedelta(days=1)
+        response = client.post(
+            "/waitlist",
+            data={
+                "customer_id": customer_id,
+                "service_id": service_id,
+                "preferred_staff_id": staff_id,
+                "preferred_date": target.isoformat(),
+                "preferred_time": "14:00",
+                "notes": "Flexible if earlier",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        with salon.app.app_context():
+            row = salon.WaitlistEntry.query.first()
+            assert row is not None and row.status == "Open"
+            row_id = row.id
+
+        response = client.get("/smart-schedule", query_string={
+            "service_id": service_id, "staff_id": staff_id, "date": target.isoformat()
+        })
+        assert response.status_code == 200
+        assert b"Find an earliest slot" in response.data
+
+        response = client.get("/api/smart-schedule", query_string={
+            "service_id": service_id, "staff_id": staff_id, "date": target.isoformat()
+        })
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["ok"] is True
+        assert payload["slots"]
+
+        slot = payload["slots"][0]
+        response = client.post(
+            f"/waitlist/{row_id}/book",
+            data={"appointment_date": slot["date"], "appointment_time": slot["time"], "staff_id": slot["staff_id"]},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        with salon.app.app_context():
+            row = salon.db.session.get(salon.WaitlistEntry, row_id)
+            assert row.status == "Booked"
+            assert salon.Appointment.query.filter_by(
+                customer_id=customer_id, service_id=service_id, appointment_date=target,
+                appointment_time=slot["time"], status="Confirmed"
+            ).count() == 1
