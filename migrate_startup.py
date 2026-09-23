@@ -32,16 +32,29 @@ with app.app_context():
                 f"baseline; missing tables: {', '.join(sorted(missing))}"
             )
         # A table-name-only check can accept a corrupted/obsolete schema.
-        # Compare actual columns against the SQLAlchemy model metadata before
-        # stamping an existing database at the migration baseline.
-        model_tables = {table.name: {column.name for column in table.columns} for table in db.metadata.sorted_tables}
-        for table_name, expected_columns in model_tables.items():
+        # Existing installations are stamped at the 0001 baseline first, then
+        # migrations add post-baseline columns. Compare only the columns that
+        # actually belonged to the 0001 baseline.
+        baseline_excluded_columns = {
+            "user": {"phone_number"},
+            "customer": {"date_of_birth", "anniversary_date"},
+            "invoice": {"commission_rate"},
+        }
+        model_tables = {
+            table.name: {
+                column.name for column in table.columns
+            }
+            for table in db.metadata.sorted_tables
+            if table.name in EXPECTED_TABLES
+        }
+        for table_name, current_columns in model_tables.items():
+            expected_columns = current_columns - baseline_excluded_columns.get(table_name, set())
             actual_columns = {column['name'] for column in inspector.get_columns(table_name)}
             missing_columns = expected_columns - actual_columns
             if missing_columns:
                 raise RuntimeError(
                     f"Existing database schema mismatch in {table_name}; "
-                    f"missing columns: {', '.join(sorted(missing_columns))}"
+                    f"missing baseline columns: {', '.join(sorted(missing_columns))}"
                 )
         stamp(BASELINE)
 
