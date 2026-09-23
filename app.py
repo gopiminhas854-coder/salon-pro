@@ -2447,6 +2447,24 @@ def reports():
             service_counts[key] = service_counts.get(key, 0) + 1
     top_services = sorted(service_counts.items(), key=lambda x: (-x[1], x[0]))[:8]
 
+    service_revenue = {}
+    for inv in paid:
+        if not inv.appointment or not inv.appointment.service:
+            continue
+        service_name = inv.appointment.service.name
+        service_revenue[service_name] = service_revenue.get(service_name, 0) + invoice_net_paid_amount(inv)
+    top_service_revenue = sorted(
+        service_revenue.items(), key=lambda x: (-x[1], x[0])
+    )[:8]
+
+    expense_categories = {}
+    for expense in expenses_list:
+        expense_categories[expense.category] = expense_categories.get(expense.category, 0) + expense.amount
+    expense_categories = sorted(
+        ((name, round(amount, 2)) for name, amount in expense_categories.items()),
+        key=lambda x: (-x[1], x[0])
+    )
+
     staff_rows = []
     for member in Staff.query.order_by(Staff.name).all():
         member_appts = [a for a in appts if a.staff_id == member.id]
@@ -2489,6 +2507,8 @@ def reports():
                            expenses_total=expenses_total, profit=profit, paid_count=len(paid),
                            pending_count=len(pending), completed=completed, no_show=no_show,
                            cancelled=cancelled, top_services=top_services,
+                           top_service_revenue=top_service_revenue,
+                           expense_categories=expense_categories,
                            staff_rows=staff_rows, daily_rows=daily_rows)
 
 @app.route('/reports/export.csv')
