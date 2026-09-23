@@ -1155,6 +1155,16 @@ def dashboard():
         completed_today=completed_today,low_stock_count=len(low_stock),low_stock_items=low_stock[:5],potential_inventory_profit=potential_inventory_profit,
         upcoming=upcoming,revenue_by_day=revenue_by_day,top_services=top_services)
 
+@app.route('/payments')
+@login_required
+def payments():
+    outstanding = [
+        invoice for invoice in Invoice.query.filter(Invoice.payment_status.in_(['Pending','Partial']))
+        .order_by(Invoice.created_at.asc()).all()
+        if invoice_balance(invoice) > 0
+    ]
+    return render_template('payments.html', invoices=outstanding[:100])
+
 @app.route('/money-center')
 @login_required
 def money_center():
