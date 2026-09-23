@@ -1772,7 +1772,7 @@ def customer_detail(id):
                            appointments=customer_appointments, invoices=customer_invoices,
                            completed_visits=completed_visits, total_spend=total_spend,
                            pending_amount=pending_amount, last_visit=last_visit,
-                           crm=crm)
+                           crm=crm, customer_next_action=customer_next_best_action(customer, crm))
 
 
 # ==================== EXPENSES ====================
@@ -3243,10 +3243,15 @@ def whatsapp_templates():
 def whatsapp_send(customer_id,key):
     customer=Customer.query.get_or_404(customer_id); metrics=_customer_metrics(customer.id); setting=SalonSetting.query.first()
     service=(metrics['next_visit'].service if metrics.get('next_visit') else (metrics['last_visit'].service if metrics.get('last_visit') else None))
+    expiring = CustomerPackage.query.filter_by(customer_id=customer.id, status='Active').order_by(CustomerPackage.expires_at.asc()).first()
     context={'name':customer.name,'service':service.name if service else metrics.get('favorite_service') or 'service',
              'date':metrics['next_visit'].appointment_date.strftime('%d %b %Y') if metrics.get('next_visit') else date.today().strftime('%d %b %Y'),
              'time':metrics['next_visit'].appointment_time if metrics.get('next_visit') else '',
-             'days_since':metrics.get('days_since_visit') or 0,'salon_name':setting.salon_name if setting else 'Salon Pro'}
+             'days_since':metrics.get('days_since_visit') or 0,'amount':metrics.get('paid_revenue') or 0,
+             'balance':metrics.get('outstanding_balance') or 0,
+             'package':expiring.package.name if expiring and expiring.package else 'package',
+             'expiry':expiring.expires_at.strftime('%d %b %Y') if expiring else '',
+             'salon_name':setting.salon_name if setting else 'Salon Pro'}
     message=render_whatsapp_template(key,context); phone=''.join(ch for ch in (customer.phone or '') if ch.isdigit())
     return redirect(f"https://wa.me/{phone}?text={quote(message)}")
 
@@ -3304,17 +3309,22 @@ def settings():
         setting.address = request.form.get('address', '').strip()
         setting.invoice_prefix = request.form.get('invoice_prefix', 'SP').strip()[:20] or 'SP'
         setting.gst_number = request.form.get('gst_number', '').strip()[:30] or None
-        upload = request.files.get('logo_file')
-        if upload and upload.filename:
-            raw = upload.read()
-            if len(raw) > 512 * 1024:
-                raise ValueError('Logo must be 512 KB or smaller.')
-            mime = (upload.mimetype or '').lower()
-            if mime not in {'image/png','image/jpeg','image/webp'}:
-                raise ValueError('Logo must be PNG, JPG or WEBP.')
-            setting.logo_data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
-        elif request.form.get('remove_logo') == '1':
-            setting.logo_data_url = None
+        try:
+            upload = request.files.get('logo_file')
+            if upload and upload.filename:
+                raw = upload.read()
+                if len(raw) > 512 * 1024:
+                    raise ValueError('Logo must be 512 KB or smaller.')
+                mime = (upload.mimetype or '').lower()
+                if mime not in {'image/png','image/jpeg','image/webp'}:
+                    raise ValueError('Logo must be PNG, JPG or WEBP.')
+                setting.logo_data_url = f"data:{mime};base64,{base64.b64encode(raw).decode('ascii')}"
+            elif request.form.get('remove_logo') == '1':
+                setting.logo_data_url = None
+        except ValueError as exc:
+            db.session.rollback()
+            flash(str(exc), 'danger')
+            return redirect(url_for('settings'))
         try:
             setting.tax_rate = max(0, min(100, float(request.form.get('tax_rate', 5))))
             setting.loyalty_rate = max(0, min(100, float(request.form.get('loyalty_rate', 1))))
