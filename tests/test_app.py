@@ -384,6 +384,37 @@ def test_customer_milestones_and_special_reminders(client):
     assert b"Anniversaries" in response.data
     assert b"Test Customer" in response.data
 
+def test_customer_form_saves_milestones_and_reminder_uses_saved_dates(client):
+    c, salon = client
+    login(c)
+
+    target = salon.date.today() + salon.timedelta(days=7)
+    response = c.post("/customers/add", data={
+        "name": "Milestone Customer",
+        "phone": "8888888881",
+        "email": "milestone@example.com",
+        "gender": "Female",
+        "date_of_birth": f"{salon.date.today().year - 30:04d}-{target.month:02d}-{target.day:02d}",
+        "anniversary_date": f"{salon.date.today().year - 4:04d}-{target.month:02d}-{target.day:02d}",
+        "address": "Test Address",
+        "notes": "Milestone test",
+    }, follow_redirects=True)
+
+    assert response.status_code == 200
+    assert b"Customer added successfully" in response.data
+
+    with salon.app.app_context():
+        customer = salon.Customer.query.filter_by(name="Milestone Customer").one()
+        assert customer.date_of_birth == salon.date(salon.date.today().year - 30, target.month, target.day)
+        assert customer.anniversary_date == salon.date(salon.date.today().year - 4, target.month, target.day)
+
+    response = c.get("/reminders")
+    assert response.status_code == 200
+    assert b"Milestone Customer" in response.data
+    assert b"Birthdays" in response.data
+    assert b"Anniversaries" in response.data
+
+
 def test_dashboard_owner_metrics_and_backup(client):
     c, salon = client
     login(c)
