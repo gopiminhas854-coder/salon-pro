@@ -49,8 +49,16 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
-    role = db.Column(db.String(20), default='admin')  # admin / staff
+    role = db.Column(db.String(20), default='admin')  # admin / manager / receptionist / staff
     phone_number = db.Column(db.String(20), unique=True)
+
+class BackupLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    file_name = db.Column(db.String(180), nullable=False)
+    size_bytes = db.Column(db.Integer, default=0)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    created_by_user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
+    created_by = db.relationship('User')
 
 class GoogleIdentity(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -419,9 +427,13 @@ def admin_required(f):
         if 'user_id' not in session:
             flash('Please login to continue.', 'warning')
             return redirect(url_for('login'))
-        if session.get('role') != 'admin':
-            flash('Admin access is required for this action.', 'danger')
-            return redirect(url_for('dashboard'))
+        role = session.get('role', 'staff')
+        if role == 'admin':
+            return f(*args, **kwargs)
+        if role == 'manager' and request.endpoint not in OWNER_ONLY_ENDPOINTS:
+            return f(*args, **kwargs)
+        flash('Owner/Admin access is required for this action.', 'danger')
+        return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -484,6 +496,13 @@ def recalculate_invoice(invoice):
     invoice.tip = round(max(invoice.tip or 0, 0), 2)
     invoice.total = round(taxable + invoice.tax + invoice.tip, 2)
 
+OWNER_ONLY_ENDPOINTS = {'settings', 'download_backup', 'restore_backup', 'reports', 'export_report_csv', 'audit_log', 'insights'}
+
+SENSITIVE_READ_ENDPOINTS = {
+    'money_center', 'reports', 'export_report_csv', 'insights',
+    'staff_performance_overview', 'supplier_intelligence', 'audit_log', 'assistant'
+}
+
 ADMIN_ONLY_ENDPOINTS = {
     'settings', 'download_backup',
     'add_staff', 'edit_staff', 'delete_staff',
@@ -534,8 +553,14 @@ def enforce_roles():
         # Never trust a stale role stored in the session.
         session['username'] = user.username
         session['role'] = user.role or 'staff'
-    if request.endpoint in ADMIN_ONLY_ENDPOINTS and user and user.role != 'admin':
-        flash('Admin access is required for this action.', 'danger')
+    if request.endpoint in OWNER_ONLY_ENDPOINTS and user and user.role != 'admin':
+        flash('Owner/Admin access is required for this action.', 'danger')
+        return redirect(url_for('dashboard'))
+    if request.endpoint in ADMIN_ONLY_ENDPOINTS and user and user.role not in {'admin', 'manager'}:
+        flash('Manager or Admin access is required for this action.', 'danger')
+        return redirect(url_for('dashboard'))
+    if request.endpoint in SENSITIVE_READ_ENDPOINTS and user and user.role in {'receptionist', 'staff'}:
+        flash('This business information is restricted for your role.', 'danger')
         return redirect(url_for('dashboard'))
 
 def login_required(f):
@@ -1120,11 +1145,23 @@ def _restore_value(column, value):
         return value.lower() in {'1', 'true', 'yes', 'on'}
     return value
 
+@app.route('/backup-center')
+@login_required
+def backup_center():
+    if session.get('role') not in {'admin'}:
+        flash('Owner/Admin access is required for backups.', 'danger')
+        return redirect(url_for('dashboard'))
+    logs = BackupLog.query.order_by(BackupLog.created_at.desc()).limit(20).all()
+    last = logs[0] if logs else None
+    return render_template('backup_center.html', logs=logs, last=last)
+
 @app.route('/backup/download')
 @admin_required
 def download_backup():
     payload = json.dumps(_backup_json(), ensure_ascii=False, separators=(',', ':')).encode('utf-8')
     compressed = gzip.compress(payload, compresslevel=6)
+    db.session.add(BackupLog(file_name=f"salon-pro-backup-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}Z.json.gz", size_bytes=len(compressed), created_by_user_id=session.get('user_id')))
+    db.session.commit()
     return send_file(
         io.BytesIO(compressed),
         mimetype='application/gzip',
@@ -2043,7 +2080,10 @@ def create_staff_account(id):
         if User.query.filter_by(username=username).first():
             flash('Username already exists.', 'danger')
             return redirect(url_for('create_staff_account', id=id))
-        user = User(username=username, password_hash=generate_password_hash(password), role='staff')
+        role = request.form.get('role', 'staff').strip().lower()
+        if role not in {'manager', 'receptionist', 'staff'}:
+            role = 'staff'
+        user = User(username=username, password_hash=generate_password_hash(password), role=role)
         db.session.add(user)
         db.session.flush()
         db.session.add(UserStaffLink(user_id=user.id, staff_id=member.id))
