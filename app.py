@@ -495,7 +495,7 @@ def recalculate_invoice(invoice):
     invoice.tip = round(max(invoice.tip or 0, 0), 2)
     invoice.total = round(taxable + invoice.tax + invoice.tip, 2)
 
-OWNER_ONLY_ENDPOINTS = {'settings', 'download_backup', 'restore_backup', 'reports', 'export_report_csv', 'audit_log', 'insights'}
+OWNER_ONLY_ENDPOINTS = {'settings', 'download_backup', 'restore_backup'}
 
 SENSITIVE_READ_ENDPOINTS = {
     'money_center', 'reports', 'export_report_csv', 'insights',
