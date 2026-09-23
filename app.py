@@ -3152,8 +3152,8 @@ def loyalty():
         points = loyalty.points if loyalty else int(paid * (SalonSetting.query.first().loyalty_rate if SalonSetting.query.first() else 1) / 100)
         rows.append({'customer': customer, 'points': points, 'spend': round(spend,2)})
     setting = SalonSetting.query.first()
-    reward_threshold = max(1, int(setting.loyalty_reward_threshold or 1000))
-    reward_value = max(0, float(setting.loyalty_reward_value or 500))
+    reward_threshold = max(1, int(setting.loyalty_reward_threshold or 1000)) if setting else 1000
+    reward_value = max(0, float(setting.loyalty_reward_value or 500)) if setting else 500
     for row in rows:
         row['next_reward_points'] = max(reward_threshold - row['points'], 0)
         row['reward_value'] = reward_value
