@@ -2407,6 +2407,10 @@ def mark_paid(id):
         db.session.commit()
         return redirect(url_for('view_invoice', id=id))
     method = request.form.get('payment_method', 'Cash')
+    allowed_methods = {'Cash', 'UPI', 'Card', 'Bank Transfer', 'Gift Card'}
+    if method not in allowed_methods:
+        flash('Choose a supported payment method.', 'danger')
+        return redirect(url_for('view_invoice', id=id))
     try:
         amount = float(request.form.get('amount', balance))
         if amount <= 0 or amount > balance + 0.01:
@@ -2416,8 +2420,25 @@ def mark_paid(id):
         return redirect(url_for('view_invoice', id=id))
     amount = round(min(amount, balance), 2)
     try:
+        gift_card = None
+        if method == 'Gift Card':
+            code = request.form.get('gift_card_code', '').strip().upper()
+            gift_card = GiftCard.query.filter_by(code=code, status='Active').with_for_update().first() if code else None
+            if not gift_card:
+                raise ValueError('Enter a valid active gift card code.')
+            if gift_card.expires_at and gift_card.expires_at < date.today():
+                gift_card.status = 'Expired'
+                raise ValueError('This gift card has expired.')
+            if amount > (gift_card.balance or 0) + 0.01:
+                raise ValueError(f'Gift card balance is only ₹{(gift_card.balance or 0):.2f}.')
         db.session.add(InvoicePayment(invoice_id=invoice.id, amount=amount,
-                                      payment_method=method, notes=request.form.get('notes')))
+                                      payment_method=method, notes=request.form.get('notes') or (f'Gift card {gift_card.code}' if gift_card else None)))
+        if gift_card:
+            gift_card.balance = round(max((gift_card.balance or 0) - amount, 0), 2)
+            if gift_card.balance <= 0.01:
+                gift_card.balance = 0
+                gift_card.status = 'Redeemed'
+            db.session.add(GiftCardTransaction(gift_card_id=gift_card.id, transaction_type='Redeem', amount=amount, invoice_id=invoice.id, notes='Invoice payment'))
         invoice.payment_method = method
         db.session.flush()
         paid = invoice_paid_amount(invoice)
