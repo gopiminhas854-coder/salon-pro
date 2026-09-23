@@ -33,6 +33,20 @@ def client():
 def login(c):
     return c.post("/login", data={"username": "admin", "password": "admin123"}, follow_redirects=True)
 
+def test_phone_number_normalization():
+    assert salon.normalize_phone_number("98765 43210") == "+919876543210"
+    assert salon.normalize_phone_number("09876543210") == "+919876543210"
+    assert salon.normalize_phone_number("+91-98765-43210") == "+919876543210"
+    assert salon.normalize_phone_number("not-a-phone") is None
+
+
+def test_phone_login_requires_server_otp_configuration(client):
+    c, _ = client
+    response = c.post("/auth/phone/send", data={"phone": "9876543210"}, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Phone login is not configured yet" in response.data
+
+
 def test_health_and_login(client):
     c, salon = client
     assert c.get("/health").status_code == 200
