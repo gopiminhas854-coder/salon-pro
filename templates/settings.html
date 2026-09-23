@@ -1,21 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Settings{% if config.GOOGLE_CLIENT_ID %}
-<script src="https://accounts.google.com/gsi/client" async defer></script>
-<script>
-(function(){
-    const nativeButton = document.getElementById('native-google-settings');
-    const gsi = document.querySelector('#google-settings-container .g_id_signin');
-    if (nativeButton && window.SalonProAndroid) {
-        nativeButton.style.display = 'inline-block';
-        if (gsi) gsi.style.display = 'none';
-        nativeButton.addEventListener('click', function(){
-            window.SalonProAndroid.signInWithGoogle();
-        });
-    }
-})();
-</script>
-{% endif %}
-{% endblock %}
+{% block title %}Settings{% endblock %}
 {% block content %}
 <div class="mb-4"><div class="text-muted small mb-1">Configuration</div><h2 class="mb-1">Settings</h2><div class="text-muted small">Manage your salon identity, pricing rules, hours and security.</div></div>
 <form method="POST" class="card border-0 shadow-sm"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="card-body">
@@ -84,4 +68,22 @@
 <div class="form-text">Restore is admin-only and replaces current database records. Always download a fresh backup first.</div>
 </form>
 </div></div><div class="card border-0 shadow-sm mt-4"><div class="card-body"><h5>Security</h5><p class="text-muted">Change the current account password before using Salon Pro in production.</p><a href="{{ url_for('change_password') }}" class="btn btn-outline-danger">Change Password</a></div></div>
+{% endblock %}
+{% block scripts %}
+{% if config.GOOGLE_CLIENT_ID %}
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script>
+(function(){
+    const nativeButton = document.getElementById('native-google-settings');
+    const gsi = document.querySelector('#google-settings-container .g_id_signin');
+    if (nativeButton && window.SalonProAndroid) {
+        nativeButton.style.display = 'inline-block';
+        if (gsi) gsi.style.display = 'none';
+        nativeButton.addEventListener('click', function(){
+            window.SalonProAndroid.signInWithGoogle();
+        });
+    }
+})();
+</script>
+{% endif %}
 {% endblock %}
