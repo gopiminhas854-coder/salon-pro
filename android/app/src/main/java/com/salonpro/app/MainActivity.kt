@@ -12,8 +12,8 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 
-private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/"
-private const val APP_VERSION = "1.0.2"
+private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/login"
+private const val APP_VERSION = "1.0.3"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
@@ -29,7 +29,13 @@ class MainActivity : AppCompatActivity() {
                 databaseEnabled = true
                 setSupportZoom(false)
                 cacheMode = WebSettings.LOAD_NO_CACHE
-                userAgentString = "$userAgentString SalonProAndroid/$APP_VERSION"
+                mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+
+                // Web servers can reject Android WebView's default "; wv" marker.
+                // Keep the real Chrome version while presenting a browser-compatible UA.
+                userAgentString = userAgentString
+                    .replace("; wv", "")
+                    .replace("Version/4.0 ", "") + " SalonProAndroid/$APP_VERSION"
             }
 
             CookieManager.getInstance().setAcceptCookie(true)
@@ -41,6 +47,10 @@ class MainActivity : AppCompatActivity() {
                     super.onPageStarted(view, url, favicon)
                 }
 
+                // Only treat actual network-level failures as connection failures.
+                // HTTP 4xx/5xx responses are allowed to render their response body,
+                // so the app does not replace useful server diagnostics with a
+                // generic "could not connect" page.
                 override fun onReceivedError(
                     view: WebView?,
                     request: WebResourceRequest?,
@@ -51,20 +61,10 @@ class MainActivity : AppCompatActivity() {
                         showLoadError()
                     }
                 }
-
-                override fun onReceivedHttpError(
-                    view: WebView?,
-                    request: WebResourceRequest?,
-                    errorResponse: android.webkit.WebResourceResponse?
-                ) {
-                    super.onReceivedHttpError(view, request, errorResponse)
-                    if (request?.isForMainFrame == true) {
-                        showLoadError()
-                    }
-                }
             }
 
             clearCache(true)
+            clearHistory()
             loadUrl(SALON_PRO_URL)
         }
 
@@ -78,7 +78,7 @@ class MainActivity : AppCompatActivity() {
               <meta name="viewport" content="width=device-width, initial-scale=1">
               <body style="font-family:sans-serif;padding:32px;text-align:center;">
                 <h2>Salon Pro could not connect</h2>
-                <p>Please check your internet connection and try again.</p>
+                <p>There was a network-level WebView connection error.</p>
                 <button onclick="location.href='$SALON_PRO_URL'">Retry Salon Pro</button>
               </body>
             </html>
@@ -95,6 +95,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @Suppress("DEPRECATION")
     override fun onBackPressed() {
         if (webView.canGoBack()) {
             webView.goBack()
