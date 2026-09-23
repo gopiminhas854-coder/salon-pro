@@ -104,8 +104,10 @@ class Appointment(db.Model):
     service_id = db.Column(db.Integer, db.ForeignKey('service.id'), nullable=False)
     appointment_date = db.Column(db.Date, nullable=False)
     appointment_time = db.Column(db.String(10), nullable=False)  # HH:MM
-    status = db.Column(db.String(20), default='Scheduled')  # Scheduled, Completed, Cancelled, No-Show
+    status = db.Column(db.String(20), default='Booked')  # Booked, Confirmed, Arrived, In service, Completed, Cancelled, No-Show
     notes = db.Column(db.Text)
+    recurrence_rule = db.Column(db.String(20), default='None')
+    recurrence_end_date = db.Column(db.Date)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     service = db.relationship('Service')
 
@@ -137,6 +139,7 @@ class Invoice(db.Model):
     amount = db.Column(db.Float, nullable=False)
     discount = db.Column(db.Float, default=0)
     tax = db.Column(db.Float, default=0)
+    tip = db.Column(db.Float, default=0)
     total = db.Column(db.Float, nullable=False)
     payment_status = db.Column(db.String(20), default='Pending')  # Pending, Paid, Partial, Refunded
     commission_rate = db.Column(db.Float, nullable=True)
@@ -286,6 +289,41 @@ class InvoiceItem(db.Model):
     total = db.Column(db.Float, nullable=False)
     invoice = db.relationship('Invoice', backref=db.backref('items', lazy=True, cascade='all, delete-orphan'))
 
+class StaffBreak(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
+    day_of_week = db.Column(db.Integer, nullable=False)
+    start_time = db.Column(db.String(5), nullable=False)
+    end_time = db.Column(db.String(5), nullable=False)
+    is_active = db.Column(db.Boolean, default=True)
+    staff = db.relationship('Staff', backref='breaks')
+
+class SalonPackage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    package_type = db.Column(db.String(20), default='Package')
+    description = db.Column(db.Text)
+    price = db.Column(db.Float, default=0)
+    total_uses = db.Column(db.Integer, default=1)
+    validity_days = db.Column(db.Integer, default=30)
+    included_services = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class CustomerPackage(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
+    package_id = db.Column(db.Integer, db.ForeignKey('salon_package.id'), nullable=False)
+    purchased_at = db.Column(db.DateTime, default=datetime.utcnow)
+    expires_at = db.Column(db.Date, nullable=False)
+    uses_total = db.Column(db.Integer, default=1)
+    uses_used = db.Column(db.Integer, default=0)
+    prepaid_balance = db.Column(db.Float, default=0)
+    status = db.Column(db.String(20), default='Active')
+    customer = db.relationship('Customer', backref='packages')
+    package = db.relationship('SalonPackage', backref='customer_packages')
+
+
 # ==================== AUTH ====================
 
 def current_user():
@@ -370,7 +408,8 @@ def recalculate_invoice(invoice):
     invoice.amount = subtotal
     taxable = max(invoice.amount - (invoice.discount or 0), 0)
     invoice.tax = round(taxable * get_tax_rate() / 100, 2)
-    invoice.total = round(taxable + invoice.tax, 2)
+    invoice.tip = round(max(invoice.tip or 0, 0), 2)
+    invoice.total = round(taxable + invoice.tax + invoice.tip, 2)
 
 ADMIN_ONLY_ENDPOINTS = {
     'settings', 'download_backup',
@@ -775,6 +814,12 @@ def award_loyalty_for_invoice(invoice):
                                        transaction_type='Earn', reference=reference,
                                        amount=max(invoice.total, 0)))
 
+APPOINTMENT_STATUSES = ['Booked', 'Confirmed', 'Arrived', 'In service', 'Completed', 'Cancelled', 'No-Show']
+ACTIVE_APPOINTMENT_STATUSES = {'Scheduled', 'Booked', 'Confirmed', 'Arrived', 'In service'}
+
+def normalize_appointment_status(status):
+    return 'Booked' if status == 'Scheduled' else (status or 'Booked')
+
 def booking_allowed(appointment_date, appointment_time, duration_minutes):
     if appointment_date < date.today():
         return False, 'Appointments cannot be booked for a past date.'
@@ -795,6 +840,33 @@ def booking_allowed(appointment_date, appointment_time, duration_minutes):
         except ValueError:
             return False, 'Please choose a valid appointment time.'
     return True, ''
+
+def appointment_conflict(staff_id, appointment_date, appointment_time, duration_minutes, exclude_id=None):
+    start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
+    end = start + timedelta(minutes=duration_minutes or 30)
+    breaks = StaffBreak.query.filter_by(
+        staff_id=staff_id, day_of_week=appointment_date.weekday(), is_active=True
+    ).all()
+    for break_row in breaks:
+        break_start = datetime.combine(appointment_date, datetime.strptime(break_row.start_time, '%H:%M').time())
+        break_end = datetime.combine(appointment_date, datetime.strptime(break_row.end_time, '%H:%M').time())
+        if start < break_end and break_start < end:
+            return f'Staff break is from {break_row.start_time} to {break_row.end_time}.'
+    query = Appointment.query.filter(
+        Appointment.staff_id == staff_id,
+        Appointment.appointment_date == appointment_date,
+        Appointment.status.in_(list(ACTIVE_APPOINTMENT_STATUSES))
+    )
+    if exclude_id:
+        query = query.filter(Appointment.id != exclude_id)
+    for existing in query.all():
+        existing_start = datetime.combine(
+            appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time()
+        )
+        existing_end = existing_start + timedelta(minutes=existing.service.duration_minutes or 30)
+        if start < existing_end and existing_start < end:
+            return f'Staff member is already booked from {existing.appointment_time}.'
+    return None
 
 # ==================== CALENDAR / BOOKING ====================
 
