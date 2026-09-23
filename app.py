@@ -2919,6 +2919,7 @@ def reminders():
     anniversary_reminders = []
     retention_due = []
     retention_at_risk = []
+    package_expiry = []
     special_until = today + timedelta(days=30)
 
     for customer in Customer.query.order_by(Customer.name).all():
@@ -2931,6 +2932,10 @@ def reminders():
             next_anniversary = upcoming_annual_date(customer.anniversary_date, today)
             if next_anniversary <= special_until:
                 anniversary_reminders.append({'customer': customer, 'date': next_anniversary})
+
+        for customer_package in CustomerPackage.query.filter_by(customer_id=customer.id, status='Active').all():
+            if customer_package.expires_at >= today and customer_package.expires_at <= special_until:
+                package_expiry.append({'customer': customer, 'package': customer_package})
 
         days_since = metrics['days_since_visit']
         interval = metrics['avg_visit_interval_days'] or 30
@@ -2952,7 +2957,8 @@ def reminders():
         birthday_reminders=birthday_reminders,
         anniversary_reminders=anniversary_reminders,
         retention_due=retention_due,
-        retention_at_risk=retention_at_risk
+        retention_at_risk=retention_at_risk,
+        package_expiry=package_expiry
     )
 
 # ==================== INVENTORY SALES ====================
