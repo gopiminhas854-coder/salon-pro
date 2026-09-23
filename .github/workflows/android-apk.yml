@@ -29,6 +29,15 @@ jobs:
           sudo unzip -q /tmp/gradle.zip -d /opt
           echo "/opt/gradle-8.9/bin" >> "$GITHUB_PATH"
 
+      - name: Verify live Salon Pro service
+        run: |
+          echo "Checking live Salon Pro health endpoint..."
+          curl --fail --show-error --silent --max-time 30 https://salon-pro.onrender.com/health
+          echo
+          echo "Checking live Salon Pro homepage..."
+          curl --fail --show-error --silent --max-time 30 -L https://salon-pro.onrender.com/ | head -c 500
+          echo
+
       - name: Build debug APK
         working-directory: android
         run: gradle --no-daemon assembleDebug
