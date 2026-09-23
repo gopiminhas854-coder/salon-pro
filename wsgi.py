@@ -1,4 +1,5 @@
 import os
+from flask import request
 from app import app
 
 # Database schema creation/migrations are handled by migrate_startup.py
