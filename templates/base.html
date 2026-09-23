@@ -57,6 +57,7 @@
             <a class="{% if request.endpoint == 'reminders' %}active{% endif %}" href="{{ url_for('reminders') }}"><i class="bi bi-bell"></i><span>Retention</span></a>
 <a class="{% if request.endpoint == 'assistant' %}active{% endif %}" href="{{ url_for('assistant') }}"><i class="bi bi-robot"></i><span>AI Assistant</span></a>
 <a class="{% if request.endpoint == 'gift_cards' %}active{% endif %}" href="{{ url_for('gift_cards') }}"><i class="bi bi-gift"></i><span>Gift Cards</span></a>
+            {% if session.get('role') == 'admin' %}<a class="{% if request.endpoint == 'backup_center' %}active{% endif %}" href="{{ url_for('backup_center') }}"><i class="bi bi-cloud-arrow-up"></i><span>Backup Center</span></a>{% endif %}
             <a class="{% if 'package' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('packages') }}"><i class="bi bi-ticket-perforated"></i><span>Packages</span></a>
         </nav>
         <div class="sp-sidebar-bottom">
