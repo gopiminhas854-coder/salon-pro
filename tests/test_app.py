@@ -47,6 +47,14 @@ def test_phone_login_requires_server_otp_configuration(client):
     assert b"Phone login is not configured yet" in response.data
 
 
+def test_not_found_has_recovery_link(client):
+    c, _ = client
+    login(c)
+    response = c.get("/this-page-does-not-exist")
+    assert response.status_code == 404
+    assert b"Return to Salon Pro" in response.data
+
+
 def test_health_and_login(client):
     c, salon = client
     assert c.get("/health").status_code == 200
