@@ -271,7 +271,17 @@ class InvoiceItem(db.Model):
 
 def current_user():
     user_id = session.get('user_id')
-    return User.query.get(user_id) if user_id else None
+    if not user_id:
+        return None
+    user = db.session.get(User, user_id)
+    if not user:
+        session.clear()
+        return None
+    link = UserStaffLink.query.filter_by(user_id=user.id).first()
+    if link and (not link.staff or not link.staff.is_active):
+        session.clear()
+        return None
+    return user
 
 def admin_required(f):
     @wraps(f)
@@ -361,18 +371,20 @@ def csrf_guard():
 
 @app.before_request
 def enforce_roles():
-    if 'user_id' in session and 'role' not in session:
-        user = current_user()
-        if user:
-            session['role'] = user.role or 'staff'
-    if request.endpoint in ADMIN_ONLY_ENDPOINTS and 'user_id' in session and session.get('role') != 'admin':
+    user = current_user() if 'user_id' in session else None
+    if user:
+        # Never trust a stale role stored in the session.
+        session['username'] = user.username
+        session['role'] = user.role or 'staff'
+    if request.endpoint in ADMIN_ONLY_ENDPOINTS and user and user.role != 'admin':
         flash('Admin access is required for this action.', 'danger')
         return redirect(url_for('dashboard'))
 
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
+        if not current_user():
+            session.clear()
             flash('Please login to continue.', 'warning')
             return redirect(url_for('login'))
         return f(*args, **kwargs)
@@ -432,7 +444,8 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         user = User.query.filter_by(username=username).first()
-        if user and check_password_hash(user.password_hash, password):
+        link = UserStaffLink.query.filter_by(user_id=user.id).first() if user else None
+        if user and (not link or (link.staff and link.staff.is_active)) and check_password_hash(user.password_hash, password):
             session['user_id'] = user.id
             session['username'] = user.username
             session['role'] = user.role or 'staff'
@@ -647,8 +660,21 @@ def restore_backup():
 
         known = set(db.metadata.tables)
         unknown = set(tables) - known
+        missing_tables = known - set(tables)
         if unknown:
             raise ValueError(f'Backup contains unknown tables: {", ".join(sorted(unknown))}')
+        if missing_tables:
+            raise ValueError(f'Backup is incomplete; missing tables: {", ".join(sorted(missing_tables))}')
+        for table_name, rows in tables.items():
+            table = db.metadata.tables[table_name]
+            expected_columns = {col.name for col in table.columns}
+            if not isinstance(rows, list):
+                raise ValueError(f'Backup rows for {table_name} must be a list.')
+            for row in rows:
+                if not isinstance(row, dict):
+                    raise ValueError(f'Invalid row in {table_name}.')
+                if set(row) != expected_columns:
+                    raise ValueError(f'Backup schema mismatch for {table_name}. Expected columns: {", ".join(sorted(expected_columns))}')
 
         db.session.rollback()
         # Delete children before parents so foreign keys remain valid.
@@ -896,13 +922,19 @@ def business_intelligence():
     refunds = round(sum(invoice_refunded_amount(i) for i in invoices), 2)
     net_revenue = round(gross_collected - refunds, 2)
     expense_total = round(sum(e.amount for e in expenses), 2)
-    commissions = round(sum(
-        sum(invoice_net_paid_amount(i) for i in invoices
-            if i.appointment and i.appointment.staff_id == member.id) *
-        ((StaffCommission.query.filter_by(staff_id=member.id).first().commission_rate
-          if StaffCommission.query.filter_by(staff_id=member.id).first() else 0) / 100)
-        for member in Staff.query.all()
-    ), 2)
+    commissions = 0.0
+    for member in Staff.query.all():
+        settings = StaffCommission.query.filter_by(staff_id=member.id).first()
+        rate = settings.commission_rate if settings else 0
+        member_service_revenue = 0.0
+        for inv in invoices:
+            if not inv.appointment or inv.appointment.staff_id != member.id:
+                continue
+            for item in inv.items:
+                if not InventorySaleLine.query.filter_by(invoice_item_id=item.id).first():
+                    member_service_revenue += item.total * (invoice_net_paid_amount(inv) / inv.total) if inv.total else 0
+        commissions += member_service_revenue * rate / 100
+    commissions = round(commissions, 2)
 
     completed = sum(1 for a in appointments if a.status == 'Completed')
     no_shows = sum(1 for a in appointments if a.status == 'No-Show')
@@ -912,10 +944,17 @@ def business_intelligence():
     for invoice in invoices:
         if invoice_net_paid_amount(invoice) <= 0:
             continue
-        for item in invoice.items:
-            service_revenue[item.description] = service_revenue.get(item.description, 0) + (
-                item.total * (invoice_net_paid_amount(invoice) / invoice.total) if invoice.total else 0
+        if invoice.appointment and invoice.appointment.service:
+            service_item = next(
+                (item for item in invoice.items
+                 if not InventorySaleLine.query.filter_by(invoice_item_id=item.id).first()),
+                None
             )
+            if service_item:
+                service_revenue[invoice.appointment.service.name] = (
+                    service_revenue.get(invoice.appointment.service.name, 0)
+                    + (service_item.total * (invoice_net_paid_amount(invoice) / invoice.total) if invoice.total else 0)
+                )
 
     inventory_value = round(sum((i.stock_qty or 0) * (i.cost_price or 0) for i in InventoryItem.query.filter_by(is_active=True).all()), 2)
     low_stock = InventoryItem.query.filter(
@@ -1040,7 +1079,8 @@ def service_profitability():
         ).all()
         collected = round(sum(invoice_net_paid_amount(i) for i in invoices), 2)
         refunds = round(sum(invoice_refunded_amount(i) for i in invoices), 2)
-        net = round(collected - refunds, 2)
+        # invoice_net_paid_amount() is already net of refunds.
+        net = collected
         rows.append({
             'id': service.id,
             'service': service.name,
@@ -1091,7 +1131,8 @@ def staff_intelligence():
         ).all()
         collected = round(sum(invoice_net_paid_amount(i) for i in invoices), 2)
         refunds = round(sum(invoice_refunded_amount(i) for i in invoices), 2)
-        net = round(collected - refunds, 2)
+        # invoice_net_paid_amount() is already net of refunds.
+        net = collected
         commission_settings = StaffCommission.query.filter_by(staff_id=member.id).first()
         rate = commission_settings.commission_rate if commission_settings else 0
         commission = round(max(net, 0) * rate / 100, 2)
@@ -1445,7 +1486,11 @@ def add_appointment():
 @login_required
 def edit_appointment(id):
     appt = Appointment.query.get_or_404(id)
+    existing_invoice = Invoice.query.filter_by(appointment_id=appt.id).first()
     if request.method == 'POST':
+        if existing_invoice and appt.status == 'Completed':
+            flash('Completed appointments with invoices cannot be edited. Correct the invoice separately to preserve financial history.', 'warning')
+            return redirect(url_for('appointments'))
         try:
             appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
             appointment_time = request.form['appointment_time']
@@ -1480,6 +1525,7 @@ def edit_appointment(id):
 
             status = request.form.get('status', 'Scheduled')
             if status not in {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}:
+                raise ValueError
                 flash('Invalid appointment status.', 'danger')
                 return redirect(url_for('edit_appointment', id=id))
 
@@ -1517,6 +1563,11 @@ def edit_appointment(id):
                         total=completed_service.price,
                     ))
 
+            # Cancelled and No-Show appointments must not retain an unpaid invoice.
+            if status in {'Cancelled', 'No-Show'} and existing_invoice:
+                if invoice_net_paid_amount(existing_invoice) > 0:
+                    raise ValueError('This appointment has payments. Refund the invoice before cancelling the appointment.')
+                db.session.delete(existing_invoice)
             db.session.commit()
             flash('Appointment updated!' + (' Invoice created.' if status == 'Completed' and not existing_invoice else ''), 'success')
             return redirect(url_for('appointments'))
@@ -1539,6 +1590,13 @@ def update_appointment_status(id, status):
         flash('Invalid appointment status.', 'danger')
         return redirect(url_for('appointments'))
     appt = Appointment.query.get_or_404(id)
+    if status == 'Completed' and appt.appointment_date > date.today():
+        flash('A future appointment cannot be marked as Completed.', 'warning')
+        return redirect(url_for('appointments'))
+    existing = Invoice.query.filter_by(appointment_id=appt.id).first()
+    if status in {'Cancelled', 'No-Show'} and existing and invoice_net_paid_amount(existing) > 0:
+        flash('This appointment has payments. Refund the invoice before cancelling the appointment.', 'warning')
+        return redirect(url_for('appointments'))
     appt.status = status
     # Keep status change and automatic invoice creation in one database transaction.
     # A failure must not leave a completed appointment without its invoice.
@@ -1565,6 +1623,8 @@ def update_appointment_status(id, status):
                 flash(f'Appointment marked as Completed. Invoice created (₹{inv.total}).', 'success')
             else:
                 flash('Status updated.', 'success')
+        if status in {'Cancelled', 'No-Show'} and existing:
+            db.session.delete(existing)
         commit_or_rollback()
     except Exception:
         db.session.rollback()
@@ -2227,6 +2287,13 @@ def settings():
                 db.session.add(hour)
             hour.open_time = request.form.get(f'open_{day}', '09:00')
             hour.close_time = request.form.get(f'close_{day}', '20:00')
+            try:
+                open_t = datetime.strptime(hour.open_time, '%H:%M').time()
+                close_t = datetime.strptime(hour.close_time, '%H:%M').time()
+            except ValueError:
+                raise ValueError
+            if not hour.is_closed and open_t >= close_t:
+                raise ValueError
             hour.is_closed = request.form.get(f'closed_{day}') == '1'
 
         # Add/update a closure date when supplied.
