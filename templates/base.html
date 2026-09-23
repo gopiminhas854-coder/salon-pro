@@ -32,6 +32,8 @@
             <a class="{% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}"><i class="bi bi-grid-1x2-fill"></i><span>Overview</span></a>
             <a class="{% if 'appointment' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('appointments') }}"><i class="bi bi-calendar2-check"></i><span>Appointments</span></a>
             <a class="{% if request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('calendar_view') }}"><i class="bi bi-calendar3"></i><span>Calendar</span></a>
+            <a class="{% if request.endpoint in ['waitlist','book_waitlist','cancel_waitlist'] %}active{% endif %}" href="{{ url_for('waitlist') }}"><i class="bi bi-hourglass-split"></i><span>Waitlist</span></a>
+            <a class="{% if request.endpoint == 'smart_schedule' %}active{% endif %}" href="{{ url_for('smart_schedule') }}"><i class="bi bi-magic"></i><span>Smart scheduling</span></a>
             <a class="{% if 'customer' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('customers') }}"><i class="bi bi-people"></i><span>Clients</span></a>
             <a class="{% if 'invoice' in (request.endpoint or '') or request.endpoint == 'quick_sale' %}active{% endif %}" href="{{ url_for('quick_sale') }}"><i class="bi bi-receipt"></i><span>Quick Sale</span></a>
             <a class="{% if request.endpoint == 'payments' %}active{% endif %}" href="{{ url_for('payments') }}"><i class="bi bi-credit-card"></i><span>Collect payment</span></a>
