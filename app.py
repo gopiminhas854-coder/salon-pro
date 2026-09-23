@@ -434,7 +434,6 @@ def admin_required(f):
             return f(*args, **kwargs)
         flash('Owner/Admin access is required for this action.', 'danger')
         return redirect(url_for('dashboard'))
-        return f(*args, **kwargs)
     return decorated_function
 
 def get_tax_rate():
