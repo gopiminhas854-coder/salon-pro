@@ -6,7 +6,7 @@
  <div><div class="text-muted small mb-1">Schedule</div><h2 class="mb-1">Appointments</h2><div class="text-muted small">Manage today's bookings and move clients through the visit.</div></div>
  <a href="{{ url_for('add_appointment') }}" class="btn btn-primary"><i class="bi bi-plus-lg me-1"></i> New booking</a>
 </div>
-<form class="card mb-4" method="GET"><div class="card-body"><div class="row g-2 align-items-end">
+<form class="card mb-4" method="GET"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="card-body"><div class="row g-2 align-items-end">
  <div class="col-12 col-md-3"><label class="form-label small text-muted">Date</label><input type="date" name="date" class="form-control" value="{{ date_filter }}"></div>
  <div class="col-12 col-md-3"><label class="form-label small text-muted">Status</label><select name="status" class="form-select"><option value="">All statuses</option><option value="Scheduled" {% if status_filter=='Scheduled' %}selected{% endif %}>Scheduled</option><option value="Completed" {% if status_filter=='Completed' %}selected{% endif %}>Completed</option><option value="Cancelled" {% if status_filter=='Cancelled' %}selected{% endif %}>Cancelled</option><option value="No-Show" {% if status_filter=='No-Show' %}selected{% endif %}>No-Show</option></select></div>
  <div class="col-auto"><button class="btn btn-outline-primary"><i class="bi bi-funnel me-1"></i> Filter</button><a href="{{ url_for('appointments') }}" class="btn btn-light ms-1">Clear</a></div>
