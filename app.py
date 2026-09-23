@@ -2383,6 +2383,36 @@ def inventory_transactions():
     return render_template('inventory_transactions.html', transactions=transactions, items=items,
                            selected_item=item_id, selected_type=tx_type)
 
+@app.route('/supplier-intelligence')
+@login_required
+def supplier_intelligence():
+    suppliers_list = Supplier.query.filter_by(is_active=True).order_by(Supplier.name).all()
+    rows=[]
+    for supplier in suppliers_list:
+        purchases=InventoryPurchase.query.filter_by(supplier_id=supplier.id).order_by(
+            InventoryPurchase.purchase_date.desc(), InventoryPurchase.id.desc()).all()
+        latest = purchases[0] if purchases else None
+        previous = None
+        changes=[]
+        seen=set()
+        for p in purchases:
+            if p.inventory_item_id in seen:
+                continue
+            seen.add(p.inventory_item_id)
+            prev=next((x for x in purchases[purchases.index(p)+1:] if x.inventory_item_id==p.inventory_item_id),None)
+            if prev and prev.unit_cost:
+                change=round((p.unit_cost-prev.unit_cost)/prev.unit_cost*100,1)
+                if abs(change)>=1:
+                    changes.append({'item':p.inventory_item.name if p.inventory_item else 'Product','change':change,'latest':p.unit_cost,'previous':prev.unit_cost})
+        rows.append({
+            'supplier':supplier,
+            'purchase_count':len(purchases),
+            'total_spend':round(sum(p.total_cost for p in purchases),2),
+            'last_purchase':latest,
+            'changes':changes[:8],
+        })
+    return render_template('supplier_intelligence.html', rows=rows)
+
 @app.route('/suppliers')
 @login_required
 def suppliers():
@@ -2887,8 +2917,14 @@ def loyalty():
         spend = loyalty.lifetime_spend if loyalty else paid
         points = loyalty.points if loyalty else int(paid * (SalonSetting.query.first().loyalty_rate if SalonSetting.query.first() else 1) / 100)
         rows.append({'customer': customer, 'points': points, 'spend': round(spend,2)})
+    setting = SalonSetting.query.first()
+    reward_threshold = 1000
+    reward_value = 500
+    for row in rows:
+        row['next_reward_points'] = max(reward_threshold - row['points'], 0)
+        row['reward_value'] = reward_value
     rows.sort(key=lambda x: (-x['points'], x['customer'].name.lower()))
-    return render_template('loyalty.html', rows=rows)
+    return render_template('loyalty.html', rows=rows, reward_threshold=reward_threshold, reward_value=reward_value)
 
 # ==================== PACKAGES & MEMBERSHIPS ====================
 
@@ -2904,8 +2940,14 @@ def packages():
             changed = True
     if changed:
         db.session.commit()
+    month_start = date.today().replace(day=1)
+    package_invoices = Invoice.query.filter(func.date(Invoice.created_at)>=month_start, Invoice.created_at <= datetime.now()).all()
+    package_revenue = round(sum(invoice_net_paid_amount(i) for i in package_invoices if any('(' in (item.description or '') for item in i.items)), 2)
+    expiry_soon = sum(1 for row in rows if row.status == 'Active' and row.expires_at <= date.today()+timedelta(days=30))
+    active_memberships = sum(1 for row in rows if row.status == 'Active')
     return render_template('packages.html', packages=packages_list, customer_packages=rows[:100],
-                           customers=Customer.query.order_by(Customer.name).all())
+                           customers=Customer.query.order_by(Customer.name).all(),
+                           package_revenue=package_revenue, expiry_soon=expiry_soon, active_memberships=active_memberships)
 
 @app.route('/packages/add', methods=['GET', 'POST'])
 @admin_required
