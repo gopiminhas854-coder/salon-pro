@@ -6,7 +6,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
 
-private const val SALON_PRO_URL = "https://salon-pro.onrender.com/"
+private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
