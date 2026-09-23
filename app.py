@@ -420,7 +420,7 @@ ADMIN_ONLY_ENDPOINTS = {
     'update_staff_commission', 'mark_attendance',
     'export_report_csv', 'create_staff_account',
     'reports', 'export_report_csv', 'expenses', 'delete_expense',
-    'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty'
+    'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty', 'add_package'
 }
 
 @app.before_request
@@ -2326,6 +2326,64 @@ def delete_invoice_item(id, item_id):
 
 # ==================== STAFF PERFORMANCE ====================
 
+@app.route('/staff/performance')
+@login_required
+def staff_performance_overview():
+    today = date.today()
+    start_text = request.args.get('start', today.replace(day=1).isoformat())
+    end_text = request.args.get('end', today.isoformat())
+    try:
+        start = date.fromisoformat(start_text)
+        end = date.fromisoformat(end_text)
+        if end < start:
+            raise ValueError
+    except ValueError:
+        start, end = today.replace(day=1), today
+        start_text, end_text = start.isoformat(), end.isoformat()
+
+    rows = []
+    for member in Staff.query.filter_by(is_active=True).order_by(Staff.name).all():
+        appts = Appointment.query.filter(
+            Appointment.staff_id == member.id,
+            Appointment.appointment_date >= start,
+            Appointment.appointment_date <= end
+        ).all()
+        completed = [a for a in appts if a.status == 'Completed']
+        invoices = Invoice.query.join(Appointment, Invoice.appointment_id == Appointment.id).filter(
+            Appointment.staff_id == member.id,
+            Invoice.created_at >= datetime.combine(start, datetime.min.time()),
+            Invoice.created_at < datetime.combine(end + timedelta(days=1), datetime.min.time())
+        ).all()
+        revenue = round(sum(invoice_net_paid_amount(i) for i in invoices), 2)
+        customers_served = len({a.customer_id for a in completed})
+        repeat_customers = sum(
+            1 for customer_id in {a.customer_id for a in completed}
+            if Appointment.query.filter_by(customer_id=customer_id, status='Completed').count() >= 2
+        )
+        average_bill = round(revenue / len(completed), 2) if completed else 0
+        commission_settings = StaffCommission.query.filter_by(staff_id=member.id).first()
+        rate = commission_settings.commission_rate if commission_settings else 0
+        commission = round(max(revenue, 0) * rate / 100, 2)
+        attendance = StaffAttendance.query.filter(
+            StaffAttendance.staff_id == member.id,
+            StaffAttendance.attendance_date >= start,
+            StaffAttendance.attendance_date <= end,
+            StaffAttendance.status == 'Present'
+        ).count()
+        rows.append({
+            'member': member,
+            'customers_served': customers_served,
+            'revenue': revenue,
+            'services_completed': len(completed),
+            'average_bill': average_bill,
+            'commission': commission,
+            'attendance': attendance,
+            'no_shows': sum(1 for a in appts if a.status == 'No-Show'),
+            'repeat_customers': repeat_customers
+        })
+    return render_template('staff_performance_overview.html', rows=rows, start=start_text, end=end_text)
+
+
 @app.route('/staff/<int:id>/performance')
 @login_required
 def staff_performance(id):
@@ -2578,6 +2636,101 @@ def loyalty():
     rows.sort(key=lambda x: (-x['points'], x['customer'].name.lower()))
     return render_template('loyalty.html', rows=rows)
 
+# ==================== PACKAGES & MEMBERSHIPS ====================
+
+@app.route('/packages')
+@login_required
+def packages():
+    packages_list = SalonPackage.query.filter_by(is_active=True).order_by(SalonPackage.name).all()
+    rows = CustomerPackage.query.order_by(CustomerPackage.expires_at.asc()).limit(300).all()
+    changed = False
+    for row in rows:
+        if row.status == 'Active' and row.expires_at < date.today():
+            row.status = 'Expired'
+            changed = True
+    if changed:
+        db.session.commit()
+    return render_template('packages.html', packages=packages_list, customer_packages=rows[:100],
+                           customers=Customer.query.order_by(Customer.name).all())
+
+@app.route('/packages/add', methods=['GET', 'POST'])
+@admin_required
+def add_package():
+    if request.method == 'POST':
+        try:
+            name = request.form.get('name', '').strip()
+            package_type = request.form.get('package_type', 'Package')
+            price = float(request.form.get('price', 0) or 0)
+            total_uses = int(request.form.get('total_uses', 1) or 1)
+            validity_days = int(request.form.get('validity_days', 30) or 30)
+            if not name or package_type not in {'Package', 'Membership'} or price < 0 or total_uses < 1 or validity_days < 1:
+                raise ValueError
+            db.session.add(SalonPackage(
+                name=name,
+                package_type=package_type,
+                description=request.form.get('description', '').strip(),
+                price=price,
+                total_uses=total_uses,
+                validity_days=validity_days,
+                included_services=request.form.get('included_services', '').strip()
+            ))
+            db.session.commit()
+            flash('Package / membership created.', 'success')
+            return redirect(url_for('packages'))
+        except (ValueError, TypeError):
+            db.session.rollback()
+            flash('Enter valid package details.', 'danger')
+    return render_template('package_form.html')
+
+@app.route('/packages/sell', methods=['POST'])
+@login_required
+def sell_package():
+    try:
+        customer = Customer.query.get_or_404(request.form.get('customer_id', type=int))
+        package = SalonPackage.query.filter_by(
+            id=request.form.get('package_id', type=int), is_active=True
+        ).first_or_404()
+        purchased_at = datetime.utcnow()
+        expires = purchased_at.date() + timedelta(days=package.validity_days or 30)
+        db.session.add(CustomerPackage(
+            customer_id=customer.id,
+            package_id=package.id,
+            purchased_at=purchased_at,
+            expires_at=expires,
+            uses_total=package.total_uses or 1,
+            uses_used=0,
+            prepaid_balance=package.price or 0,
+            status='Active'
+        ))
+        db.session.commit()
+        flash(f'{package.name} assigned to {customer.name}.', 'success')
+    except Exception:
+        db.session.rollback()
+        flash('Package could not be assigned.', 'danger')
+    return redirect(url_for('packages'))
+
+@app.route('/packages/use/<int:id>', methods=['POST'])
+@login_required
+def use_package(id):
+    row = CustomerPackage.query.get_or_404(id)
+    if row.expires_at < date.today():
+        row.status = 'Expired'
+    elif row.status != 'Active':
+        flash('This package is not active.', 'warning')
+        return redirect(url_for('packages'))
+    elif row.uses_used >= row.uses_total:
+        row.status = 'Completed'
+    else:
+        row.uses_used += 1
+        per_use = (row.package.price or 0) / max(row.uses_total or 1, 1)
+        row.prepaid_balance = max(0, round((row.prepaid_balance or 0) - per_use, 2))
+        if row.uses_used >= row.uses_total:
+            row.status = 'Completed'
+    db.session.commit()
+    flash('Package usage recorded.', 'success')
+    return redirect(url_for('packages'))
+
+
 # ==================== REMINDERS ====================
 
 @app.route('/reminders')
@@ -2590,13 +2743,17 @@ def reminders():
     upcoming = Appointment.query.filter(
         Appointment.appointment_date >= today,
         Appointment.appointment_date <= until,
-        Appointment.status == 'Scheduled'
+        Appointment.status.in_(list(ACTIVE_APPOINTMENT_STATUSES))
     ).order_by(Appointment.appointment_date, Appointment.appointment_time).all()
 
     birthday_reminders = []
     anniversary_reminders = []
+    retention_due = []
+    retention_at_risk = []
     special_until = today + timedelta(days=30)
+
     for customer in Customer.query.order_by(Customer.name).all():
+        metrics = _customer_metrics(customer.id)
         if customer.date_of_birth:
             next_birthday = upcoming_annual_date(customer.date_of_birth, today)
             if next_birthday <= special_until:
@@ -2606,13 +2763,28 @@ def reminders():
             if next_anniversary <= special_until:
                 anniversary_reminders.append({'customer': customer, 'date': next_anniversary})
 
+        days_since = metrics['days_since_visit']
+        interval = metrics['avg_visit_interval_days'] or 30
+        if metrics['visits'] > 0 and days_since is not None:
+            if days_since >= max(60, int(interval * 2)):
+                retention_at_risk.append({'customer': customer, 'metrics': metrics})
+            elif days_since >= max(30, int(interval * 1.25)):
+                retention_due.append({'customer': customer, 'metrics': metrics})
+
     birthday_reminders.sort(key=lambda row: (row['date'], row['customer'].name.lower()))
     anniversary_reminders.sort(key=lambda row: (row['date'], row['customer'].name.lower()))
-    return render_template('reminders.html',
-                           upcoming=upcoming,
-                           days=days,
-                           birthday_reminders=birthday_reminders,
-                           anniversary_reminders=anniversary_reminders)
+    retention_due.sort(key=lambda row: (-(row['metrics']['days_since_visit'] or 0), row['customer'].name.lower()))
+    retention_at_risk.sort(key=lambda row: (-(row['metrics']['days_since_visit'] or 0), row['customer'].name.lower()))
+
+    return render_template(
+        'reminders.html',
+        upcoming=upcoming,
+        days=days,
+        birthday_reminders=birthday_reminders,
+        anniversary_reminders=anniversary_reminders,
+        retention_due=retention_due,
+        retention_at_risk=retention_at_risk
+    )
 
 # ==================== INVENTORY SALES ====================
 
