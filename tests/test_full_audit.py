@@ -139,3 +139,20 @@ def test_post_forms_include_csrf_tokens_on_main_pages():
             response = client.get(path)
             assert response.status_code == 200, path
             assert b'name="_csrf_token"' in response.data, path
+
+
+def test_refunded_invoice_has_zero_outstanding_balance():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        with salon.app.app_context():
+            customer = salon.Customer.query.first()
+            service = salon.Service.query.first()
+            staff = salon.Staff.query.first()
+            appt = salon.Appointment(customer_id=customer.id, service_id=service.id, staff_id=staff.id,
+                                     appointment_date=salon.date.today(), appointment_time="13:00", status="Completed")
+            salon.db.session.add(appt); salon.db.session.flush()
+            invoice = salon.Invoice(appointment_id=appt.id, customer_id=customer.id, amount=100, discount=0,
+                                    tax=5, total=105, payment_status="Refunded")
+            salon.db.session.add(invoice); salon.db.session.commit()
+            assert salon.invoice_balance(invoice) == 0.0
