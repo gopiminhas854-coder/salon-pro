@@ -587,3 +587,42 @@ def test_waitlist_and_smart_scheduling():
                 customer_id=customer_id, service_id=service_id, appointment_date=target,
                 appointment_time=slot["time"], status="Confirmed"
             ).count() == 1
+
+
+def test_role_permissions_and_backup_history():
+    setup_database()
+    with salon.app.app_context():
+        staff_row = salon.Staff.query.first()
+        manager = salon.User(username="manager", password_hash=salon.generate_password_hash("manager123"), role="manager")
+        receptionist = salon.User(username="reception", password_hash=salon.generate_password_hash("reception123"), role="receptionist")
+        salon.db.session.add_all([manager, receptionist])
+        salon.db.session.commit()
+        manager_id = manager.id
+        receptionist_id = receptionist.id
+
+    with salon.app.test_client() as client:
+        response = client.post("/login", data={"username": "manager", "password": "manager123"}, follow_redirects=True)
+        assert response.status_code == 200
+        assert client.get("/insights").status_code == 200
+        assert client.get("/settings").status_code == 200 or client.get("/settings").status_code == 302
+        with salon.app.app_context():
+            salon.db.session.add(salon.User(username="manager2", password_hash=salon.generate_password_hash("manager234"), role="manager"))
+            salon.db.session.commit()
+        assert client.get("/backup-center").status_code == 302
+
+    with salon.app.test_client() as client:
+        response = client.post("/login", data={"username": "reception", "password": "reception123"}, follow_redirects=True)
+        assert response.status_code == 200
+        assert client.get("/insights").status_code == 302
+        assert client.get("/money-center").status_code == 302
+
+    with salon.app.test_client() as client:
+        login(client)
+        response = client.get("/backup-center")
+        assert response.status_code == 200
+        response = client.get("/backup/download")
+        assert response.status_code == 200
+        with salon.app.app_context():
+            log = salon.BackupLog.query.order_by(salon.BackupLog.id.desc()).first()
+            assert log is not None
+            assert log.size_bytes > 0
