@@ -38,6 +38,15 @@
                             <label class="form-label">Price (₹) *</label>
                             <input type="number" name="price" class="form-control" required min="0" step="1" value="{{ service.price if service else '' }}">
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Retention starts after (days)</label>
+                            <input type="number" name="retention_min_days" class="form-control" min="1" value="{{ service.retention_min_days if service else 30 }}">
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">At-risk after (days)</label>
+                            <input type="number" name="retention_max_days" class="form-control" min="1" value="{{ service.retention_max_days if service else 45 }}">
+                            <div class="form-text">Editable salon default; not a medical rule.</div>
+                        </div>
                         {% if service %}
                         <div class="col-12">
                             <div class="form-check">
