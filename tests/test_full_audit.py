@@ -32,7 +32,7 @@ def login(client):
     assert response.status_code == 200
 
 
-def test_invalid_appointment_status_is_rejected(client=None):
+def test_invalid_appointment_status_is_rejected():
     setup_database()
     with salon.app.test_client() as client:
         login(client)
