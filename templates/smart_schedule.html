@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Smart Scheduling{% endblock %}
+{% block page_kicker %}Appointment optimizer{% endblock %}
+{% block content %}
+<div class="mb-4"><div class="text-muted small">Checks salon hours, staff schedules, breaks and existing appointments.</div><h2 class="mb-1">Find an earliest slot</h2><div class="text-muted small">Choose a service and date; Salon Pro searches in 15-minute increments.</div></div>
+<div class="card mb-4"><div class="card-body"><form class="row g-3">
+<div class="col-md-4"><label class="form-label">Service</label><select name="service_id" class="form-select" required><option value="">Choose service</option>{% for s in services %}<option value="{{ s.id }}" {% if service_id==s.id %}selected{% endif %}>{{ s.name }} · {{ s.duration_minutes }} min</option>{% endfor %}</select></div>
+<div class="col-md-3"><label class="form-label">Date</label><input name="date" type="date" class="form-control" value="{{ selected.isoformat() }}" required></div>
+<div class="col-md-3"><label class="form-label">Preferred staff</label><select name="staff_id" class="form-select"><option value="">Any staff</option>{% for s in staff_list %}<option value="{{ s.id }}" {% if preferred_staff_id==s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></div>
+<div class="col-md-2 d-flex align-items-end"><button class="btn btn-primary w-100">Find slots</button></div>
+</form></div></div>
+<div class="row g-3">{% for slot in slots %}<div class="col-sm-6 col-lg-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">{{ slot.date }}</div><div class="fs-3 fw-bold">{{ slot.time }}</div><div class="small">{{ slot.staff_name }}</div><a class="btn btn-sm btn-light mt-3" href="{{ url_for('add_appointment') }}">Use slot</a></div></div></div>{% else %}<div class="col-12"><div class="card"><div class="card-body text-muted">Choose a service and date to see available slots.</div></div></div>{% endfor %}</div>
+{% endblock %}
