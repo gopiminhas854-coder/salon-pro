@@ -443,7 +443,7 @@ def test_dashboard_owner_metrics_and_backup(client):
 
     dashboard = c.get("/")
     assert dashboard.status_code == 200
-    assert b"Money to collect" in dashboard.data
+    assert b"Money still to collect" in dashboard.data
     assert b"7-day profit" in dashboard.data
 
     backup = c.get("/backup/download")
