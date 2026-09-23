@@ -2456,7 +2456,7 @@ def mark_paid(id):
     except Exception:
         db.session.rollback()
         flash('Payment could not be saved. No changes were made.', 'danger')
-    return redirect(url_for('view_invoice', id=id)
+    return redirect(url_for('view_invoice', id=id))
 
 @app.route('/invoices/refund/<int:id>', methods=['POST'])
 @admin_required
