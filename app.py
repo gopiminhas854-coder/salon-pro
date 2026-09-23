@@ -464,13 +464,27 @@ def handle_not_found(error):
 def handle_server_error(error):
     db.session.rollback()
     app.logger.exception("Unhandled Salon Pro request error")
+    if request.path.startswith('/api/'):
+        return jsonify({
+            'error': 'Salon Pro temporarily unavailable.',
+            'message': 'The server hit an unexpected error. Please retry.'
+        }), 500
     return (
         "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        "<title>Salon Pro - Temporary error</title></head><body style=\"font-family:system-ui;padding:40px\">"
-        "<h1>Salon Pro is temporarily unavailable</h1><p>The server hit an unexpected error. Please refresh once.</p>"
-        "<a href=\"/health\">Check service health</a></body></html>",
-        500,
-    )
+        "<meta name=\"theme-color\" content=\"#111214\">"
+        "<title>Salon Pro - Temporary error</title></head>"
+        "<body style=\"margin:0;background:#f7f5f0;color:#171717;font-family:system-ui,-apple-system,sans-serif\">"
+        "<main style=\"max-width:620px;margin:0 auto;padding:12vh 24px\">"
+        "<div style=\"background:#fff;border:1px solid #e9e6df;border-radius:20px;padding:32px;box-shadow:0 10px 40px rgba(0,0,0,.06)\">"
+        "<div style=\"font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#8a806f;font-weight:700\">Salon Pro</div>"
+        "<h1 style=\"font-size:30px;margin:10px 0 8px\">Something went wrong</h1>"
+        "<p style=\"color:#6f6a62;line-height:1.6\">The server hit an unexpected error. Your saved data was not intentionally changed by this error.</p>"
+        "<div style=\"display:flex;gap:10px;flex-wrap:wrap;margin-top:22px\">"
+        "<a href=\"javascript:location.reload()\" style=\"display:inline-block;background:#171717;color:#fff;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700\">Try again</a>"
+        "<a href=\"/\" style=\"display:inline-block;border:1px solid #ddd8cf;color:#171717;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700\">Dashboard</a>"
+        "<a href=\"/health\" style=\"display:inline-block;border:1px solid #ddd8cf;color:#171717;text-decoration:none;padding:12px 16px;border-radius:10px;font-weight:700\">Check health</a>"
+        "</div></div></main></body></html>"
+    ), 500
 
 
 @app.route('/health')
