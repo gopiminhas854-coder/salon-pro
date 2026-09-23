@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Staff Performance{% endblock %}
+{% block page_kicker %}Business reporting{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4"><div><div class="text-muted small">Team reporting</div><h2 class="mb-1">Staff performance</h2><div class="text-muted small">Factual operating metrics for the selected period. No ranking required.</div></div></div>
+<form class="card mb-4" method="GET"><div class="card-body"><div class="row g-2 align-items-end"><div class="col-md-4"><label class="form-label small">Start</label><input type="date" name="start" class="form-control" value="{{ start }}"></div><div class="col-md-4"><label class="form-label small">End</label><input type="date" name="end" class="form-control" value="{{ end }}"></div><div class="col-md-4"><button class="btn btn-primary w-100">Apply period</button></div></div></div></form>
+<div class="card"><div class="table-responsive"><table class="table table-hover align-middle mb-0"><thead><tr><th>Staff</th><th>Customers served</th><th>Revenue</th><th>Services</th><th>Avg bill</th><th>Commission</th><th>Attendance</th><th>No-shows</th><th>Repeat customers</th></tr></thead><tbody>
+{% for r in rows %}<tr><td><a class="text-decoration-none text-reset" href="{{ url_for('staff_performance',id=r.member.id) }}"><strong>{{ r.member.name }}</strong><div class="text-muted small">{{ r.member.specialty or 'General' }}</div></a></td><td>{{ r.customers_served }}</td><td><strong>₹{{ "%.0f"|format(r.revenue) }}</strong></td><td>{{ r.services_completed }}</td><td>₹{{ "%.0f"|format(r.average_bill) }}</td><td>₹{{ "%.0f"|format(r.commission) }}</td><td>{{ r.attendance }}</td><td>{{ r.no_shows }}</td><td>{{ r.repeat_customers }}</td></tr>{% else %}<tr><td colspan="9" class="text-center py-5 text-muted">No staff data for this period.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}
