@@ -21,6 +21,17 @@ def upgrade():
 
     inspector = inspect(bind)
 
+    if not inspector.has_table("staff_schedule"):
+        op.create_table(
+            "staff_schedule",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("staff_id", sa.Integer(), sa.ForeignKey("staff.id"), nullable=False),
+            sa.Column("day_of_week", sa.Integer(), nullable=False),
+            sa.Column("start_time", sa.String(length=5), nullable=True, server_default="09:00"),
+            sa.Column("end_time", sa.String(length=5), nullable=True, server_default="20:00"),
+            sa.Column("is_working", sa.Boolean(), nullable=True, server_default=sa.true()),
+        )
+
     if not inspector.has_table("staff_break"):
         op.create_table(
             "staff_break",
@@ -65,6 +76,8 @@ def upgrade():
 def downgrade():
     bind = op.get_bind()
     inspector = inspect(bind)
+    if inspector.has_table("staff_schedule"):
+        op.drop_table("staff_schedule")
     if inspector.has_table("customer_package"):
         op.drop_table("customer_package")
     if inspector.has_table("salon_package"):
