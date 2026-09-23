@@ -1095,67 +1095,96 @@ def restore_backup():
 @app.route('/')
 @login_required
 def dashboard():
-    today = date.today()
-    today_appointments = Appointment.query.filter_by(appointment_date=today).order_by(Appointment.appointment_time).all()
-    total_customers = Customer.query.count()
-    total_staff = Staff.query.filter_by(is_active=True).count()
-    total_services = Service.query.filter_by(is_active=True).count()
-    first_day = today.replace(day=1)
-    paid_invoices = Invoice.query.filter(Invoice.created_at >= first_day).all()
-    # Use net collected revenue consistently with billing and BI, including
-    # partial payments and refunds.
-    monthly_revenue = round(sum(invoice_net_paid_amount(inv) for inv in paid_invoices), 2)
-    monthly_expenses = round(sum(e.amount for e in Expense.query.filter(Expense.expense_date >= first_day, Expense.expense_date <= today).all()), 2)
-    monthly_profit = round(monthly_revenue - monthly_expenses, 2)
-    week_start = today - timedelta(days=6)
-    weekly_invoices = Invoice.query.filter(func.date(Invoice.created_at) >= week_start, func.date(Invoice.created_at) <= today).all()
-    weekly_revenue = round(sum(invoice_net_paid_amount(inv) for inv in weekly_invoices), 2)
-    weekly_expenses = round(sum(e.amount for e in Expense.query.filter(Expense.expense_date >= week_start, Expense.expense_date <= today).all()), 2)
-    weekly_profit = round(weekly_revenue - weekly_expenses, 2)
-    pending_invoice_rows = Invoice.query.filter(Invoice.payment_status.in_(['Pending', 'Partial'])).all()
-    outstanding_amount = round(sum(invoice_balance(inv) for inv in pending_invoice_rows), 2)
-    repeat_customer_count = db.session.query(Appointment.customer_id).filter(
-        Appointment.status == 'Completed'
-    ).group_by(Appointment.customer_id).having(func.count(Appointment.id) >= 2).count()
-    next_week = today + timedelta(days=7)
-    upcoming = Appointment.query.filter(Appointment.appointment_date > today, Appointment.appointment_date <= next_week, Appointment.status == 'Scheduled').order_by(Appointment.appointment_date, Appointment.appointment_time).limit(5).all()
-    pending_invoices = Invoice.query.filter(Invoice.payment_status.in_(['Pending', 'Partial'])).count()
-    today_invoices = Invoice.query.filter(func.date(Invoice.created_at) == today).all()
-    today_revenue = round(sum(invoice_net_paid_amount(i) for i in today_invoices), 2)
-    completed_today = Appointment.query.filter_by(appointment_date=today, status='Completed').count()
-    low_stock_count = InventoryItem.query.filter(InventoryItem.is_active == True, InventoryItem.stock_qty <= InventoryItem.reorder_level).count()
-    revenue_by_day = []
-    for offset in range(6, -1, -1):
-        day = today - timedelta(days=offset)
-        day_invoices = Invoice.query.filter(func.date(Invoice.created_at) == day).all()
-        day_revenue = round(sum(invoice_net_paid_amount(i) for i in day_invoices), 2)
-        revenue_by_day.append({'label': day.strftime('%a'), 'date': day.isoformat(), 'revenue': day_revenue})
-    service_counts = {}
-    for appointment in Appointment.query.filter(Appointment.appointment_date >= first_day, Appointment.appointment_date <= today, Appointment.status == 'Completed').all():
-        if appointment.service:
-            service_counts[appointment.service.name] = service_counts.get(appointment.service.name, 0) + 1
-    top_services = sorted(service_counts.items(), key=lambda x: (-x[1], x[0]))[:5]
-    return render_template('dashboard.html',
-                           today_appointments=today_appointments,
-                           total_customers=total_customers,
-                           total_staff=total_staff,
-                           total_services=total_services,
-                           monthly_revenue=monthly_revenue,
-                           monthly_expenses=monthly_expenses,
-                           monthly_profit=monthly_profit,
-                           weekly_revenue=weekly_revenue,
-                           weekly_expenses=weekly_expenses,
-                           weekly_profit=weekly_profit,
-                           outstanding_amount=outstanding_amount,
-                           repeat_customer_count=repeat_customer_count,
-                           pending_invoices=pending_invoices,
-                           today=today,
-                           today_revenue=today_revenue,
-                           completed_today=completed_today,
-                           low_stock_count=low_stock_count,
-                           upcoming=upcoming,
-                           revenue_by_day=revenue_by_day,
-                           top_services=top_services)
+    today=date.today()
+    today_appointments=Appointment.query.filter_by(appointment_date=today).order_by(Appointment.appointment_time).all()
+    total_customers=Customer.query.count(); total_staff=Staff.query.filter_by(is_active=True).count(); total_services=Service.query.filter_by(is_active=True).count()
+    month_start=today.replace(day=1); prev_month_end=month_start-timedelta(days=1); prev_month_start=prev_month_end.replace(day=1)
+    month_invoices=Invoice.query.filter(Invoice.created_at>=datetime.combine(month_start,datetime.min.time())).all()
+    prev_invoices=Invoice.query.filter(Invoice.created_at>=datetime.combine(prev_month_start,datetime.min.time()),Invoice.created_at<datetime.combine(month_start,datetime.min.time())).all()
+    monthly_revenue=round(sum(invoice_net_paid_amount(i) for i in month_invoices),2)
+    previous_month_revenue=round(sum(invoice_net_paid_amount(i) for i in prev_invoices),2)
+    monthly_expenses=round(sum(e.amount for e in Expense.query.filter(Expense.expense_date>=month_start,Expense.expense_date<=today).all()),2)
+    monthly_profit=round(monthly_revenue-monthly_expenses,2)
+    monthly_growth=round((monthly_revenue-previous_month_revenue)/previous_month_revenue*100,1) if previous_month_revenue else None
+    week_start=today-timedelta(days=6)
+    weekly_invoices=Invoice.query.filter(func.date(Invoice.created_at)>=week_start,func.date(Invoice.created_at)<=today).all()
+    weekly_revenue=round(sum(invoice_net_paid_amount(i) for i in weekly_invoices),2)
+    weekly_expenses=round(sum(e.amount for e in Expense.query.filter(Expense.expense_date>=week_start,Expense.expense_date<=today).all()),2)
+    weekly_profit=round(weekly_revenue-weekly_expenses,2)
+    pending=Invoice.query.filter(Invoice.payment_status.in_(['Pending','Partial'])).all()
+    outstanding_amount=round(sum(invoice_balance(i) for i in pending),2)
+    repeat_customer_count=db.session.query(Appointment.customer_id).filter(Appointment.status=='Completed').group_by(Appointment.customer_id).having(func.count(Appointment.id)>=2).count()
+    upcoming=Appointment.query.filter(Appointment.appointment_date>today,Appointment.appointment_date<=today+timedelta(days=7),Appointment.status.in_(list(ACTIVE_APPOINTMENT_STATUSES))).order_by(Appointment.appointment_date,Appointment.appointment_time).limit(6).all()
+    today_invoices=Invoice.query.filter(func.date(Invoice.created_at)==today).all()
+    today_revenue=round(sum(invoice_net_paid_amount(i) for i in today_invoices),2)
+    today_expenses=round(sum(e.amount for e in Expense.query.filter_by(expense_date=today).all()),2)
+    completed_today=Appointment.query.filter_by(appointment_date=today,status='Completed').count()
+    low_stock=InventoryItem.query.filter(InventoryItem.is_active==True,InventoryItem.stock_qty<=InventoryItem.reorder_level).all()
+    potential_inventory_profit=round(sum(max((i.sale_price or 0)-(i.cost_price or 0),0)*max(i.stock_qty or 0,0) for i in InventoryItem.query.filter_by(is_active=True).all()),2)
+    revenue_by_day=[]
+    for offset in range(6,-1,-1):
+        day=today-timedelta(days=offset); rows=Invoice.query.filter(func.date(Invoice.created_at)==day).all()
+        revenue_by_day.append({'label':day.strftime('%a'),'date':day.isoformat(),'revenue':round(sum(invoice_net_paid_amount(i) for i in rows),2)})
+    service_counts={}
+    for a in Appointment.query.filter(Appointment.appointment_date>=month_start,Appointment.appointment_date<=today,Appointment.status=='Completed').all():
+        if a.service: service_counts[a.service.name]=service_counts.get(a.service.name,0)+1
+    top_services=sorted(service_counts.items(),key=lambda x:(-x[1],x[0]))[:5]
+    return render_template('dashboard.html',today_appointments=today_appointments,total_customers=total_customers,total_staff=total_staff,total_services=total_services,
+        monthly_revenue=monthly_revenue,previous_month_revenue=previous_month_revenue,monthly_growth=monthly_growth,monthly_expenses=monthly_expenses,monthly_profit=monthly_profit,
+        weekly_revenue=weekly_revenue,weekly_expenses=weekly_expenses,weekly_profit=weekly_profit,outstanding_amount=outstanding_amount,pending_invoices=len(pending),
+        pending_invoice_rows=pending[:8],repeat_customer_count=repeat_customer_count,today=today,today_revenue=today_revenue,today_expenses=today_expenses,
+        completed_today=completed_today,low_stock_count=len(low_stock),low_stock_items=low_stock[:5],potential_inventory_profit=potential_inventory_profit,
+        upcoming=upcoming,revenue_by_day=revenue_by_day,top_services=top_services)
+
+@app.route('/money-center')
+@login_required
+def money_center():
+    today=date.today(); month_start=today.replace(day=1); week_start=today-timedelta(days=6); prev_end=month_start-timedelta(days=1); prev_start=prev_end.replace(day=1)
+    def data(start,end):
+        invs=Invoice.query.filter(func.date(Invoice.created_at)>=start,func.date(Invoice.created_at)<=end).all()
+        exps=Expense.query.filter(Expense.expense_date>=start,Expense.expense_date<=end).all()
+        rev=round(sum(invoice_net_paid_amount(i) for i in invs),2); exp=round(sum(e.amount for e in exps),2); paid=[i for i in invs if invoice_net_paid_amount(i)>0]
+        return {'revenue':rev,'expenses':exp,'profit':round(rev-exp,2),'customers':len({i.customer_id for i in paid if i.customer_id}),'average_bill':round(rev/len(paid),2) if paid else 0}
+    today_data=data(today,today); week_data=data(week_start,today); month_data=data(month_start,today); previous_month=data(prev_start,prev_end)
+    growth=round((month_data['revenue']-previous_month['revenue'])/previous_month['revenue']*100,1) if previous_month['revenue'] else None
+    outstanding=[{'invoice':i,'balance':round(invoice_balance(i),2)} for i in Invoice.query.filter(Invoice.payment_status.in_(['Pending','Partial'])).order_by(Invoice.created_at.asc()).all() if invoice_balance(i)>0]
+    return render_template('money_center.html',today_data=today_data,week_data=week_data,month_data=month_data,previous_month=previous_month,growth=growth,outstanding=outstanding)
+
+@app.route('/quick-sale',methods=['GET','POST'])
+@login_required
+def quick_sale():
+    if request.method=='POST':
+        try:
+            customer_id=request.form.get('customer_id',type=int); name=request.form.get('new_customer_name','').strip(); phone=request.form.get('new_customer_phone','').strip()
+            if customer_id: customer=Customer.query.get_or_404(customer_id)
+            else:
+                if not name or not phone: raise ValueError('Select a customer or enter a name and phone.')
+                customer=Customer.query.filter_by(phone=phone).first()
+                if not customer: customer=Customer(name=name,phone=phone); db.session.add(customer); db.session.flush()
+                else: customer.name=name
+            service=Service.query.filter_by(id=request.form.get('service_id',type=int),is_active=True).first_or_404()
+            staff=Staff.query.filter_by(id=request.form.get('staff_id',type=int),is_active=True).first_or_404()
+            slot=datetime.now().replace(second=0,microsecond=0); chosen=None
+            for _ in range(40):
+                t=slot.strftime('%H:%M'); allowed,_=booking_allowed(date.today(),t,service.duration_minutes or 30)
+                if allowed and not appointment_conflict(staff.id,date.today(),t,service.duration_minutes or 30): chosen=t; break
+                slot+=timedelta(minutes=15)
+            if not chosen: raise ValueError('No available slot for this staff member today.')
+            discount=min(max(float(request.form.get('discount',0) or 0),0),service.price); tip=max(float(request.form.get('tip',0) or 0),0)
+            tax=round(max(service.price-discount,0)*get_tax_rate()/100,2); total=round(max(service.price-discount,0)+tax+tip,2)
+            method=request.form.get('payment_method','Cash'); paid=min(max(float(request.form.get('paid_amount',total) or total),0),total)
+            appt=Appointment(customer_id=customer.id,staff_id=staff.id,service_id=service.id,appointment_date=date.today(),appointment_time=chosen,status='Completed',notes='Quick checkout / walk-in')
+            db.session.add(appt); db.session.flush(); comm=StaffCommission.query.filter_by(staff_id=staff.id).first()
+            inv=Invoice(appointment_id=appt.id,customer_id=customer.id,amount=service.price,discount=discount,tax=tax,tip=tip,total=total,payment_status='Pending',commission_rate=comm.commission_rate if comm else 0,payment_method=method)
+            db.session.add(inv); db.session.flush(); db.session.add(InvoiceItem(invoice_id=inv.id,description=service.name,quantity=1,unit_price=service.price,total=service.price))
+            if paid>0:
+                db.session.add(InvoicePayment(invoice_id=inv.id,amount=round(paid,2),payment_method=method,notes='Quick checkout')); inv.payment_status='Paid' if paid>=total-0.01 else 'Partial'
+            db.session.commit()
+            if inv.payment_status=='Paid': award_loyalty_for_invoice(inv); db.session.commit()
+            return redirect(url_for('view_invoice',id=inv.id))
+        except (ValueError,TypeError,KeyError) as exc:
+            db.session.rollback(); flash(str(exc) or 'Quick checkout failed.','danger')
+    return render_template('quick_sale.html',customers=Customer.query.order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),today_iso=date.today().isoformat())
 
 # ==================== CUSTOMERS ====================
 
