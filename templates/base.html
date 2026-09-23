@@ -73,7 +73,7 @@
         <header class="sp-topbar">
             <button class="sp-mobile-menu" type="button" onclick="document.getElementById('spSidebar').classList.toggle('open')" aria-label="Open navigation"><i class="bi bi-list"></i></button>
             <div class="sp-top-title">{% block page_kicker %}Salon workspace{% endblock %}</div>
-            <div class="sp-top-actions"><button type="button" class="sp-top-icon sp-theme-toggle" id="spThemeToggle" aria-label="Toggle dark mode" title="Toggle dark mode"><i class="bi bi-moon-stars"></i></button>
+            <div class="sp-top-actions">
                 <a href="{{ url_for('public_booking') }}" class="sp-top-btn d-none d-sm-flex"><i class="bi bi-calendar2-plus"></i><span>Book appointment</span></a>
                 <a href="{{ url_for('reminders') }}" class="sp-top-icon"><i class="bi bi-bell"></i></a>
                 <div class="sp-top-date d-none d-md-block">{{ today.strftime('%d %b %Y') if today is defined else '' }}</div>
