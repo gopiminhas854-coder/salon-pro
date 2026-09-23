@@ -7,3 +7,4 @@ gunicorn==23.0.0
 psycopg[binary]>=3.2,<4
 Flask-Migrate==4.1.0
 google-auth>=2.30,<3
+requests>=2.32,<3
