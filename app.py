@@ -1289,15 +1289,20 @@ def _customer_metrics(customer_id):
     completed = [a for a in appointments if a.status == 'Completed']
     paid_revenue = round(sum(invoice_net_paid_amount(i) for i in invoices), 2)
     refunds = round(sum(invoice_refunded_amount(i) for i in invoices), 2)
+    outstanding_balance = round(sum(invoice_balance(i) for i in invoices), 2)
     avg_ticket = round(paid_revenue / len(completed), 2) if completed else 0
     last_visit = completed[-1] if completed else None
-    next_visit = next((a for a in appointments if a.status == 'Scheduled' and a.appointment_date >= date.today()), None)
+    next_visit = next((a for a in appointments if a.status in ACTIVE_APPOINTMENT_STATUSES and a.appointment_date >= date.today()), None)
 
     service_counts = {}
+    staff_counts = {}
     for appt in completed:
         if appt.service:
             service_counts[appt.service.name] = service_counts.get(appt.service.name, 0) + 1
+        if appt.staff:
+            staff_counts[appt.staff.name] = staff_counts.get(appt.staff.name, 0) + 1
     favorite_service = max(service_counts, key=service_counts.get) if service_counts else None
+    most_used_staff = max(staff_counts, key=staff_counts.get) if staff_counts else None
 
     if len(completed) >= 2:
         intervals = [
@@ -1318,14 +1323,15 @@ def _customer_metrics(customer_id):
         'last_visit': last_visit,
         'next_visit': next_visit,
         'favorite_service': favorite_service,
+        'most_used_staff': most_used_staff,
         'avg_visit_interval_days': avg_visit_interval,
         'days_since_visit': days_since_visit,
         'loyalty_points': loyalty.points if loyalty else 0,
         'lifetime_spend': round(loyalty.lifetime_spend, 2) if loyalty else paid_revenue,
+        'outstanding_balance': outstanding_balance,
         'no_shows': sum(1 for a in appointments if a.status == 'No-Show'),
         'cancelled': sum(1 for a in appointments if a.status == 'Cancelled'),
     }
-
 
 @app.route('/api/crm/summary')
 @login_required
@@ -2081,7 +2087,28 @@ def refund_invoice(id):
 def inventory():
     items = InventoryItem.query.order_by(InventoryItem.name).all()
     low_stock = [i for i in items if i.is_active and i.stock_qty <= i.reorder_level]
-    return render_template('inventory.html', items=items, low_stock=low_stock)
+    rows = []
+    for item in items:
+        last_purchase = InventoryPurchase.query.filter_by(
+            inventory_item_id=item.id
+        ).order_by(InventoryPurchase.purchase_date.desc(), InventoryPurchase.id.desc()).first()
+        last_sale = InventorySale.query.filter_by(
+            inventory_item_id=item.id
+        ).order_by(InventorySale.created_at.desc()).first()
+        supplier = last_purchase.supplier if last_purchase else None
+        profit_per_item = max((item.sale_price or 0) - (item.cost_price or 0), 0)
+        rows.append({
+            'item': item,
+            'stock_value': round((item.stock_qty or 0) * (item.cost_price or 0), 2),
+            'profit_per_item': round(profit_per_item, 2),
+            'potential_profit': round(profit_per_item * max(item.stock_qty or 0, 0), 2),
+            'supplier': supplier,
+            'last_purchase': last_purchase,
+            'last_sale': last_sale,
+        })
+    potential_profit = round(sum(r['potential_profit'] for r in rows if r['item'].is_active), 2)
+    return render_template('inventory.html', items=items, low_stock=low_stock, rows=rows,
+                           potential_profit=potential_profit)
 
 @app.route('/inventory/add', methods=['GET', 'POST'])
 @login_required
