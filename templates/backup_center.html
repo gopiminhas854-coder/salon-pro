@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Backup Center{% endblock %}
+{% block page_kicker %}Data safety{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+  <div><div class="text-muted small">Protect the business database</div><h2 class="mb-1">Backup Center 💾</h2><div class="text-muted small">Create a compressed backup before major changes or at the end of the day.</div></div>
+  <a href="{{ url_for('download_backup') }}" class="btn btn-primary">Backup Now</a>
+</div>
+<div class="row g-3 mb-4">
+<div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Last backup</div>{% if last %}<div class="fs-4 fw-bold mt-1">{{ last.created_at.strftime('%d %b %Y, %I:%M %p') }}</div><div class="small text-muted">{{ last.file_name }}</div>{% else %}<div class="fs-4 fw-bold mt-1">Never</div><div class="small text-muted">Create the first backup now.</div>{% endif %}</div></div></div>
+<div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Backup history</div><div class="fs-4 fw-bold mt-1">{{ logs|length }}</div><div class="small text-muted">Recent backups retained in the audit history.</div></div></div></div>
+<div class="col-md-4"><div class="card h-100"><div class="card-body"><div class="text-muted small">Restore</div><div class="fs-4 fw-bold mt-1">Available</div><div class="small text-muted">Restore remains protected behind the settings confirmation flow.</div></div></div></div>
+</div>
+<div class="card"><div class="card-header"><strong>Recent backup history</strong></div><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Created</th><th>File</th><th>Size</th><th>Created by</th></tr></thead><tbody>
+{% for row in logs %}<tr><td>{{ row.created_at.strftime('%d %b %Y, %I:%M %p') }}</td><td>{{ row.file_name }}</td><td>{{ '%.1f'|format((row.size_bytes or 0)/1024) }} KB</td><td>{{ row.created_by.username if row.created_by else 'System' }}</td></tr>{% else %}<tr><td colspan="4" class="text-center py-4 text-muted">No backup history yet.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}
