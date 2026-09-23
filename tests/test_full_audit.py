@@ -196,3 +196,180 @@ def test_internal_booking_respects_closed_hours():
         assert response.status_code == 302
         with salon.app.app_context():
             assert salon.Appointment.query.count() == 0
+
+
+def test_public_booking_page_renders_for_logged_out_users():
+    setup_database()
+    with salon.app.test_client() as client:
+        response = client.get("/book")
+        assert response.status_code == 200
+        assert b"Book your visit" in response.data
+        assert b'name="service_id"' in response.data
+        assert b'name="staff_id"' in response.data
+
+
+def test_settings_persists_business_hours():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        response = client.post(
+            "/settings",
+            data={
+                "salon_name": "Audit Salon",
+                "phone": "9999999999",
+                "address": "Test Address",
+                "tax_rate": "5",
+                "loyalty_rate": "1",
+                "reminder_days": "2",
+                "open_0": "10:00",
+                "close_0": "18:00",
+                "open_1": "09:30",
+                "close_1": "19:00",
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        with salon.app.app_context():
+            monday = salon.SalonHours.query.filter_by(day_of_week=0).first()
+            tuesday = salon.SalonHours.query.filter_by(day_of_week=1).first()
+            assert monday is not None
+            assert monday.open_time == "10:00"
+            assert monday.close_time == "18:00"
+            assert tuesday is not None
+            assert tuesday.open_time == "09:30"
+            assert tuesday.close_time == "19:00"
+            assert salon.SalonHours.query.count() == 7
+
+
+def test_default_business_hours_are_initialized_and_enforced():
+    setup_database()
+    with salon.app.app_context():
+        salon.init_db()
+        assert salon.SalonHours.query.count() == 7
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+        today = salon.date.today()
+        future_weekday = today
+        for _ in range(7):
+            if salon.SalonHours.query.filter_by(day_of_week=future_weekday.weekday()).first():
+                break
+            future_weekday += salon.timedelta(days=1)
+    with salon.app.test_client() as client:
+        response = client.post(
+            "/book",
+            data={
+                "name": "Outside Hours",
+                "phone": "8888880000",
+                "service_id": service.id,
+                "staff_id": staff.id,
+                "appointment_date": future_weekday.isoformat(),
+                "appointment_time": "08:00",
+            },
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert b"Bookings are available" in response.data
+
+
+def test_loyalty_rate_is_points_per_hundred():
+    setup_database()
+    with salon.app.app_context():
+        setting = salon.SalonSetting(tax_rate=5, loyalty_rate=1, reminder_days=1)
+        salon.db.session.add(setting)
+        salon.db.session.flush()
+        customer = salon.Customer.query.first()
+        invoice = salon.Invoice(customer_id=customer.id, amount=500, discount=0, tax=0, total=500, payment_status="Paid")
+        salon.db.session.add(invoice)
+        salon.db.session.flush()
+        salon.award_loyalty_for_invoice(invoice)
+        salon.db.session.commit()
+        loyalty = salon.CustomerLoyalty.query.filter_by(customer_id=customer.id).first()
+        assert loyalty.points == 5
+        assert loyalty.lifetime_spend == 500
+
+
+def test_paid_invoice_cannot_receive_new_inventory_items():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        with salon.app.app_context():
+            customer = salon.Customer.query.first()
+            service = salon.Service.query.first()
+            staff = salon.Staff.query.first()
+            item = salon.InventoryItem.query.first()
+            appt = salon.Appointment(
+                customer_id=customer.id, staff_id=staff.id, service_id=service.id,
+                appointment_date=salon.date.today(), appointment_time="15:00", status="Completed"
+            )
+            salon.db.session.add(appt)
+            salon.db.session.flush()
+            invoice = salon.Invoice(
+                appointment_id=appt.id, customer_id=customer.id,
+                amount=100, discount=0, tax=5, total=105, payment_status="Paid"
+            )
+            salon.db.session.add(invoice)
+            salon.db.session.flush()
+            salon.db.session.add(salon.InvoiceItem(
+                invoice_id=invoice.id, description=service.name, quantity=1, unit_price=100, total=100
+            ))
+            salon.db.session.add(salon.InvoicePayment(
+                invoice_id=invoice.id, amount=105, payment_method="Cash"
+            ))
+            salon.db.session.commit()
+            invoice_id, item_id = invoice.id, item.id
+            starting_stock = item.stock_qty
+        response = client.post(
+            f"/invoices/{invoice_id}/inventory-sale",
+            data={"inventory_item_id": item_id, "quantity": "1"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert b"cannot receive new products" in response.data
+        with salon.app.app_context():
+            assert salon.InventoryItem.query.get(item_id).stock_qty == starting_stock
+            assert salon.InventorySale.query.filter_by(invoice_id=invoice_id).count() == 0
+
+
+def test_refunding_partially_paid_invoice_preserves_unpaid_balance():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        with salon.app.app_context():
+            customer = salon.Customer.query.first()
+            service = salon.Service.query.first()
+            staff = salon.Staff.query.first()
+            item = salon.InventoryItem.query.first()
+            appt = salon.Appointment(
+                customer_id=customer.id, staff_id=staff.id, service_id=service.id,
+                appointment_date=salon.date.today(), appointment_time="16:00", status="Completed"
+            )
+            salon.db.session.add(appt)
+            salon.db.session.flush()
+            invoice = salon.Invoice(
+                appointment_id=appt.id, customer_id=customer.id,
+                amount=1000, discount=0, tax=0, total=1000, payment_status="Partial"
+            )
+            salon.db.session.add(invoice)
+            salon.db.session.flush()
+            salon.db.session.add(salon.InvoiceItem(
+                invoice_id=invoice.id, description=service.name, quantity=1, unit_price=1000, total=1000
+            ))
+            salon.db.session.add(salon.InvoicePayment(
+                invoice_id=invoice.id, amount=500, payment_method="Cash"
+            ))
+            salon.db.session.commit()
+            invoice_id = invoice.id
+            starting_stock = item.stock_qty
+        # No product sale is linked here; this checks financial state only.
+        response = client.post(
+            f"/invoices/refund/{invoice_id}",
+            data={"amount": "500", "refund_method": "Cash", "reason": "Customer refund"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        with salon.app.app_context():
+            invoice = salon.Invoice.query.get(invoice_id)
+            assert invoice.payment_status == "Partial"
+            assert salon.invoice_balance(invoice) == 1000
+            assert salon.InvoiceRefund.query.filter_by(invoice_id=invoice_id).count() == 1
+            assert salon.InventoryItem.query.first().stock_qty == starting_stock
