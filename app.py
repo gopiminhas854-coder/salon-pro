@@ -1361,34 +1361,113 @@ def appointments():
 @login_required
 def add_appointment():
     if request.method == 'POST':
-        appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
-        appointment_time = request.form['appointment_time']
-        staff_id = int(request.form['staff_id'])
-        service_id = int(request.form['service_id'])
-        service = Service.query.get_or_404(service_id)
-        start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
-        end = start + timedelta(minutes=service.duration_minutes or 30)
-        conflicts = Appointment.query.filter_by(staff_id=staff_id, appointment_date=appointment_date, status='Scheduled').all()
-        for existing in conflicts:
-            existing_service = existing.service
-            existing_start = datetime.combine(appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time())
-            existing_end = existing_start + timedelta(minutes=existing_service.duration_minutes or 30)
-            if start < existing_end and existing_start < end:
-                flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
-                return redirect(url_for('add_appointment'))
-        appt = Appointment(
-            customer_id=int(request.form['customer_id']), staff_id=staff_id, service_id=service_id,
-            appointment_date=appointment_date, appointment_time=appointment_time,
-            notes=request.form.get('notes'), status='Scheduled')
-        db.session.add(appt)
-        db.session.commit()
-        flash('Appointment booked successfully!', 'success')
-        return redirect(url_for('appointments'))
-    
+        try:
+            appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
+            appointment_time = request.form['appointment_time']
+            datetime.strptime(appointment_time, '%H:%M')
+            staff_id = int(request.form['staff_id'])
+            service_id = int(request.form['service_id'])
+            customer_id = int(request.form['customer_id'])
+            service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+            Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            Customer.query.get_or_404(customer_id)
+
+            start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
+            end = start + timedelta(minutes=service.duration_minutes or 30)
+            conflicts = Appointment.query.filter_by(
+                staff_id=staff_id, appointment_date=appointment_date, status='Scheduled'
+            ).all()
+            for existing in conflicts:
+                existing_service = existing.service
+                existing_start = datetime.combine(
+                    appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time()
+                )
+                existing_end = existing_start + timedelta(minutes=existing_service.duration_minutes or 30)
+                if start < existing_end and existing_start < end:
+                    flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
+                    return redirect(url_for('add_appointment'))
+
+            db.session.add(Appointment(
+                customer_id=customer_id,
+                staff_id=staff_id,
+                service_id=service_id,
+                appointment_date=appointment_date,
+                appointment_time=appointment_time,
+                notes=request.form.get('notes'),
+                status='Scheduled',
+            ))
+            db.session.commit()
+            flash('Appointment booked successfully!', 'success')
+            return redirect(url_for('appointments'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Please enter valid appointment details.', 'danger')
+            return redirect(url_for('add_appointment'))
+
     customers = Customer.query.order_by(Customer.name).all()
     staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
     services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
     return render_template('appointment_form.html', appointment=None,
+                           customers=customers, staff_list=staff_list, services=services)
+
+
+@app.route('/appointments/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
+def edit_appointment(id):
+    appt = Appointment.query.get_or_404(id)
+    if request.method == 'POST':
+        try:
+            appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
+            appointment_time = request.form['appointment_time']
+            datetime.strptime(appointment_time, '%H:%M')
+            staff_id = int(request.form['staff_id'])
+            service_id = int(request.form['service_id'])
+            customer_id = int(request.form['customer_id'])
+            service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+            Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            Customer.query.get_or_404(customer_id)
+
+            start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
+            end = start + timedelta(minutes=service.duration_minutes or 30)
+            conflicts = Appointment.query.filter(
+                Appointment.id != appt.id,
+                Appointment.staff_id == staff_id,
+                Appointment.appointment_date == appointment_date,
+                Appointment.status == 'Scheduled'
+            ).all()
+            for existing in conflicts:
+                existing_start = datetime.combine(
+                    appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time()
+                )
+                existing_end = existing_start + timedelta(minutes=existing.service.duration_minutes or 30)
+                if start < existing_end and existing_start < end:
+                    flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
+                    return redirect(url_for('edit_appointment', id=id))
+
+            status = request.form.get('status', 'Scheduled')
+            if status not in {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}:
+                flash('Invalid appointment status.', 'danger')
+                return redirect(url_for('edit_appointment', id=id))
+
+            appt.customer_id = customer_id
+            appt.staff_id = staff_id
+            appt.service_id = service_id
+            appt.appointment_date = appointment_date
+            appt.appointment_time = appointment_time
+            appt.status = status
+            appt.notes = request.form.get('notes')
+            db.session.commit()
+            flash('Appointment updated!', 'success')
+            return redirect(url_for('appointments'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Please enter valid appointment details.', 'danger')
+            return redirect(url_for('edit_appointment', id=id))
+
+    customers = Customer.query.order_by(Customer.name).all()
+    staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
+    services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
+    return render_template('appointment_form.html', appointment=appt,
                            customers=customers, staff_list=staff_list, services=services)
 
 @app.route('/appointments/edit/<int:id>', methods=['GET', 'POST'])
