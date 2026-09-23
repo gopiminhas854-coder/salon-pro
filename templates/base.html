@@ -73,7 +73,7 @@
         <header class="sp-topbar">
             <button class="sp-mobile-menu" type="button" onclick="document.getElementById('spSidebar').classList.toggle('open')" aria-label="Open navigation"><i class="bi bi-list"></i></button>
             <div class="sp-top-title">{% block page_kicker %}Salon workspace{% endblock %}</div>
-            <div class="sp-top-actions">
+            <div class="sp-top-actions"><button type="button" class="sp-top-icon sp-theme-toggle" id="spThemeToggle" aria-label="Toggle dark mode" title="Toggle dark mode"><i class="bi bi-moon-stars"></i></button>
                 <a href="{{ url_for('public_booking') }}" class="sp-top-btn d-none d-sm-flex"><i class="bi bi-calendar2-plus"></i><span>Book appointment</span></a>
                 <a href="{{ url_for('reminders') }}" class="sp-top-icon"><i class="bi bi-bell"></i></a>
                 <div class="sp-top-date d-none d-md-block">{{ today.strftime('%d %b %Y') if today is defined else '' }}</div>
@@ -101,5 +101,28 @@
 <script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}').catch(() => {});
 </script>
-</body>
+<script>
+(function(){
+  const key='salon-pro-theme';
+  const root=document.documentElement;
+  const saved=localStorage.getItem(key);
+  if(saved==='dark' || (!saved && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)) root.dataset.theme='dark';
+  function sync(){
+    const b=document.getElementById('spThemeToggle');
+    if(!b) return;
+    const dark=root.dataset.theme==='dark';
+    b.innerHTML=dark?'<i class="bi bi-sun"></i>':'<i class="bi bi-moon-stars"></i>';
+    b.setAttribute('aria-label',dark?'Switch to light mode':'Switch to dark mode');
+    b.title=dark?'Switch to light mode':'Switch to dark mode';
+  }
+  document.addEventListener('click',function(e){
+    const b=e.target.closest('#spThemeToggle');
+    if(!b) return;
+    root.dataset.theme=root.dataset.theme==='dark'?'light':'dark';
+    localStorage.setItem(key,root.dataset.theme);
+    sync();
+  });
+  sync();
+})();
+</script></body>
 </html>
