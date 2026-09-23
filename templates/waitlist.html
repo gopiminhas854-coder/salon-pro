@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Waitlist{% endblock %}
+{% block page_kicker %}Appointment recovery{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4">
+  <div><div class="text-muted small">Fill cancelled slots faster</div><h2 class="mb-1">Waitlist</h2><div class="text-muted small">Keep customers ready for the next opening.</div></div>
+  <a class="btn btn-dark" href="{{ url_for('smart_schedule') }}">✨ Smart scheduling</a>
+</div>
+<div class="row g-4">
+<div class="col-xl-5"><div class="card"><div class="card-header"><strong>Add to waitlist</strong></div><div class="card-body">
+<form method="POST" class="row g-3">
+<input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<div class="col-12"><label class="form-label">Customer</label><select name="customer_id" class="form-select" required><option value="">Choose customer</option>{% for c in customers %}<option value="{{ c.id }}">{{ c.name }} · {{ c.phone }}</option>{% endfor %}</select></div>
+<div class="col-12"><label class="form-label">Service</label><select name="service_id" class="form-select" required><option value="">Choose service</option>{% for s in services %}<option value="{{ s.id }}">{{ s.name }} · {{ s.duration_minutes }} min</option>{% endfor %}</select></div>
+<div class="col-12"><label class="form-label">Preferred staff <span class="text-muted">(optional)</span></label><select name="preferred_staff_id" class="form-select"><option value="">Any available staff</option>{% for s in staff_list %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select></div>
+<div class="col-6"><label class="form-label">Preferred date</label><input type="date" name="preferred_date" min="{{ today.isoformat() }}" class="form-control"></div>
+<div class="col-6"><label class="form-label">Preferred time</label><input type="time" name="preferred_time" class="form-control"></div>
+<div class="col-12"><label class="form-label">Notes</label><input name="notes" class="form-control" placeholder="Flexible after 4 PM, etc."></div>
+<div class="col-12"><button class="btn btn-primary w-100">Add to waitlist</button></div>
+</form>
+</div></div></div>
+<div class="col-xl-7"><div class="card"><div class="card-header"><strong>Open requests</strong><span class="text-muted small ms-2">{{ rows|length }} waiting</span></div>
+<div class="card-body">
+{% for row in rows %}
+<div class="border rounded-3 p-3 mb-3"><div class="d-flex justify-content-between gap-2"><div><strong>{{ row.customer.name }}</strong><div class="text-muted small">{{ row.service.name }} · {{ row.service.duration_minutes }} min{% if row.preferred_staff %} · {{ row.preferred_staff.name }}{% endif %}</div></div><span class="badge text-bg-warning">Waiting</span></div>
+<div class="small mt-2">{% if row.preferred_date %}Preferred {{ row.preferred_date.strftime('%d %b %Y') }}{% else %}Date flexible{% endif %}{% if row.preferred_time %} · around {{ row.preferred_time }}{% endif %}</div>
+{% if row.notes %}<div class="text-muted small mt-1">{{ row.notes }}</div>{% endif %}
+<form method="POST" action="{{ url_for('book_waitlist',id=row.id) }}" class="row g-2 mt-2"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="col-5"><input type="date" name="appointment_date" value="{{ row.preferred_date.isoformat() if row.preferred_date else today.isoformat() }}" min="{{ today.isoformat() }}" class="form-control" required></div><div class="col-3"><input type="time" name="appointment_time" value="{{ row.preferred_time or '' }}" class="form-control" required></div><div class="col-4"><select name="staff_id" class="form-select" required><option value="">Staff</option>{% for s in staff_list %}<option value="{{ s.id }}" {% if row.preferred_staff_id==s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></div><div class="col-12 d-flex gap-2"><button class="btn btn-primary btn-sm">Book this customer</button><a class="btn btn-outline-success btn-sm" href="{{ url_for('whatsapp_send',customer_id=row.customer.id,key='confirmation') }}">WhatsApp</a></form><form method="POST" action="{{ url_for('cancel_waitlist',id=row.id) }}" class="d-inline"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button class="btn btn-light btn-sm" type="submit">Remove</button></form></div>
+</div>
+{% else %}<div class="text-muted py-4 text-center">No one is waiting right now.</div>{% endfor %}
+</div></div></div>
+</div>
+{% endblock %}
