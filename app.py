@@ -409,7 +409,7 @@ def upcoming_annual_date(source_date, reference_date=None):
 
 @app.context_processor
 def template_helpers():
-    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_refunded_amount': invoice_refunded_amount, 'invoice_balance': invoice_balance, 'csrf_token': csrf_token, 'current_user': current_user()}
+    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_refunded_amount': invoice_refunded_amount, 'invoice_net_paid_amount': invoice_net_paid_amount, 'invoice_balance': invoice_balance, 'csrf_token': csrf_token, 'current_user': current_user()}
 
 
 def recalculate_invoice(invoice):
@@ -956,16 +956,9 @@ def public_booking():
                 return redirect(url_for('public_booking'))
             start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
             end = start + timedelta(minutes=service.duration_minutes or 30)
-            conflicts = Appointment.query.filter_by(
-                staff_id=staff_id, appointment_date=appointment_date, status='Scheduled'
-            ).all()
-            if any(
-                start < datetime.combine(appointment_date, datetime.strptime(a.appointment_time, '%H:%M').time())
-                + timedelta(minutes=a.service.duration_minutes or 30)
-                and datetime.combine(appointment_date, datetime.strptime(a.appointment_time, '%H:%M').time()) < end
-                for a in conflicts
-            ):
-                flash('That time is already booked. Please choose another time.', 'danger')
+            conflict = appointment_conflict(staff_id, appointment_date, appointment_time, service.duration_minutes or 30)
+            if conflict:
+                flash(conflict, 'danger')
                 return redirect(url_for('public_booking'))
             customer = Customer.query.filter_by(phone=phone).first()
             if not customer:
@@ -1929,7 +1922,7 @@ def add_appointment():
             if not allowed: raise ValueError(reason)
             conflict=appointment_conflict(staff_id,appointment_date,appointment_time,service.duration_minutes or 30)
             if conflict: raise ValueError(conflict)
-            status=normalize_appointment_status(request.form.get('status','Booked')); status='Scheduled' if status=='Booked' else status; status='Scheduled' if status=='Booked' else status; recurrence=request.form.get('recurrence_rule','None')
+            status=normalize_appointment_status(request.form.get('status','Booked')); status='Scheduled' if status=='Booked' else status; recurrence=request.form.get('recurrence_rule','None')
             end_text=request.form.get('recurrence_end_date','').strip(); recurrence_end=datetime.strptime(end_text,'%Y-%m-%d').date() if end_text else None
             if recurrence not in {'None','Weekly','Biweekly','Monthly'}: recurrence='None'
             if recurrence!='None' and not recurrence_end: raise ValueError('Choose an end date for recurring appointments.')
