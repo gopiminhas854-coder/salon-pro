@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Money Center{% endblock %}
+{% block page_kicker %}Money Center{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-end gap-3 mb-4"><div><div class="text-muted small">Finance</div><h2 class="mb-1">Money Center 💵</h2><div class="text-muted small">Revenue, collections, expenses, profit and outstanding money in one place.</div></div><a href="{{ url_for('invoices') }}" class="btn btn-light">All invoices</a></div>
+<div class="row g-3 mb-4">
+{% for label,data in [('Today',today_data),('This week',week_data),('This month',month_data)] %}
+<div class="col-12 col-lg-4"><div class="card h-100"><div class="card-header"><strong>{{ label }}</strong></div><div class="card-body"><div class="row g-2"><div class="col-4"><div class="text-muted small">Revenue</div><strong>₹{{ "%.0f"|format(data.revenue) }}</strong></div><div class="col-4"><div class="text-muted small">Expenses</div><strong>₹{{ "%.0f"|format(data.expenses) }}</strong></div><div class="col-4"><div class="text-muted small">Profit</div><strong>₹{{ "%.0f"|format(data.profit) }}</strong></div></div><div class="d-flex justify-content-between mt-3 pt-3 border-top small"><span>{{ data.customers }} customers</span><span>Avg bill ₹{{ "%.0f"|format(data.average_bill) }}</span></div></div></div></div>
+{% endfor %}
+</div>
+<div class="row g-4">
+<div class="col-xl-7"><div class="card"><div class="card-header"><strong>Outstanding balance</strong><div class="text-muted small">Tap a row to collect payment</div></div><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Customer</th><th>Invoice</th><th>Balance</th><th></th></tr></thead><tbody>{% for row in outstanding %}<tr><td><strong>{{ row.invoice.customer.name if row.invoice.customer else 'Customer' }}</strong><div class="text-muted small">{{ row.invoice.created_at.strftime('%d %b') }}</div></td><td>#{{ row.invoice.id }}</td><td class="text-danger fw-bold">₹{{ "%.2f"|format(row.balance) }}</td><td><a class="btn btn-sm btn-primary" href="{{ url_for('view_invoice',id=row.invoice.id) }}">Collect</a></td></tr>{% else %}<tr><td colspan="4" class="text-center py-5 text-muted">Nothing outstanding 🎉</td></tr>{% endfor %}</tbody></table></div></div></div>
+<div class="col-xl-5"><div class="card"><div class="card-header"><strong>Month vs previous month</strong></div><div class="card-body"><div class="fs-2 fw-bold">{% if growth is not none %}{{ growth }}%{% else %}—{% endif %}</div><div class="text-muted small">Revenue change vs previous month</div><div class="row g-2 mt-3"><div class="col-6"><div class="text-muted small">Current</div><strong>₹{{ "%.0f"|format(month_data.revenue) }}</strong></div><div class="col-6"><div class="text-muted small">Previous</div><strong>₹{{ "%.0f"|format(previous_month.revenue) }}</strong></div></div></div></div></div>
+</div>
+{% endblock %}
