@@ -45,6 +45,7 @@
             <a class="{% if 'inventory' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('inventory') }}"><i class="bi bi-box-seam"></i><span>Inventory</span></a>
             <a class="{% if 'purchase' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('purchases') }}"><i class="bi bi-bag-plus"></i><span>Purchases</span></a>
             <a class="{% if 'supplier' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('suppliers') }}"><i class="bi bi-truck"></i><span>Suppliers</span></a>
+<a class="{% if request.endpoint == 'supplier_intelligence' %}active{% endif %}" href="{{ url_for('supplier_intelligence') }}"><i class="bi bi-graph-up"></i><span>Supplier insights</span></a>
             <a class="{% if 'expense' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('expenses') }}"><i class="bi bi-wallet2"></i><span>Expenses</span></a>
         </nav>
         <div class="sp-sidebar-label">GROW</div>
