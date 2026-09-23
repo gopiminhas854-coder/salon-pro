@@ -298,6 +298,8 @@ def invoice_refunded_amount(invoice):
 def invoice_net_paid_amount(invoice):
     return round(max(invoice_paid_amount(invoice) - invoice_refunded_amount(invoice), 0), 2)
 def invoice_balance(invoice):
+    if invoice.payment_status == 'Refunded':
+        return 0.0
     return round(max(invoice.total - invoice_net_paid_amount(invoice), 0), 2)
 
 def csrf_token():
@@ -476,6 +478,8 @@ def award_loyalty_for_invoice(invoice):
                                        amount=max(invoice.total, 0)))
 
 def booking_allowed(appointment_date, appointment_time, duration_minutes):
+    if appointment_date < date.today():
+        return False, 'Appointments cannot be booked for a past date.'
     closure = SalonClosure.query.filter_by(closure_date=appointment_date).first()
     if closure:
         return False, closure.reason or 'The salon is closed on this date.'
@@ -765,9 +769,16 @@ def edit_customer(id):
 @login_required
 def delete_customer(id):
     customer = Customer.query.get_or_404(id)
-    db.session.delete(customer)
-    db.session.commit()
-    flash('Customer deleted.', 'info')
+    if Appointment.query.filter_by(customer_id=id).first() or Invoice.query.filter_by(customer_id=id).first():
+        flash('This customer has appointment or invoice history and cannot be deleted. Edit the customer instead.', 'warning')
+        return redirect(url_for('customers'))
+    try:
+        db.session.delete(customer)
+        db.session.commit()
+        flash('Customer deleted.', 'info')
+    except Exception:
+        db.session.rollback()
+        flash('Customer could not be deleted. No changes were made.', 'danger')
     return redirect(url_for('customers'))
 
 # ==================== ADVANCED CRM & BUSINESS INTELLIGENCE ====================
@@ -1190,18 +1201,28 @@ def services():
 @login_required
 def add_service():
     if request.method == 'POST':
-        service = Service(
-            name=request.form['name'],
-            description=request.form.get('description'),
-            duration_minutes=int(request.form.get('duration_minutes', 30)),
-            price=float(request.form['price']),
-            category=request.form.get('category'),
-            is_active=True
-        )
-        db.session.add(service)
-        db.session.commit()
-        flash('Service added successfully!', 'success')
-        return redirect(url_for('services'))
+        try:
+            name = request.form.get('name', '').strip()
+            duration = int(request.form.get('duration_minutes', 30))
+            price = float(request.form.get('price', 0))
+            if not name or duration <= 0 or price < 0:
+                raise ValueError
+            service = Service(
+                name=name,
+                description=request.form.get('description'),
+                duration_minutes=duration,
+                price=price,
+                category=request.form.get('category'),
+                is_active=True,
+            )
+            db.session.add(service)
+            db.session.commit()
+            flash('Service added successfully!', 'success')
+            return redirect(url_for('services'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Enter a valid service name, duration and non-negative price.', 'danger')
+            return redirect(url_for('add_service'))
     return render_template('service_form.html', service=None)
 
 @app.route('/services/edit/<int:id>', methods=['GET', 'POST'])
@@ -1209,23 +1230,40 @@ def add_service():
 def edit_service(id):
     service = Service.query.get_or_404(id)
     if request.method == 'POST':
-        service.name = request.form['name']
-        service.description = request.form.get('description')
-        service.duration_minutes = int(request.form.get('duration_minutes', 30))
-        service.price = float(request.form['price'])
-        service.category = request.form.get('category')
-        service.is_active = 'is_active' in request.form
-        db.session.commit()
-        flash('Service updated!', 'success')
-        return redirect(url_for('services'))
+        try:
+            name = request.form.get('name', '').strip()
+            duration = int(request.form.get('duration_minutes', 30))
+            price = float(request.form.get('price', 0))
+            if not name or duration <= 0 or price < 0:
+                raise ValueError
+            service.name = name
+            service.description = request.form.get('description')
+            service.duration_minutes = duration
+            service.price = price
+            service.category = request.form.get('category')
+            service.is_active = 'is_active' in request.form
+            db.session.commit()
+            flash('Service updated!', 'success')
+            return redirect(url_for('services'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Enter a valid service name, duration and non-negative price.', 'danger')
+            return redirect(url_for('edit_service', id=id))
     return render_template('service_form.html', service=service)
 @app.route('/services/delete/<int:id>', methods=['POST'])
 @login_required
 def delete_service(id):
     service = Service.query.get_or_404(id)
-    db.session.delete(service)
-    db.session.commit()
-    flash('Service deleted.', 'info')
+    if Appointment.query.filter_by(service_id=id).first():
+        flash('This service is used by appointment history and cannot be deleted. Mark it inactive instead.', 'warning')
+        return redirect(url_for('services'))
+    try:
+        db.session.delete(service)
+        db.session.commit()
+        flash('Service deleted.', 'info')
+    except Exception:
+        db.session.rollback()
+        flash('Service could not be deleted. No changes were made.', 'danger')
     return redirect(url_for('services'))
 
 # ==================== STAFF ====================
@@ -1272,9 +1310,22 @@ def edit_staff(id):
 @login_required
 def delete_staff(id):
     member = Staff.query.get_or_404(id)
-    db.session.delete(member)
-    db.session.commit()
-    flash('Staff member deleted.', 'info')
+    has_history = (
+        Appointment.query.filter_by(staff_id=id).first()
+        or StaffAttendance.query.filter_by(staff_id=id).first()
+        or StaffCommission.query.filter_by(staff_id=id).first()
+        or UserStaffLink.query.filter_by(staff_id=id).first()
+    )
+    if has_history:
+        flash('This staff member has history or a linked account and cannot be deleted. Deactivate the staff member instead.', 'warning')
+        return redirect(url_for('staff'))
+    try:
+        db.session.delete(member)
+        db.session.commit()
+        flash('Staff member deleted.', 'info')
+    except Exception:
+        db.session.rollback()
+        flash('Staff member could not be deleted. No changes were made.', 'danger')
     return redirect(url_for('staff'))
 
 # ==================== STAFF ACCOUNTS ====================
@@ -1332,34 +1383,148 @@ def appointments():
 @login_required
 def add_appointment():
     if request.method == 'POST':
-        appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
-        appointment_time = request.form['appointment_time']
-        staff_id = int(request.form['staff_id'])
-        service_id = int(request.form['service_id'])
-        service = Service.query.get_or_404(service_id)
-        start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
-        end = start + timedelta(minutes=service.duration_minutes or 30)
-        conflicts = Appointment.query.filter_by(staff_id=staff_id, appointment_date=appointment_date, status='Scheduled').all()
-        for existing in conflicts:
-            existing_service = existing.service
-            existing_start = datetime.combine(appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time())
-            existing_end = existing_start + timedelta(minutes=existing_service.duration_minutes or 30)
-            if start < existing_end and existing_start < end:
-                flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
+        try:
+            appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
+            appointment_time = request.form['appointment_time']
+            datetime.strptime(appointment_time, '%H:%M')
+            staff_id = int(request.form['staff_id'])
+            service_id = int(request.form['service_id'])
+            customer_id = int(request.form['customer_id'])
+            service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+            Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            Customer.query.get_or_404(customer_id)
+            allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
+            if not allowed:
+                flash(reason, 'danger')
                 return redirect(url_for('add_appointment'))
-        appt = Appointment(
-            customer_id=int(request.form['customer_id']), staff_id=staff_id, service_id=service_id,
-            appointment_date=appointment_date, appointment_time=appointment_time,
-            notes=request.form.get('notes'), status='Scheduled')
-        db.session.add(appt)
-        db.session.commit()
-        flash('Appointment booked successfully!', 'success')
-        return redirect(url_for('appointments'))
-    
+
+            start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
+            end = start + timedelta(minutes=service.duration_minutes or 30)
+            conflicts = Appointment.query.filter_by(
+                staff_id=staff_id, appointment_date=appointment_date, status='Scheduled'
+            ).all()
+            for existing in conflicts:
+                existing_service = existing.service
+                existing_start = datetime.combine(
+                    appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time()
+                )
+                existing_end = existing_start + timedelta(minutes=existing_service.duration_minutes or 30)
+                if start < existing_end and existing_start < end:
+                    flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
+                    return redirect(url_for('add_appointment'))
+
+            db.session.add(Appointment(
+                customer_id=customer_id,
+                staff_id=staff_id,
+                service_id=service_id,
+                appointment_date=appointment_date,
+                appointment_time=appointment_time,
+                notes=request.form.get('notes'),
+                status='Scheduled',
+            ))
+            db.session.commit()
+            flash('Appointment booked successfully!', 'success')
+            return redirect(url_for('appointments'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Please enter valid appointment details.', 'danger')
+            return redirect(url_for('add_appointment'))
+
     customers = Customer.query.order_by(Customer.name).all()
     staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
     services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
     return render_template('appointment_form.html', appointment=None,
+                           customers=customers, staff_list=staff_list, services=services)
+
+
+@app.route('/appointments/edit/<int:id>', methods=['GET', 'POST'])
+@login_required
+def edit_appointment(id):
+    appt = Appointment.query.get_or_404(id)
+    if request.method == 'POST':
+        try:
+            appointment_date = datetime.strptime(request.form['appointment_date'], '%Y-%m-%d').date()
+            appointment_time = request.form['appointment_time']
+            datetime.strptime(appointment_time, '%H:%M')
+            staff_id = int(request.form['staff_id'])
+            service_id = int(request.form['service_id'])
+            customer_id = int(request.form['customer_id'])
+            service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+            Staff.query.filter_by(id=staff_id, is_active=True).first_or_404()
+            Customer.query.get_or_404(customer_id)
+            allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
+            if not allowed:
+                flash(reason, 'danger')
+                return redirect(url_for('edit_appointment', id=id))
+
+            start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
+            end = start + timedelta(minutes=service.duration_minutes or 30)
+            conflicts = Appointment.query.filter(
+                Appointment.id != appt.id,
+                Appointment.staff_id == staff_id,
+                Appointment.appointment_date == appointment_date,
+                Appointment.status == 'Scheduled'
+            ).all()
+            for existing in conflicts:
+                existing_start = datetime.combine(
+                    appointment_date, datetime.strptime(existing.appointment_time, '%H:%M').time()
+                )
+                existing_end = existing_start + timedelta(minutes=existing.service.duration_minutes or 30)
+                if start < existing_end and existing_start < end:
+                    flash(f'Staff member is already booked from {existing.appointment_time}. Please choose another time.', 'danger')
+                    return redirect(url_for('edit_appointment', id=id))
+
+            status = request.form.get('status', 'Scheduled')
+            if status not in {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}:
+                flash('Invalid appointment status.', 'danger')
+                return redirect(url_for('edit_appointment', id=id))
+
+            appt.customer_id = customer_id
+            appt.staff_id = staff_id
+            appt.service_id = service_id
+            appt.appointment_date = appointment_date
+            appt.appointment_time = appointment_time
+            appt.status = status
+            appt.notes = request.form.get('notes')
+
+            if status == 'Completed':
+                existing_invoice = Invoice.query.filter_by(appointment_id=appt.id).first()
+                if not existing_invoice:
+                    completed_service = Service.query.get(appt.service_id)
+                    tax_rate = get_tax_rate()
+                    invoice_amount = round(completed_service.price, 2)
+                    invoice_tax = round(invoice_amount * tax_rate / 100, 2)
+                    invoice = Invoice(
+                        appointment_id=appt.id,
+                        customer_id=appt.customer_id,
+                        amount=invoice_amount,
+                        discount=0,
+                        tax=invoice_tax,
+                        total=round(invoice_amount + invoice_tax, 2),
+                        payment_status='Pending',
+                    )
+                    db.session.add(invoice)
+                    db.session.flush()
+                    db.session.add(InvoiceItem(
+                        invoice_id=invoice.id,
+                        description=completed_service.name,
+                        quantity=1,
+                        unit_price=completed_service.price,
+                        total=completed_service.price,
+                    ))
+
+            db.session.commit()
+            flash('Appointment updated!' + (' Invoice created.' if status == 'Completed' and not existing_invoice else ''), 'success')
+            return redirect(url_for('appointments'))
+        except (KeyError, TypeError, ValueError):
+            db.session.rollback()
+            flash('Please enter valid appointment details.', 'danger')
+            return redirect(url_for('edit_appointment', id=id))
+
+    customers = Customer.query.order_by(Customer.name).all()
+    staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
+    services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
+    return render_template('appointment_form.html', appointment=appt,
                            customers=customers, staff_list=staff_list, services=services)
 
 @app.route('/appointments/edit/<int:id>', methods=['GET', 'POST'])
@@ -1386,7 +1551,11 @@ def edit_appointment(id):
         appt.service_id = int(request.form['service_id'])
         appt.appointment_date = appointment_date
         appt.appointment_time = appointment_time
-        appt.status = request.form['status']
+        status = request.form.get('status', 'Scheduled')
+        if status not in {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}:
+            flash('Invalid appointment status.', 'danger')
+            return redirect(url_for('edit_appointment', id=id))
+        appt.status = status
         appt.notes = request.form.get('notes')
         db.session.commit()
         flash('Appointment updated!', 'success')
@@ -1401,6 +1570,10 @@ def edit_appointment(id):
 @app.route('/appointments/status/<int:id>/<status>', methods=['POST'])
 @login_required
 def update_appointment_status(id, status):
+    allowed_statuses = {'Scheduled', 'Completed', 'Cancelled', 'No-Show'}
+    if status not in allowed_statuses:
+        flash('Invalid appointment status.', 'danger')
+        return redirect(url_for('appointments'))
     appt = Appointment.query.get_or_404(id)
     appt.status = status
     # Keep status change and automatic invoice creation in one database transaction.
@@ -1872,20 +2045,16 @@ def reports():
         end = today
         start_text, end_text = start.isoformat(), end.isoformat()
 
-    paid = Invoice.query.filter(
-        Invoice.payment_status == 'Paid',
+    invoices = Invoice.query.filter(
         func.date(Invoice.created_at) >= start,
         func.date(Invoice.created_at) <= end
     ).all()
-    pending = Invoice.query.filter(
-        Invoice.payment_status == 'Pending',
-        func.date(Invoice.created_at) >= start,
-        func.date(Invoice.created_at) <= end
-    ).all()
+    paid = [invoice for invoice in invoices if invoice_net_paid_amount(invoice) > 0]
+    pending = [invoice for invoice in invoices if invoice_balance(invoice) > 0]
     expenses_list = Expense.query.filter(Expense.expense_date >= start, Expense.expense_date <= end).all()
     appts = Appointment.query.filter(Appointment.appointment_date >= start, Appointment.appointment_date <= end).all()
 
-    revenue = round(sum(i.total for i in paid), 2)
+    revenue = round(sum(invoice_net_paid_amount(i) for i in paid), 2)
     expenses_total = round(sum(e.amount for e in expenses_list), 2)
     profit = round(revenue - expenses_total, 2)
     completed = sum(1 for a in appts if a.status == 'Completed')
@@ -1903,7 +2072,7 @@ def reports():
     for member in Staff.query.order_by(Staff.name).all():
         member_appts = [a for a in appts if a.staff_id == member.id]
         member_paid = sum(
-            inv.total for inv in paid
+            invoice_net_paid_amount(inv) for inv in paid
             if inv.appointment and inv.appointment.staff_id == member.id
         )
         settings = StaffCommission.query.filter_by(staff_id=member.id).first()
@@ -1926,7 +2095,7 @@ def reports():
     for inv in paid:
         day_key = inv.created_at.date().isoformat()
         if day_key in daily:
-            daily[day_key] += inv.total
+            daily[day_key] += invoice_net_paid_amount(inv)
     daily_rows = [{'date': k, 'revenue': round(v, 2)} for k, v in daily.items()]
 
     return render_template('reports.html', start=start_text, end=end_text, revenue=revenue,
@@ -1949,18 +2118,20 @@ def export_report_csv():
     except ValueError:
         start, end = today.replace(day=1), today
 
-    paid = Invoice.query.filter(Invoice.payment_status == 'Paid',
-                                 func.date(Invoice.created_at) >= start,
-                                 func.date(Invoice.created_at) <= end).all()
+    invoices = Invoice.query.filter(
+        func.date(Invoice.created_at) >= start,
+        func.date(Invoice.created_at) <= end
+    ).all()
+    paid = [invoice for invoice in invoices if invoice_net_paid_amount(invoice) > 0]
     expenses_list = Expense.query.filter(Expense.expense_date >= start, Expense.expense_date <= end).all()
     output = StringIO()
     writer = csv.writer(output)
     writer.writerow(['Salon Pro Report', start.isoformat(), end.isoformat()])
     writer.writerow([])
-    writer.writerow(['Paid Invoice ID', 'Date', 'Customer', 'Total', 'Payment Method'])
+    writer.writerow(['Collected Invoice ID', 'Date', 'Customer', 'Collected Amount', 'Payment Method'])
     for inv in paid:
         writer.writerow([inv.id, inv.created_at.strftime('%Y-%m-%d'), inv.customer.name if inv.customer else '',
-                         f'{inv.total:.2f}', inv.payment_method or ''])
+                         f'{invoice_net_paid_amount(inv):.2f}', inv.payment_method or ''])
     writer.writerow([])
     writer.writerow(['Expense ID', 'Date', 'Title', 'Category', 'Amount'])
     for exp in expenses_list:
@@ -1978,7 +2149,7 @@ def loyalty():
     rows = []
     for customer in customers_list:
         loyalty = CustomerLoyalty.query.filter_by(customer_id=customer.id).first()
-        paid = sum(i.total for i in Invoice.query.filter_by(customer_id=customer.id, payment_status='Paid').all())
+        paid = sum(invoice_net_paid_amount(i) for i in Invoice.query.filter_by(customer_id=customer.id).all())
         spend = loyalty.lifetime_spend if loyalty else paid
         points = loyalty.points if loyalty else int(paid * (SalonSetting.query.first().loyalty_rate if SalonSetting.query.first() else 1) / 100)
         rows.append({'customer': customer, 'points': points, 'spend': round(spend,2)})
