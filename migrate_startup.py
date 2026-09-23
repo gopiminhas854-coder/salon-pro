@@ -31,6 +31,18 @@ with app.app_context():
                 "Existing database is not compatible with the Salon Pro migration "
                 f"baseline; missing tables: {', '.join(sorted(missing))}"
             )
+        # A table-name-only check can accept a corrupted/obsolete schema.
+        # Compare actual columns against the SQLAlchemy model metadata before
+        # stamping an existing database at the migration baseline.
+        model_tables = {table.name: {column.name for column in table.columns} for table in db.metadata.sorted_tables}
+        for table_name, expected_columns in model_tables.items():
+            actual_columns = {column['name'] for column in inspector.get_columns(table_name)}
+            missing_columns = expected_columns - actual_columns
+            if missing_columns:
+                raise RuntimeError(
+                    f"Existing database schema mismatch in {table_name}; "
+                    f"missing columns: {', '.join(sorted(missing_columns))}"
+                )
         stamp(BASELINE)
 
     # Apply the schema first. This is the only migration/bootstrap path used by
