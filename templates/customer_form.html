@@ -32,6 +32,16 @@
                                 <option value="Other" {% if customer and customer.gender == 'Other' %}selected{% endif %}>Other</option>
                             </select>
                         </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Birthday</label>
+                            <input type="date" name="date_of_birth" class="form-control" value="{{ customer.date_of_birth.isoformat() if customer and customer.date_of_birth else '' }}">
+                            <div class="form-text">Used for client birthday reminders.</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Anniversary</label>
+                            <input type="date" name="anniversary_date" class="form-control" value="{{ customer.anniversary_date.isoformat() if customer and customer.anniversary_date else '' }}">
+                            <div class="form-text">Optional wedding/relationship anniversary.</div>
+                        </div>
                         <div class="col-12">
                             <label class="form-label">Address</label>
                             <textarea name="address" class="form-control" rows="2">{{ customer.address if customer else '' }}</textarea>
