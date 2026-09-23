@@ -104,7 +104,7 @@ class Appointment(db.Model):
     service_id = db.Column(db.Integer, db.ForeignKey('service.id'), nullable=False)
     appointment_date = db.Column(db.Date, nullable=False)
     appointment_time = db.Column(db.String(10), nullable=False)  # HH:MM
-    status = db.Column(db.String(20), default='Booked')  # Booked, Confirmed, Arrived, In service, Completed, Cancelled, No-Show
+    status = db.Column(db.String(20), default='Scheduled')  # Legacy Scheduled maps to UI Booked; then Confirmed/Arrived/In service/Completed/Cancelled/No-Show
     notes = db.Column(db.Text)
     recurrence_rule = db.Column(db.String(20), default='None')
     recurrence_end_date = db.Column(db.Date)
@@ -1919,7 +1919,7 @@ def add_appointment():
             if not allowed: raise ValueError(reason)
             conflict=appointment_conflict(staff_id,appointment_date,appointment_time,service.duration_minutes or 30)
             if conflict: raise ValueError(conflict)
-            status=normalize_appointment_status(request.form.get('status','Booked')); recurrence=request.form.get('recurrence_rule','None')
+            status=normalize_appointment_status(request.form.get('status','Booked')); status='Scheduled' if status=='Booked' else status; status='Scheduled' if status=='Booked' else status; recurrence=request.form.get('recurrence_rule','None')
             end_text=request.form.get('recurrence_end_date','').strip(); recurrence_end=datetime.strptime(end_text,'%Y-%m-%d').date() if end_text else None
             if recurrence not in {'None','Weekly','Biweekly','Monthly'}: recurrence='None'
             if recurrence!='None' and not recurrence_end: raise ValueError('Choose an end date for recurring appointments.')
@@ -1973,6 +1973,7 @@ def edit_appointment(id):
 @login_required
 def update_appointment_status(id,status):
     status=normalize_appointment_status(status)
+    if status=='Booked': status='Scheduled'
     if status not in APPOINTMENT_STATUSES: return jsonify({'ok':False,'error':'Invalid appointment status.'}),400
     appt=Appointment.query.get_or_404(id); existing=Invoice.query.filter_by(appointment_id=appt.id).first()
     if status=='Completed' and appt.appointment_date>date.today(): return jsonify({'ok':False,'error':'Future appointment cannot be completed.'}),400
