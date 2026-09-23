@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Quick Sale{% endblock %}
+{% block page_kicker %}Fast checkout{% endblock %}
+{% block content %}
+<div class="mb-3"><div class="text-muted small">Walk-in / completed service</div><h2 class="mb-1">Quick Sale ⚡</h2><div class="text-muted small">Existing customer workflow: Customer → Service → Staff → Bill → Payment → Done.</div></div>
+<div class="row g-4">
+<div class="col-xl-8">
+<form method="post" class="card" id="quickSaleForm"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+<div class="card-body p-4">
+<div class="row g-3">
+<div class="col-12"><label class="form-label">1. Customer</label><select name="customer_id" id="customerSelect" class="form-select form-select-lg"><option value="">+ New customer / walk-in</option>{% for c in customers %}<option value="{{ c.id }}">{{ c.name }} — {{ c.phone }}</option>{% endfor %}</select></div>
+<div class="col-md-6"><input name="new_customer_name" id="newName" class="form-control" placeholder="New customer name"></div><div class="col-md-6"><input name="new_customer_phone" id="newPhone" class="form-control" placeholder="New customer phone"></div>
+<div class="col-12"><label class="form-label">2. Service</label><select name="service_id" id="service" class="form-select form-select-lg" required><option value="">Select service</option>{% for s in services %}<option value="{{ s.id }}" data-price="{{ s.price }}">{{ s.name }} — ₹{{ '%.0f'|format(s.price) }} · {{ s.duration_minutes }} min</option>{% endfor %}</select></div>
+<div class="col-md-6"><label class="form-label">3. Staff</label><select name="staff_id" class="form-select form-select-lg" required><option value="">Select staff</option>{% for s in staff_list %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}</select></div>
+<div class="col-md-6"><label class="form-label">4. Discount</label><input type="number" min="0" step="0.01" name="discount" value="0" class="form-control form-control-lg"></div>
+<div class="col-md-6"><label class="form-label">Tip</label><input type="number" min="0" step="0.01" name="tip" value="0" class="form-control form-control-lg"></div>
+<div class="col-md-6"><label class="form-label">Payment method</label><select name="payment_method" class="form-select form-select-lg"><option>Cash</option><option>UPI</option><option>Card</option><option>Bank Transfer</option></select></div>
+<div class="col-12"><label class="form-label">5. Amount collected now</label><input type="number" min="0" step="0.01" name="paid_amount" id="paidAmount" class="form-control form-control-lg" placeholder="Full amount by default"></div>
+<div class="col-12"><button class="btn btn-primary btn-lg w-100 py-3" type="submit"><i class="bi bi-check2-circle me-1"></i> Complete & Collect</button></div>
+</div>
+</div></form>
+</div>
+<div class="col-xl-4">
+<div class="card h-100"><div class="card-body p-4"><div class="text-muted small">FAST PATH</div><div class="fs-5 fw-bold mt-1">Under 30 seconds</div>
+<div class="d-grid gap-2 mt-4"><div class="p-3 rounded-3 bg-light"><strong>1</strong> Select customer</div><div class="p-3 rounded-3 bg-light"><strong>2</strong> Tap service</div><div class="p-3 rounded-3 bg-light"><strong>3</strong> Choose staff</div><div class="p-3 rounded-3 bg-light"><strong>4</strong> Collect payment</div><div class="p-3 rounded-3 bg-light"><strong>5</strong> Done</div></div>
+<div class="alert alert-success mt-4 mb-0 small">The system creates the completed visit, bill and payment together.</div></div></div>
+</div></div>
+{% endblock %}
+{% block scripts %}<script>
+const customer=document.getElementById('customerSelect'), name=document.getElementById('newName'), phone=document.getElementById('newPhone'), service=document.getElementById('service'), paid=document.getElementById('paidAmount');
+customer.addEventListener('change',()=>{const isNew=!customer.value; name.parentElement.style.display=isNew?'block':'none'; phone.parentElement.style.display=isNew?'block':'none'; if(!isNew){name.value='';phone.value='';}});
+customer.dispatchEvent(new Event('change'));
+function syncAmount(){const opt=service.options[service.selectedIndex];if(!opt)return;const price=parseFloat(opt.dataset.price||0), discount=parseFloat(document.querySelector('[name="discount"]').value||0), tip=parseFloat(document.querySelector('[name="tip"]').value||0); const tax=Math.max(price-discount,0)*0.05; paid.value=Math.max(price-discount,0)+tax+tip;}
+service.addEventListener('change',syncAmount); document.querySelector('[name="discount"]').addEventListener('input',syncAmount); document.querySelector('[name="tip"]').addEventListener('input',syncAmount);
+</script>{% endblock %}
