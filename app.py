@@ -2513,9 +2513,58 @@ def staff_performance(id):
         ((inv.commission_rate if inv.commission_rate is not None else rate) / 100)
         for inv in staff_invoices
     ), 2)
+    schedules = StaffSchedule.query.filter_by(staff_id=id).order_by(StaffSchedule.day_of_week).all()
+    breaks = StaffBreak.query.filter_by(staff_id=id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
     return render_template('staff_performance.html', member=member, appointments=appointments,
                            completed_count=len(completed), paid_revenue=paid_revenue,
-                           rate=rate, commission=commission, start=start_text, end=end_text)
+                           rate=rate, commission=commission, start=start_text, end=end_text, schedules=schedules, breaks=breaks)
+
+@app.route('/staff/<int:id>/availability', methods=['POST'])
+@admin_required
+def update_staff_availability(id):
+    member = Staff.query.get_or_404(id)
+    try:
+        day = int(request.form.get('day_of_week'))
+        start_time = request.form.get('start_time', '09:00')
+        end_time = request.form.get('end_time', '20:00')
+        is_working = request.form.get('is_working') == 'on'
+        datetime.strptime(start_time, '%H:%M')
+        datetime.strptime(end_time, '%H:%M')
+        if day not in range(7) or start_time >= end_time:
+            raise ValueError
+        row = StaffSchedule.query.filter_by(staff_id=member.id, day_of_week=day).first()
+        if not row:
+            row = StaffSchedule(staff_id=member.id, day_of_week=day)
+            db.session.add(row)
+        row.start_time = start_time
+        row.end_time = end_time
+        row.is_working = is_working
+        db.session.commit()
+        flash('Staff availability saved.', 'success')
+    except (ValueError, TypeError):
+        db.session.rollback()
+        flash('Enter valid availability times.', 'danger')
+    return redirect(url_for('staff_performance', id=id))
+
+@app.route('/staff/<int:id>/break', methods=['POST'])
+@admin_required
+def add_staff_break(id):
+    member = Staff.query.get_or_404(id)
+    try:
+        day = int(request.form.get('day_of_week'))
+        start_time = request.form.get('start_time')
+        end_time = request.form.get('end_time')
+        datetime.strptime(start_time, '%H:%M')
+        datetime.strptime(end_time, '%H:%M')
+        if day not in range(7) or start_time >= end_time:
+            raise ValueError
+        db.session.add(StaffBreak(staff_id=member.id, day_of_week=day, start_time=start_time, end_time=end_time, is_active=True))
+        db.session.commit()
+        flash('Staff break added.', 'success')
+    except (ValueError, TypeError):
+        db.session.rollback()
+        flash('Enter a valid staff break.', 'danger')
+    return redirect(url_for('staff_performance', id=id))
 
 @app.route('/staff/<int:id>/commission', methods=['POST'])
 @login_required
@@ -2782,23 +2831,37 @@ def add_package():
 def sell_package():
     try:
         customer = Customer.query.get_or_404(request.form.get('customer_id', type=int))
-        package = SalonPackage.query.filter_by(
-            id=request.form.get('package_id', type=int), is_active=True
-        ).first_or_404()
+        package = SalonPackage.query.filter_by(id=request.form.get('package_id', type=int), is_active=True).first_or_404()
+        payment_method = request.form.get('payment_method', 'Cash')
         purchased_at = datetime.utcnow()
         expires = purchased_at.date() + timedelta(days=package.validity_days or 30)
-        db.session.add(CustomerPackage(
-            customer_id=customer.id,
-            package_id=package.id,
-            purchased_at=purchased_at,
-            expires_at=expires,
-            uses_total=package.total_uses or 1,
-            uses_used=0,
-            prepaid_balance=package.price or 0,
-            status='Active'
+        row = CustomerPackage(
+            customer_id=customer.id, package_id=package.id, purchased_at=purchased_at,
+            expires_at=expires, uses_total=package.total_uses or 1, uses_used=0,
+            prepaid_balance=package.price or 0, status='Active'
+        )
+        db.session.add(row)
+        db.session.flush()
+        invoice = Invoice(
+            appointment_id=None, customer_id=customer.id, amount=package.price or 0,
+            discount=0, tax=0, tip=0, total=package.price or 0,
+            payment_status='Pending', payment_method=payment_method
+        )
+        db.session.add(invoice)
+        db.session.flush()
+        db.session.add(InvoiceItem(
+            invoice_id=invoice.id, description=f'{package.name} ({package.package_type})',
+            quantity=1, unit_price=package.price or 0, total=package.price or 0
         ))
+        db.session.add(InvoicePayment(
+            invoice_id=invoice.id, amount=package.price or 0,
+            payment_method=payment_method, notes='Package / membership purchase'
+        ))
+        invoice.payment_status = 'Paid'
         db.session.commit()
-        flash(f'{package.name} assigned to {customer.name}.', 'success')
+        award_loyalty_for_invoice(invoice)
+        db.session.commit()
+        flash(f'{package.name} sold to {customer.name}. Invoice #{invoice.id} is paid.', 'success')
     except Exception:
         db.session.rollback()
         flash('Package could not be assigned.', 'danger')
