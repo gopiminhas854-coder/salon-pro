@@ -3,6 +3,7 @@ package com.salonpro.app
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.graphics.Color
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
@@ -11,9 +12,12 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/login"
-private const val APP_VERSION = "1.0.4"
+private const val APP_VERSION = "1.0.5"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
@@ -22,7 +26,24 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Android 15+ can enforce edge-to-edge for apps targeting SDK 35.
+        // Keep the WebView content clear of the status/navigation bars so the
+        // Salon Pro top bar is never clipped in the native APK.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = true
+            isAppearanceLightNavigationBars = true
+        }
+
         webView = WebView(this).apply {
+            setBackgroundColor(Color.WHITE)
+            ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                insets
+            }
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
