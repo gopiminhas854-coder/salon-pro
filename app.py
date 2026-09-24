@@ -3706,12 +3706,9 @@ def init_db():
         if not User.query.filter_by(username='admin').first():
             admin_password = os.environ.get('SALON_PRO_ADMIN_PASSWORD')
             if not admin_password:
-                if os.environ.get('FLASK_ENV') == 'production':
-                    raise RuntimeError(
-                        'SALON_PRO_ADMIN_PASSWORD must be set before initializing a production database.'
-                    )
-                admin_password = secrets.token_urlsafe(18)
-                print('Development admin password generated for this database initialization.')
+                raise RuntimeError(
+                    'SALON_PRO_ADMIN_PASSWORD must be set before initializing a database.'
+                )
             if len(admin_password) < 12:
                 raise RuntimeError('SALON_PRO_ADMIN_PASSWORD must be at least 12 characters.')
             admin = User(
