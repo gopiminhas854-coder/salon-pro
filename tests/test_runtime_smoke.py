@@ -55,6 +55,40 @@ def test_dashboard_requires_login_then_renders_after_login():
         assert b"Today at a glance" in response.data
 
 
+def test_dashboard_does_not_recompute_crm_metrics_for_every_customer(monkeypatch):
+    setup_database()
+    with salon.app.app_context():
+        service = salon.Service.query.first()
+        staff = salon.Staff.query.first()
+        today = salon.date.today()
+        for idx in range(30):
+            customer = salon.Customer(name=f"Customer {idx}", phone=f"900000{idx:04d}")
+            salon.db.session.add(customer)
+            salon.db.session.flush()
+            salon.db.session.add(salon.Appointment(
+                customer_id=customer.id,
+                staff_id=staff.id,
+                service_id=service.id,
+                appointment_date=today - salon.timedelta(days=60),
+                appointment_time="10:00",
+                status="Completed",
+            ))
+        salon.db.session.commit()
+
+    def fail_if_called(_customer_id):
+        raise AssertionError("_customer_metrics must not run once per customer on the dashboard")
+
+    monkeypatch.setattr(salon, "_customer_metrics", fail_if_called)
+    with salon.app.test_client() as client:
+        response = client.post(
+            "/login",
+            data={"username": "admin", "password": "test-admin-password"},
+            follow_redirects=True,
+        )
+        assert response.status_code == 200
+        assert b"Today at a glance" in response.data
+
+
 def test_health_reports_database_and_unknown_routes_are_not_blank():
     setup_database()
     with salon.app.test_client() as client:
