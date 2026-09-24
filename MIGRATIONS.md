@@ -37,3 +37,21 @@ Never use `db.drop_all()` against a production database.
 ### Baseline rollout
 
 The initial revision is `0001_initial_schema`. Render runs `migrate_startup.py` before Gunicorn. It safely stamps an existing pre-Alembic database after verifying the complete baseline table set, then runs `upgrade()` for any later migrations. A partial or unexpected schema fails closed instead of attempting destructive changes.
+
+
+## Migration numbering note
+
+The repository currently contains two historical branches after the initial
+revision:
+
+- `0002_phone_login` and `0002_user_staff_link` both descend from
+  `0001_initial_schema`.
+- `0003_customer_dates` follows the phone-login branch, while
+  `0003_billing_integrity` follows the user/staff branch.
+- `0005_salon_operations_upgrade` is the intentional merge revision that
+  joins those branches.
+
+These revision IDs should not be renumbered or rewritten after deployment,
+because existing databases may already reference them. The duplicate numeric
+prefixes are therefore historical, not a migration-ordering failure. New
+migrations should continue from the current head (`0009_loyalty_rewards`).
