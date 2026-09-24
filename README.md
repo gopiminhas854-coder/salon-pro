@@ -62,11 +62,9 @@ The database defaults to SQLite. A `DATABASE_URL` environment variable can be us
 The first database initialization creates the `admin` user from
 `SALON_PRO_ADMIN_PASSWORD`.
 
-Production refuses to initialize without that environment variable, and the
-password is never stored in the repository. In non-production development,
-a random password is generated when the variable is omitted; use the console
-output from that initialization to sign in, then change it from **Settings →
-Change Password**.
+Every fresh database initialization requires that environment variable.
+The password is never stored in the repository. After the first login, change
+it from **Settings → Change Password** if you want a different credential.
 
 ## Important deployment note
 
