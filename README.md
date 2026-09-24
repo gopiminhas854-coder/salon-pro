@@ -46,7 +46,8 @@ Open http://127.0.0.1:5000
 
 ## Production
 
-Set a strong `SALON_PRO_SECRET_KEY`. If using HTTPS, set `SESSION_COOKIE_SECURE=1`.
+Set a strong `SALON_PRO_SECRET_KEY` and `SALON_PRO_ADMIN_PASSWORD` in the deployment environment.
+Production automatically enables secure session cookies.
 
 Gunicorn:
 
@@ -56,14 +57,16 @@ gunicorn wsgi:app
 
 The database defaults to SQLite. A `DATABASE_URL` environment variable can be used for a different SQLAlchemy-compatible database.
 
-## Default account
+## Initial admin account
 
-The first database initialization creates:
+The first database initialization creates the `admin` user from
+`SALON_PRO_ADMIN_PASSWORD`.
 
-- Username: `admin`
-- Password: `admin123`
-
-**Change this password immediately before real business use.**
+Production refuses to initialize without that environment variable, and the
+password is never stored in the repository. In non-production development,
+a random password is generated when the variable is omitted; use the console
+output from that initialization to sign in, then change it from **Settings →
+Change Password**.
 
 ## Important deployment note
 
