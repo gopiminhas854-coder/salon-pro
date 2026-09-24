@@ -85,8 +85,7 @@
             <div class="sp-top-title">{% block page_kicker %}Salon workspace{% endblock %}</div>
             <div class="sp-top-actions">
                 <a href="{{ url_for('public_booking') }}" class="sp-top-btn d-none d-sm-flex"><i class="bi bi-calendar2-plus"></i><span>Book appointment</span></a>
-                <a href="{{ url_for('reminders') }}" class="sp-top-icon" aria-label="Retention reminders"><i class="bi bi-bell"></i></a>
-                <button type="button" class="sp-top-icon" id="spThemeToggle" aria-label="Toggle theme"><i class="bi bi-moon-stars"></i></button>
+                <a href="{{ url_for('reminders') }}" class="sp-top-icon"><i class="bi bi-bell"></i></a>
                 <div class="sp-top-date d-none d-md-block">{{ today.strftime('%d %b %Y') if today is defined else '' }}</div>
             </div>
         </header>
