@@ -1294,16 +1294,52 @@ def dashboard():
             birthday_today.append(customer)
         if customer.anniversary_date and (customer.anniversary_date.month,customer.anniversary_date.day)==(today.month,today.day):
             anniversary_today.append(customer)
+    # Build retention reminders in one appointment query instead of calling
+    # _customer_metrics() once per customer. The old dashboard path performed
+    # several queries per customer (appointments, invoices, payments/refunds,
+    # loyalty), which could make the post-login dashboard slow enough to trigger
+    # a Render gateway timeout on a larger salon database.
     retention_due, retention_at_risk = [], []
-    for customer in Customer.query.all():
-        metrics = _customer_metrics(customer.id)
-        if metrics['visits'] and metrics['days_since_visit'] is not None:
-            service = metrics['last_visit'].service if metrics['last_visit'] else None
-            low, high = service_retention_window(service, metrics['avg_visit_interval_days'])
-            if metrics['days_since_visit'] >= high:
-                retention_at_risk.append((customer,metrics))
-            elif metrics['days_since_visit'] >= low:
-                retention_due.append((customer,metrics))
+    retention_candidates = Customer.query.all()
+    completed_visits = Appointment.query.filter_by(status='Completed').order_by(
+        Appointment.customer_id.asc(),
+        Appointment.appointment_date.asc(),
+        Appointment.appointment_time.asc(),
+    ).all()
+    visit_history = {}
+    for appt in completed_visits:
+        visit_history.setdefault(appt.customer_id, []).append(appt)
+
+    service_ids = {appt.service_id for appt in completed_visits if appt.service_id}
+    service_rows = Service.query.filter(Service.id.in_(service_ids)).all() if service_ids else []
+    service_map = {service.id: service for service in service_rows}
+
+    for customer in retention_candidates:
+        history = visit_history.get(customer.id, [])
+        if not history:
+            continue
+        last_visit = history[-1]
+        days_since_visit = (today - last_visit.appointment_date).days
+        if len(history) >= 2:
+            intervals = [
+                (history[i].appointment_date - history[i - 1].appointment_date).days
+                for i in range(1, len(history))
+            ]
+            avg_visit_interval = round(sum(intervals) / len(intervals), 1)
+        else:
+            avg_visit_interval = None
+        service = service_map.get(last_visit.service_id)
+        low, high = service_retention_window(service, avg_visit_interval)
+        metrics = {
+            'visits': len(history),
+            'last_visit': last_visit,
+            'days_since_visit': days_since_visit,
+            'avg_visit_interval_days': avg_visit_interval,
+        }
+        if days_since_visit >= high:
+            retention_at_risk.append((customer, metrics))
+        elif days_since_visit >= low:
+            retention_due.append((customer, metrics))
     confirmed_today = Appointment.query.filter_by(appointment_date=today,status='Confirmed').count()
     ai_priority = []
     if retention_at_risk: ai_priority.append({'tone':'danger','icon':'🔴','text':f'{len(retention_at_risk)} customers are overdue for a return'})
