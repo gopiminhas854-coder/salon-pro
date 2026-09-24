@@ -63,6 +63,11 @@ with app.app_context():
     # Render before Gunicorn starts, so there is no concurrent init_db() race.
     upgrade()
 
+    # Authentication depends on this table on every request after login.
+    # Repair it defensively when an older/partially upgraded database has the
+    # Alembic revision recorded but the table itself is missing.
+    UserStaffLink.__table__.create(bind=db.engine, checkfirst=True)
+
     # Seed/repair application data only after the schema is fully migrated.
     # This also creates the default admin on a fresh database and backfills
     # invoice line items from older installations.
