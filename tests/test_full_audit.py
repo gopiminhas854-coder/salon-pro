@@ -15,7 +15,7 @@ def setup_database():
         salon.db.drop_all()
         salon.db.create_all()
         salon.db.session.add_all([
-            salon.User(username="admin", password_hash=salon.generate_password_hash("admin123"), role="admin"),
+            salon.User(username="admin", password_hash=salon.generate_password_hash("test-admin-password"), role="admin"),
             salon.Customer(name="Audit Customer", phone="9999999999"),
             salon.Service(name="Audit Haircut", duration_minutes=30, price=100, category="Hair", is_active=True),
             salon.Staff(name="Audit Stylist", is_active=True),
@@ -27,7 +27,7 @@ def setup_database():
 def login(client):
     response = client.post(
         "/login",
-        data={"username": "admin", "password": "admin123"},
+        data={"username": "admin", "password": "test-admin-password"},
         follow_redirects=True,
     )
     assert response.status_code == 200
