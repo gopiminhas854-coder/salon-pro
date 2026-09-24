@@ -18,7 +18,7 @@ def client():
         salon.db.session.remove()
         salon.db.drop_all()
         salon.db.create_all()
-        user = salon.User(username="admin", password_hash=salon.generate_password_hash("admin123"), role="admin")
+        user = salon.User(username="admin", password_hash=salon.generate_password_hash("test-admin-password"), role="admin")
         customer = salon.Customer(name="Test Customer", phone="9999999999")
         service = salon.Service(name="Test Haircut", duration_minutes=30, price=100, category="Hair", is_active=True)
         staff = salon.Staff(name="Test Stylist", is_active=True)
@@ -31,7 +31,7 @@ def client():
         salon.db.session.remove()
 
 def login(c):
-    return c.post("/login", data={"username": "admin", "password": "admin123"}, follow_redirects=True)
+    return c.post("/login", data={"username": "admin", "password": "test-admin-password"}, follow_redirects=True)
 
 def test_phone_number_normalization():
     assert salon.normalize_phone_number("98765 43210") == "+919876543210"
