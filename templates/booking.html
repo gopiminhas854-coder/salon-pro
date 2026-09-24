@@ -1,2 +1,56 @@
-{% extends "base.html" %}{% block title %}Book Appointment{% endblock %}{% block page_kicker %}Online booking{% endblock %}{% block content %}
-<div class="row justify-content-center"><div class="col-lg-7 col-xl-6"><div class="card"><div class="card-body p-4 p-md-5"><div class="text-center mb-4"><div class="sp-avatar mx-auto mb-3" style="width:52px;height:52px"><i class="bi bi-calendar2-heart"></i></div><div class="text-muted small">Salon Pro</div><h2 class="mb-1">Book your visit</h2><p class="text-muted mb-0">Choose a service, stylist and time that works for you.</p></div><form method="POST"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><div class="mb-3"><label class="form-label">Your name</label><input name="name" class="form-control form-control-lg" required></div><div class="mb-3"><label class="form-label">Phone</label><input name="phone" type="tel" class="form-control form-control-lg" required></div><div class="mb-3"><label class="form-label">Service</label><select name="service_id" class="form-select form-select-lg" required><option value="">Choose service</option>{% for s in services %}<option value="{{ s.id }}">{{ s.name }} — ₹{{ '%.2f'|format(s.price) }} · {{ s.duration_minutes }} min</option>{% endfor %}</select></div><div class="mb-3"><label class="form-label">Stylist / Staff</label><select name="staff_id" class="form-select form-select-lg" required><option value="">Choose staff</option>{% for s in staff_list %}<option value="{{ s.id }}">{{ s.name }}{% if s.specialty %} — {{ s.specialty }}{% endif %}</option>{% endfor %}</select></div><div class="row g-3"><div class="col-sm-6"><label class="form-label">Date</label><input name="appointment_date" type="date" class="form-control form-control-lg" min="{{ today_iso }}" required></div><div class="col-sm-6"><label class="form-label">Time</label><input name="appointment_time" type="time" class="form-control form-control-lg" required></div></div><button class="btn btn-primary btn-lg w-100 mt-4"><i class="bi bi-check2-circle me-1"></i> Confirm booking</button></form></div></div></div></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}Book Appointment{% endblock %}
+{% block page_kicker %}Online booking{% endblock %}
+{% block content %}
+<div class="public-booking-page">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="public-booking-flashes">
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">{{ message }}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+  <div class="public-booking-shell">
+    <header class="public-booking-top">
+      <a class="public-brand" href="{{ url_for('public_booking') }}">
+        <span class="public-brand-mark"><i class="bi bi-scissors"></i></span>
+        <span><strong class="public-brand-name">Salon Pro</strong><small class="public-brand-sub">Online booking</small></span>
+      </a>
+      <span class="public-trust-pill"><i class="bi bi-shield-check"></i> Secure booking</span>
+    </header>
+
+    <div class="public-booking-grid">
+      <section class="public-booking-intro">
+        <div class="eyebrow">A calmer booking experience</div>
+        <h1>Reserve time for yourself.</h1>
+        <p>Choose your service, stylist, date and time. Your request goes straight into the salon calendar so the team can see it immediately.</p>
+        <div class="public-trust-row">
+          <span class="public-trust-pill"><i class="bi bi-clock"></i> Simple booking</span>
+          <span class="public-trust-pill"><i class="bi bi-calendar-check"></i> Real availability checks</span>
+          <span class="public-trust-pill"><i class="bi bi-phone"></i> Mobile friendly</span>
+        </div>
+      </section>
+
+      <section class="public-booking-card">
+        <h2>Book your visit</h2>
+        <div class="muted">It only takes a minute.</div>
+        <form method="POST">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+          <div class="public-field"><label for="booking-name">Your name</label><input id="booking-name" name="name" class="form-control" autocomplete="name" required></div>
+          <div class="public-field"><label for="booking-phone">Phone</label><input id="booking-phone" name="phone" type="tel" class="form-control" autocomplete="tel" required></div>
+          <div class="public-field"><label for="booking-service">Service</label><select id="booking-service" name="service_id" class="form-select" required><option value="">Choose service</option>{% for s in services %}<option value="{{ s.id }}">{{ s.name }} — ₹{{ '%.2f'|format(s.price) }} · {{ s.duration_minutes }} min</option>{% endfor %}</select></div>
+          <div class="public-field"><label for="booking-staff">Stylist / staff</label><select id="booking-staff" name="staff_id" class="form-select" required><option value="">Choose staff</option>{% for s in staff_list %}<option value="{{ s.id }}">{{ s.name }}{% if s.specialty %} — {{ s.specialty }}{% endif %}</option>{% endfor %}</select></div>
+          <div class="row g-3">
+            <div class="col-sm-6 public-field"><label for="booking-date">Date</label><input id="booking-date" name="appointment_date" type="date" class="form-control" min="{{ today_iso }}" required></div>
+            <div class="col-sm-6 public-field"><label for="booking-time">Time</label><input id="booking-time" name="appointment_time" type="time" class="form-control" required></div>
+          </div>
+          <button class="public-booking-submit" type="submit"><i class="bi bi-calendar2-check me-1"></i> Confirm booking</button>
+          <div class="public-booking-note">Your details are used only to manage this appointment.</div>
+        </form>
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}
