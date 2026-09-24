@@ -28,7 +28,7 @@ app = Flask(__name__, static_folder='static')
 _secret = os.environ.get('SALON_PRO_SECRET_KEY', '')
 if os.environ.get('FLASK_ENV') == 'production' and len(_secret) < 32:
     raise RuntimeError('SALON_PRO_SECRET_KEY must be set to a strong 32+ character value in production.')
-app.config['SECRET_KEY'] = _secret or 'change-this-secret-key'
+app.config['SECRET_KEY'] = _secret or secrets.token_urlsafe(48)
 app.config['GOOGLE_CLIENT_ID'] = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
 app.config['TWILIO_ACCOUNT_SID'] = os.environ.get('TWILIO_ACCOUNT_SID', '').strip()
 app.config['TWILIO_AUTH_TOKEN'] = os.environ.get('TWILIO_AUTH_TOKEN', '').strip()
@@ -37,7 +37,10 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:/
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
+app.config['SESSION_COOKIE_SECURE'] = (
+    os.environ.get('FLASK_ENV', '').lower() == 'production'
+    or os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
+)
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 
 db = SQLAlchemy(app)
@@ -3707,7 +3710,8 @@ def init_db():
                     raise RuntimeError(
                         'SALON_PRO_ADMIN_PASSWORD must be set before initializing a production database.'
                     )
-                admin_password = 'admin123'
+                admin_password = secrets.token_urlsafe(18)
+                print('Development admin password generated for this database initialization.')
             if len(admin_password) < 12:
                 raise RuntimeError('SALON_PRO_ADMIN_PASSWORD must be at least 12 characters.')
             admin = User(
@@ -3739,7 +3743,7 @@ def init_db():
             db.session.add_all(sample_staff)
             
             db.session.commit()
-            print("Database initialized with default admin (admin / admin123) and sample data.")
+            print("Database initialized with admin account and sample data.")
 
 if __name__ == '__main__':
     init_db()
