@@ -22,7 +22,7 @@ def setup_database():
         salon.db.session.add(
             salon.User(
                 username="admin",
-                password_hash=salon.generate_password_hash("admin123"),
+                password_hash=salon.generate_password_hash("test-admin-password"),
                 role="admin",
             )
         )
@@ -78,7 +78,7 @@ def setup_database():
 def login(client):
     response = client.post(
         "/login",
-        data={"username": "admin", "password": "admin123"},
+        data={"username": "admin", "password": "test-admin-password"},
         follow_redirects=True,
     )
     assert response.status_code == 200
