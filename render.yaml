@@ -24,7 +24,7 @@ services:
       - key: RAZORPAY_WEBHOOK_SECRET
         sync: false
       - key: SALON_PRO_MONTHLY_PRICE_INR
-        value: "499"
+        value: "199"
       - key: SALON_PRO_BILLING_REQUIRED
         value: "1"
       - key: SALON_PRO_LEGACY_TRIAL_DAYS
