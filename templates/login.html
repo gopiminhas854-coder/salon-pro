@@ -91,7 +91,7 @@
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
 
                 <div class="mb-3">
-                    <label for="username" class="form-label fw-semibold">Username</label>
+                    <label for="username" class="form-label fw-semibold">Email, phone, or username</label>
                     <input id="username" type="text" name="username" class="form-control" autocomplete="username" required autofocus>
                 </div>
 
@@ -104,6 +104,11 @@
                     <i class="bi bi-box-arrow-in-right me-1"></i> Login
                 </button>
             </form>
+
+            <div class="text-center mt-3 mb-4">
+                <span class="text-muted">New to Salon Pro?</span>
+                <a href="{{ url_for('register') }}" class="fw-semibold text-decoration-none ms-1">Create your salon account</a>
+            </div>
 
             <div class="card border-0 bg-light mb-3">
                 <div class="card-body">
