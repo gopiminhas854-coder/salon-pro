@@ -530,7 +530,8 @@ def upcoming_annual_date(source_date, reference_date=None):
 
 @app.context_processor
 def template_helpers():
-    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_refunded_amount': invoice_refunded_amount, 'invoice_net_paid_amount': invoice_net_paid_amount, 'invoice_balance': invoice_balance, 'csrf_token': csrf_token, 'current_user': current_user()}
+    user = current_user()
+    return {'invoice_paid_amount': invoice_paid_amount, 'invoice_refunded_amount': invoice_refunded_amount, 'invoice_net_paid_amount': invoice_net_paid_amount, 'invoice_balance': invoice_balance, 'csrf_token': csrf_token, 'current_user': user, 'subscription_expiry_notice': subscription_expiry_notice(user)}
 
 
 def recalculate_invoice(invoice):
@@ -828,6 +829,17 @@ def subscription_is_exempt():
     if path.startswith('/auth/'):
         return True
     return False
+
+
+
+def subscription_expiry_notice(user):
+    sub = active_subscription(user)
+    if not sub or not sub.expires_at:
+        return None
+    days_left = max(0, (sub.expires_at - utc_now()).days)
+    if days_left <= 7:
+        return {'days_left': days_left, 'expires_at': sub.expires_at}
+    return None
 
 
 def current_subscription_payload(user):
