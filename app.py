@@ -11,6 +11,9 @@ import io
 import json
 import gzip
 import base64
+import hashlib
+import hmac
+import requests
 from urllib.parse import quote
 from sqlalchemy import func, inspect
 from flask_migrate import Migrate
@@ -42,6 +45,18 @@ app.config['SESSION_COOKIE_SECURE'] = (
     or os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
 )
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+app.config['RAZORPAY_KEY_ID'] = os.environ.get('RAZORPAY_KEY_ID', '').strip()
+app.config['RAZORPAY_KEY_SECRET'] = os.environ.get('RAZORPAY_KEY_SECRET', '').strip()
+app.config['RAZORPAY_WEBHOOK_SECRET'] = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '').strip()
+app.config['SALON_PRO_MONTHLY_PRICE_INR'] = max(
+    1,
+    int(float(os.environ.get('SALON_PRO_MONTHLY_PRICE_INR', '499') or '499'))
+)
+app.config['SALON_PRO_BILLING_REQUIRED'] = os.environ.get('SALON_PRO_BILLING_REQUIRED', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
+app.config['SALON_PRO_LEGACY_TRIAL_DAYS'] = max(
+    0,
+    int(os.environ.get('SALON_PRO_LEGACY_TRIAL_DAYS', '30') or '30')
+)
 
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
@@ -54,6 +69,32 @@ class User(db.Model):
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), default='admin')  # admin / manager / receptionist / staff
     phone_number = db.Column(db.String(20), unique=True)
+
+class AccountProfile(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), unique=True, nullable=False)
+    business_name = db.Column(db.String(150), nullable=False)
+    email = db.Column(db.String(320), unique=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    user = db.relationship('User', backref=db.backref('account_profile', uselist=False))
+
+
+class Subscription(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False, index=True)
+    plan_key = db.Column(db.String(40), nullable=False, default='monthly')
+    status = db.Column(db.String(30), nullable=False, default='pending')  # pending/active/expired/failed/trial
+    amount_paise = db.Column(db.Integer, nullable=False, default=0)
+    currency = db.Column(db.String(8), nullable=False, default='INR')
+    start_at = db.Column(db.DateTime)
+    expires_at = db.Column(db.DateTime)
+    razorpay_order_id = db.Column(db.String(120), unique=True)
+    razorpay_payment_id = db.Column(db.String(120), unique=True)
+    razorpay_signature = db.Column(db.String(255))
+    webhook_received = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    user = db.relationship('User', backref=db.backref('subscriptions', lazy=True))
 
 class BackupLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -521,16 +562,20 @@ ADMIN_ONLY_ENDPOINTS = {
 
 @app.before_request
 def ensure_database():
-    # Tests and local development may use the legacy bootstrap path. Production
-    # deployments can disable it and rely exclusively on Flask-Migrate.
-    if os.environ.get('SALON_PRO_AUTO_CREATE_DB', '1') != '1':
-        return None
+    # Keep the legacy bootstrap path available, while always ensuring the
+    # billing tables exist so the new subscription layer can run on an
+    # already-initialized production database without requiring a migration file.
     try:
         inspector = inspect(db.engine)
-        if not inspector.has_table('user'):
+        auto_create = os.environ.get('SALON_PRO_AUTO_CREATE_DB', '1') == '1'
+        if auto_create and not inspector.has_table('user'):
             init_db()
-        elif not inspector.has_table('google_identity'):
+        if not inspector.has_table('google_identity'):
             GoogleIdentity.__table__.create(bind=db.engine, checkfirst=True)
+        if not inspector.has_table('account_profile'):
+            AccountProfile.__table__.create(bind=db.engine, checkfirst=True)
+        if not inspector.has_table('subscription'):
+            Subscription.__table__.create(bind=db.engine, checkfirst=True)
     except Exception as exc:
         app.logger.exception('Database bootstrap failed: %s', exc)
         raise
@@ -538,6 +583,8 @@ def ensure_database():
 @app.before_request
 def csrf_guard():
     if request.method in {'POST','PUT','PATCH','DELETE'}:
+        if request.endpoint == 'razorpay_webhook':
+            return None
         if request.endpoint == 'google_auth' and request.form.get('credential'):
             return None
         token = request.form.get('_csrf_token') or request.headers.get('X-CSRF-Token')
@@ -717,15 +764,367 @@ def google_auth():
     return redirect(url_for('dashboard'))
 
 
+def utc_now():
+    return datetime.utcnow()
+
+
+def monthly_price_inr():
+    return int(app.config.get('SALON_PRO_MONTHLY_PRICE_INR', 499))
+
+
+def latest_subscription(user):
+    if not user:
+        return None
+    return Subscription.query.filter_by(user_id=user.id).order_by(
+        Subscription.created_at.desc(), Subscription.id.desc()
+    ).first()
+
+
+def active_subscription(user):
+    sub = latest_subscription(user)
+    if not sub:
+        return None
+    now = utc_now()
+    if sub.status in {'active', 'trial'} and sub.expires_at and sub.expires_at > now:
+        return sub
+    if sub.status == 'active' and sub.expires_at and sub.expires_at <= now:
+        sub.status = 'expired'
+        db.session.commit()
+    return None
+
+
+def legacy_trial_for_existing_user(user):
+    if not user or AccountProfile.query.filter_by(user_id=user.id).first():
+        return
+    days = int(app.config.get('SALON_PRO_LEGACY_TRIAL_DAYS', 30) or 0)
+    profile = AccountProfile(
+        user_id=user.id,
+        business_name=f"{user.username} Salon",
+        email=None,
+    )
+    db.session.add(profile)
+    if days > 0:
+        now = utc_now()
+        db.session.add(Subscription(
+            user_id=user.id,
+            plan_key='legacy_trial',
+            status='trial',
+            amount_paise=0,
+            currency='INR',
+            start_at=now,
+            expires_at=now + timedelta(days=days),
+        ))
+    db.session.commit()
+
+
+def subscription_is_exempt():
+    path = request.path or ''
+    if not app.config.get('SALON_PRO_BILLING_REQUIRED', True):
+        return True
+    if path.startswith('/static/'):
+        return True
+    if path in {'/login', '/register', '/logout', '/health', '/subscription', '/subscription/order', '/subscription/verify', '/webhooks/razorpay'}:
+        return True
+    if path.startswith('/auth/'):
+        return True
+    return False
+
+
+def current_subscription_payload(user):
+    sub = active_subscription(user)
+    latest = latest_subscription(user)
+    return {
+        'active': bool(sub),
+        'subscription': sub,
+        'latest': latest,
+        'monthly_price': monthly_price_inr(),
+    }
+
+
+@app.before_request
+def enforce_subscription():
+    if subscription_is_exempt() or not session.get('user_id'):
+        return None
+    user = current_user()
+    if not user:
+        session.clear()
+        return redirect(url_for('login'))
+    # Existing accounts created before billing was added receive a one-time
+    # migration grace period. New sign-ups create AccountProfile immediately,
+    # so they must complete payment before entering the product.
+    if not AccountProfile.query.filter_by(user_id=user.id).first():
+        legacy_trial_for_existing_user(user)
+    if not active_subscription(user):
+        return redirect(url_for('subscription', reason='required'))
+    return None
+
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if session.get('user_id'):
+        if active_subscription(current_user()):
+            return redirect(url_for('dashboard'))
+        return redirect(url_for('subscription'))
+
+    if request.method == 'POST':
+        business_name = (request.form.get('business_name') or '').strip()
+        email = (request.form.get('email') or '').strip().lower()
+        phone = (request.form.get('phone') or '').strip()
+        password = request.form.get('password') or ''
+        confirm = request.form.get('confirm_password') or ''
+
+        if not business_name:
+            flash('Enter your business or salon name.', 'danger')
+            return render_template('register.html')
+        if email and ('@' not in email or len(email) > 320):
+            flash('Enter a valid email address.', 'danger')
+            return render_template('register.html')
+        normalized_phone = normalize_phone_number(phone) if phone else None
+        if phone and not normalized_phone:
+            flash('Enter a valid phone number.', 'danger')
+            return render_template('register.html')
+        if not email and not normalized_phone:
+            flash('Enter either an email address or a phone number.', 'danger')
+            return render_template('register.html')
+        if len(password) < 8:
+            flash('Password must be at least 8 characters.', 'danger')
+            return render_template('register.html')
+        if password != confirm:
+            flash('Passwords do not match.', 'danger')
+            return render_template('register.html')
+
+        login_id = email or normalized_phone
+        if User.query.filter_by(username=login_id).first():
+            flash('An account with this email/phone already exists. Please log in.', 'warning')
+            return render_template('register.html')
+        if normalized_phone and User.query.filter_by(phone_number=normalized_phone).first():
+            flash('That phone number is already linked to an account.', 'warning')
+            return render_template('register.html')
+        if email and AccountProfile.query.filter_by(email=email).first():
+            flash('That email is already linked to an account.', 'warning')
+            return render_template('register.html')
+
+        user = User(
+            username=login_id,
+            password_hash=generate_password_hash(password),
+            role='admin',
+            phone_number=normalized_phone,
+        )
+        db.session.add(user)
+        db.session.flush()
+        db.session.add(AccountProfile(
+            user_id=user.id,
+            business_name=business_name,
+            email=email or None,
+        ))
+        commit_or_rollback()
+
+        establish_login_session(user)
+        flash('Account created. Choose your monthly Salon Pro plan to continue.', 'success')
+        return redirect(url_for('subscription', reason='new'))
+
+    return render_template('register.html')
+
+
+@app.route('/subscription', methods=['GET'])
+@login_required
+def subscription():
+    user = current_user()
+    if not AccountProfile.query.filter_by(user_id=user.id).first():
+        legacy_trial_for_existing_user(user)
+    payload = current_subscription_payload(user)
+    return render_template(
+        'subscription.html',
+        business=AccountProfile.query.filter_by(user_id=user.id).first(),
+        **payload,
+        reason=request.args.get('reason', ''),
+    )
+
+
+@app.route('/subscription/order', methods=['POST'])
+@login_required
+def subscription_create_order():
+    if not app.config.get('RAZORPAY_KEY_ID') or not app.config.get('RAZORPAY_KEY_SECRET'):
+        return jsonify({
+            'ok': False,
+            'error': 'Razorpay is not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in Render.'
+        }), 503
+
+    user = current_user()
+    if not user:
+        return jsonify({'ok': False, 'error': 'Please log in again.'}), 401
+
+    amount_paise = monthly_price_inr() * 100
+    payload = {
+        'amount': amount_paise,
+        'currency': 'INR',
+        'receipt': f'sp_{user.id}_{int(utc_now().timestamp())}',
+        'notes': {
+            'salon_pro_user_id': str(user.id),
+            'plan': 'monthly',
+        },
+    }
+    try:
+        response = requests.post(
+            'https://api.razorpay.com/v1/orders',
+            json=payload,
+            auth=(app.config['RAZORPAY_KEY_ID'], app.config['RAZORPAY_KEY_SECRET']),
+            timeout=20,
+        )
+        response.raise_for_status()
+        order = response.json()
+    except Exception:
+        app.logger.exception('Razorpay order creation failed')
+        return jsonify({'ok': False, 'error': 'Could not start payment. Please try again.'}), 502
+
+    sub = Subscription(
+        user_id=user.id,
+        plan_key='monthly',
+        status='pending',
+        amount_paise=amount_paise,
+        currency='INR',
+        razorpay_order_id=order.get('id'),
+    )
+    db.session.add(sub)
+    commit_or_rollback()
+
+    return jsonify({
+        'ok': True,
+        'key_id': app.config['RAZORPAY_KEY_ID'],
+        'order_id': order.get('id'),
+        'amount': amount_paise,
+        'currency': 'INR',
+        'name': AccountProfile.query.filter_by(user_id=user.id).first().business_name if AccountProfile.query.filter_by(user_id=user.id).first() else user.username,
+        'email': AccountProfile.query.filter_by(user_id=user.id).first().email if AccountProfile.query.filter_by(user_id=user.id).first() else '',
+        'phone': user.phone_number or '',
+    })
+
+
+def activate_paid_subscription(sub, payment_id, signature=None, webhook_received=False):
+    if not sub:
+        return False
+    if sub.status == 'active' and sub.razorpay_payment_id == payment_id:
+        return True
+    now = utc_now()
+    current = active_subscription(sub.user)
+    base = current.expires_at if current and current.expires_at and current.expires_at > now else now
+    sub.start_at = base
+    sub.expires_at = base + timedelta(days=30)
+    sub.status = 'active'
+    sub.razorpay_payment_id = payment_id
+    if signature:
+        sub.razorpay_signature = signature
+    sub.webhook_received = bool(webhook_received)
+    db.session.add(sub)
+    commit_or_rollback()
+    return True
+
+
+@app.route('/subscription/verify', methods=['POST'])
+@login_required
+def subscription_verify_payment():
+    if not app.config.get('RAZORPAY_KEY_ID') or not app.config.get('RAZORPAY_KEY_SECRET'):
+        return jsonify({'ok': False, 'error': 'Razorpay is not configured.'}), 503
+
+    data = request.get_json(silent=True) or {}
+    order_id = (data.get('razorpay_order_id') or '').strip()
+    payment_id = (data.get('razorpay_payment_id') or '').strip()
+    signature = (data.get('razorpay_signature') or '').strip()
+    if not order_id or not payment_id or not signature:
+        return jsonify({'ok': False, 'error': 'Incomplete payment confirmation.'}), 400
+
+    expected = hmac.new(
+        app.config['RAZORPAY_KEY_SECRET'].encode('utf-8'),
+        f'{order_id}|{payment_id}'.encode('utf-8'),
+        hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return jsonify({'ok': False, 'error': 'Payment signature verification failed.'}), 400
+
+    sub = Subscription.query.filter_by(
+        user_id=session['user_id'],
+        razorpay_order_id=order_id,
+    ).first()
+    if not sub:
+        return jsonify({'ok': False, 'error': 'Payment order was not created by Salon Pro.'}), 404
+
+    try:
+        payment_response = requests.get(
+            f'https://api.razorpay.com/v1/payments/{payment_id}',
+            auth=(app.config['RAZORPAY_KEY_ID'], app.config['RAZORPAY_KEY_SECRET']),
+            timeout=20,
+        )
+        payment_response.raise_for_status()
+        payment = payment_response.json()
+    except Exception:
+        app.logger.exception('Razorpay payment lookup failed')
+        return jsonify({'ok': False, 'error': 'Payment was received but could not be verified yet. Please refresh shortly.'}), 502
+
+    if payment.get('order_id') != order_id:
+        return jsonify({'ok': False, 'error': 'Payment/order mismatch.'}), 400
+    if int(payment.get('amount') or 0) != int(sub.amount_paise):
+        return jsonify({'ok': False, 'error': 'Payment amount mismatch.'}), 400
+
+    if payment.get('status') != 'captured':
+        return jsonify({'ok': False, 'error': f"Payment status is {payment.get('status') or 'pending'}. Please wait for capture confirmation."}), 409
+
+    activate_paid_subscription(sub, payment_id, signature=signature)
+    return jsonify({
+        'ok': True,
+        'message': 'Payment verified. Your Salon Pro subscription is active.',
+        'expires_at': sub.expires_at.isoformat(),
+    })
+
+
+@app.route('/webhooks/razorpay', methods=['POST'])
+def razorpay_webhook():
+    secret = app.config.get('RAZORPAY_WEBHOOK_SECRET')
+    signature = request.headers.get('X-Razorpay-Signature', '')
+    if not secret:
+        return '', 503
+    raw_body = request.get_data()
+    expected = hmac.new(secret.encode('utf-8'), raw_body, hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(expected, signature):
+        return '', 400
+
+    payload = request.get_json(silent=True) or {}
+    event = payload.get('event')
+    payment = ((payload.get('payload') or {}).get('payment') or {}).get('entity') or {}
+    order_id = payment.get('order_id')
+    payment_id = payment.get('id')
+    if not order_id:
+        return '', 200
+
+    sub = Subscription.query.filter_by(razorpay_order_id=order_id).first()
+    if not sub:
+        return '', 200
+
+    if event == 'payment.captured' and payment_id:
+        activate_paid_subscription(sub, payment_id, webhook_received=True)
+    elif event == 'payment.failed':
+        sub.status = 'failed'
+        sub.webhook_received = True
+        db.session.add(sub)
+        commit_or_rollback()
+    return '', 200
+
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        user = User.query.filter_by(username=username).first()
+        identifier = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+        user = User.query.filter_by(username=identifier).first()
+        if not user:
+            user = User.query.filter_by(phone_number=normalize_phone_number(identifier)).first() if identifier else None
+        if not user and identifier:
+            profile = AccountProfile.query.filter_by(email=identifier.lower()).first()
+            user = profile.user if profile else None
         link = UserStaffLink.query.filter_by(user_id=user.id).first() if user else None
         if user and (not link or (link.staff and link.staff.is_active)) and check_password_hash(user.password_hash, password):
             establish_login_session(user)
+            if not active_subscription(user) and app.config.get('SALON_PRO_BILLING_REQUIRED', True):
+                return redirect(url_for('subscription', reason='required'))
             flash('Welcome back!', 'success')
             return redirect(url_for('dashboard'))
         flash('Invalid username or password.', 'danger')
