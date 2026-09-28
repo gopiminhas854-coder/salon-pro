@@ -568,7 +568,10 @@ def enforce_tenant_query_scope(orm_execute_state):
         return
 
     statement = orm_execute_state.statement
-    for model in TENANT_SCOPED_MODELS:
+    for mapper in orm_execute_state.all_mappers:
+        model = TENANT_SCOPED_MAPPERS.get(mapper)
+        if model is None:
+            continue
         statement = statement.options(
             with_loader_criteria(
                 model,
@@ -626,6 +629,7 @@ TENANT_SCOPED_MODELS = [
     StaffSchedule, StaffBreak, SalonPackage, CustomerPackage, WhatsAppTemplate,
     GiftCard, GiftCardTransaction, AuditLog,
 ]
+TENANT_SCOPED_MAPPERS = {model.__mapper__: model for model in TENANT_SCOPED_MODELS}
 
 
 # ==================== AUTH ====================
