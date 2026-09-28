@@ -55,8 +55,9 @@ def setup_database():
             account_id=account2.id,
         )
         salon.db.session.add_all([customer1, customer2])
+        ids = (owner1.id, owner2.id, customer1.id, customer2.id)
         salon.db.session.commit()
-        return owner1, owner2, customer1, customer2
+        return ids
 
 
 def login(client, username, password):
@@ -70,33 +71,33 @@ def login(client, username, password):
 
 
 def test_customers_are_isolated_by_salon_account():
-    owner1, owner2, customer1, customer2 = setup_database()
+    owner1_id, owner2_id, customer1_id, customer2_id = setup_database()
 
     with salon.app.test_client() as client1:
         login(client1, "owner1", "password-1")
 
-        own = client1.get(f"/customers/{customer1.id}")
+        own = client1.get(f"/customers/{customer1_id}")
         assert own.status_code == 200
         assert b"Customer One" in own.data
 
-        foreign = client1.get(f"/customers/{customer2.id}")
+        foreign = client1.get(f"/customers/{customer2_id}")
         assert foreign.status_code == 404
 
         deleted = client1.post(
-            f"/customers/delete/{customer2.id}",
+            f"/customers/delete/{customer2_id}",
             follow_redirects=True,
         )
         assert deleted.status_code == 200
 
     with salon.app.app_context():
-        assert salon.db.session.get(salon.Customer, customer2.id) is not None
+        assert salon.db.session.get(salon.Customer, customer2_id) is not None
 
     with salon.app.test_client() as client2:
         login(client2, "owner2", "password-2")
 
-        own = client2.get(f"/customers/{customer2.id}")
+        own = client2.get(f"/customers/{customer2_id}")
         assert own.status_code == 200
         assert b"Customer Two" in own.data
 
-        foreign = client2.get(f"/customers/{customer1.id}")
+        foreign = client2.get(f"/customers/{customer1_id}")
         assert foreign.status_code == 404
