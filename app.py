@@ -442,7 +442,6 @@ class SalonSetting(TenantScopedMixin, db.Model):
     gst_number = db.Column(db.String(30))
     logo_data_url = db.Column(db.Text)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    __table_args__ = (db.UniqueConstraint("account_id", name="uq_salon_setting_account"),)
 
 class InvoiceRefund(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
