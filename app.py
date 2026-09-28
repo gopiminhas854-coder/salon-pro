@@ -626,7 +626,30 @@ def billing_owner_user(user):
     return user
 
 from sqlalchemy.orm import Session as SQLAlchemySession
-T@event.listens_for(SQLAlchemySession, "before_flush")
+
+TENANT_RELATION_FIELDS = {
+    "appointment": {"customer_id": "customer", "staff_id": "staff", "service_id": "service"},
+    "waitlist_entry": {"customer_id": "customer", "service_id": "service", "preferred_staff_id": "staff"},
+    "invoice": {"appointment_id": "appointment", "customer_id": "customer"},
+    "staff_commission": {"staff_id": "staff"},
+    "staff_attendance": {"staff_id": "staff"},
+    "customer_loyalty": {"customer_id": "customer"},
+    "inventory_sale": {"invoice_id": "invoice", "inventory_item_id": "inventory_item"},
+    "inventory_transaction": {"inventory_item_id": "inventory_item"},
+    "inventory_purchase": {"supplier_id": "supplier", "inventory_item_id": "inventory_item"},
+    "inventory_sale_line": {"inventory_sale_id": "inventory_sale", "invoice_item_id": "invoice_item", "inventory_item_id": "inventory_item"},
+    "loyalty_transaction": {"customer_id": "customer"},
+    "invoice_refund": {"invoice_id": "invoice"},
+    "invoice_payment": {"invoice_id": "invoice"},
+    "invoice_item": {"invoice_id": "invoice"},
+    "staff_schedule": {"staff_id": "staff"},
+    "staff_break": {"staff_id": "staff"},
+    "customer_package": {"customer_id": "customer", "package_id": "salon_package"},
+    "gift_card": {"purchaser_customer_id": "customer"},
+    "gift_card_transaction": {"gift_card_id": "gift_card", "invoice_id": "invoice"},
+}
+
+@event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
     tenant_id = _current_account_id() if has_request_context() else None
     if tenant_id is None and app.config.get("TESTING"):
@@ -654,49 +677,20 @@ def enforce_tenant_ownership(session_obj, flush_context, instances):
             target_id = getattr(obj, field, None)
             if target_id is None:
                 continue
-            target_model = db.metadata.tables.get(target_table)
-            if target_model is None:
+            target_table_obj = db.metadata.tables.get(target_table)
+            if target_table_obj is None:
                 continue
-            target_row = session_obj.execute(
-                target_model.select().where(target_model.c.id == target_id)
+            row = session_obj.execute(
+                target_table_obj.select().where(target_table_obj.c.id == target_id)
             ).first()
-            if target_row is not None and int(target_row._mapping["account_id"]) != int(tenant_id):
+            if row is None:
+                continue
+            target_owner = row._mapping.get("account_id")
+            if target_owner is not None and int(target_owner) != int(tenant_id):
                 raise PermissionError(
                     f"Cross-tenant relationship is not allowed: {table}.{field}"
                 )
 
-id": "invoice"},
-    "invoice_item": {"invoice_id": "invoice"},
-    "staff_schedule": {"staff_id": "staff"},
-    "staff_break": {"staff_id": "staff"},
-    "customer_package": {"customer_id": "customer", "package_id": "salon_package"},
-    "gift_card": {"purchaser_customer_id": "customer"},
-    "gift_card_transaction": {"gift_card_id": "gift_card", "invoice_id": "invoice"},
-}
-
-
-@event.listens_for(SQLAlchemySession, "before_flush")
-def enforce_tenant_ownership(session_obj, flush_context, instances):
-    tenant_id = _current_account_id() if has_request_context() else None
-    if tenant_id is None and app.config.get("TESTING"):
-        profile_ids = db.session.execute(
-            db.select(AccountProfile.id).order_by(AccountProfile.id)
-        ).scalars().all()
-        if len(profile_ids) == 1:
-            tenant_id = profile_ids[0]
-    if tenant_id is None:
-        return
-    if tenant_id is None:
-        return
-    for obj in list(session_obj.new):
-        table = getattr(getattr(obj, "__table__", None), "name", None)
-        if table not in TENANT_SCOPED_TABLES:
-            continue
-        current_owner = getattr(obj, "account_id", None)
-        if current_owner is None:
-            obj.account_id = tenant_id
-        elif int(current_owner) != int(tenant_id):
-            raise PermissionError("Cross-tenant record creation is not allowed.")
 
 # ==================== AUTH ====================
 
@@ -807,6 +801,46 @@ ADMIN_ONLY_ENDPOINTS = {
     'reports', 'export_report_csv', 'expenses', 'delete_expense',
     'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty', 'add_package', 'whatsapp_templates', 'audit_log', 'insights'
 }
+
+def _ensure_legacy_owner_profile():
+    admin_row = db.session.execute(
+        db.select(User.id, User.username)
+        .where(User.role == "admin")
+        .order_by(User.id.asc())
+        .limit(1)
+    ).first()
+    if not admin_row:
+        return None
+
+    profile = db.session.execute(
+        db.select(AccountProfile).where(AccountProfile.user_id == admin_row.id)
+    ).scalar_one_or_none()
+    if not profile:
+        profile = AccountProfile(
+            user_id=admin_row.id,
+            business_name=f"{admin_row.username} Salon",
+            email=None,
+        )
+        db.session.add(profile)
+        db.session.flush()
+
+    _backfill_null_tenant_rows(profile.id)
+    db.session.commit()
+    return profile.id
+
+
+@app.before_request
+def ensure_tenant_bootstrap():
+    try:
+        inspector = inspect(db.engine)
+        if inspector.has_table("user") and inspector.has_table("account_profile"):
+            if db.session.execute(db.select(AccountProfile.id).limit(1)).scalar_one_or_none() is None:
+                _ensure_legacy_owner_profile()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception("Tenant bootstrap failed: %s", exc)
+        raise
+
 
 def _ensure_legacy_owner_profile():
     admin_row = db.session.execute(
