@@ -627,27 +627,7 @@ def billing_owner_user(user):
 
 from sqlalchemy.orm import Session as SQLAlchemySession
 
-TENANT_RELATION_FIELDS = {
-    "appointment": {"customer_id": "customer", "staff_id": "staff", "service_id": "service"},
-    "waitlist_entry": {"customer_id": "customer", "service_id": "service", "preferred_staff_id": "staff"},
-    "invoice": {"appointment_id": "appointment", "customer_id": "customer"},
-    "staff_commission": {"staff_id": "staff"},
-    "staff_attendance": {"staff_id": "staff"},
-    "customer_loyalty": {"customer_id": "customer"},
-    "inventory_sale": {"invoice_id": "invoice", "inventory_item_id": "inventory_item"},
-    "inventory_transaction": {"inventory_item_id": "inventory_item"},
-    "inventory_purchase": {"supplier_id": "supplier", "inventory_item_id": "inventory_item"},
-    "inventory_sale_line": {"inventory_sale_id": "inventory_sale", "invoice_item_id": "invoice_item", "inventory_item_id": "inventory_item"},
-    "loyalty_transaction": {"customer_id": "customer"},
-    "invoice_refund": {"invoice_id": "invoice"},
-    "invoice_payment": {"invoice_id": "invoice"},
-    "invoice_item": {"invoice_id": "invoice"},
-    "staff_schedule": {"staff_id": "staff"},
-    "staff_break": {"staff_id": "staff"},
-    "customer_package": {"customer_id": "customer", "package_id": "salon_package"},
-    "gift_card": {"purchaser_customer_id": "customer"},
-    "gift_card_transaction": {"gift_card_id": "gift_card", "invoice_id": "invoice"},
-}
+from sqlalchemy.orm import Session as SQLAlchemySession
 
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
@@ -672,25 +652,6 @@ def enforce_tenant_ownership(session_obj, flush_context, instances):
             current_owner = tenant_id
         if int(current_owner) != int(tenant_id):
             raise PermissionError("Cross-tenant record write is not allowed.")
-
-        for field, target_table in TENANT_RELATION_FIELDS.get(table, {}).items():
-            target_id = getattr(obj, field, None)
-            if target_id is None:
-                continue
-            target_table_obj = db.metadata.tables.get(target_table)
-            if target_table_obj is None:
-                continue
-            row = session_obj.execute(
-                target_table_obj.select().where(target_table_obj.c.id == target_id)
-            ).first()
-            if row is None:
-                continue
-            target_owner = row._mapping.get("account_id")
-            if target_owner is not None and int(target_owner) != int(tenant_id):
-                raise PermissionError(
-                    f"Cross-tenant relationship is not allowed: {table}.{field}"
-                )
-
 
 # ==================== AUTH ====================
 
