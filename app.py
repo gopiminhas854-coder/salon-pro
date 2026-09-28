@@ -642,6 +642,17 @@ def tenant_query(model):
         return model.query.filter(db.literal(False))
     return model.query.filter(model.account_id == account_id)
 
+def tenant_get_or_404(model, ident, description=None):
+    """Fetch one tenant-owned row without relying on Query.get identity semantics."""
+    obj = db.session.get(model, ident)
+    if obj is None:
+        abort(404, description=description)
+    if getattr(model, "__tenant_scoped__", False) and has_request_context():
+        account_id = _current_account_id()
+        if account_id is None or int(getattr(obj, "account_id", -1)) != int(account_id):
+            abort(404, description=description)
+    return obj
+
 def billing_owner_user(user):
     profile = tenant_profile_for_user(user)
     if profile and profile.user:
@@ -2295,7 +2306,7 @@ def add_customer():
 @app.route('/customers/edit/<int:id>', methods=['GET', 'POST'])
 @login_required
 def edit_customer(id):
-    customer = Customer.query.get_or_404(id)
+    customer = tenant_get_or_404(Customer, id)
     if request.method == 'POST':
         try:
             customer.name = request.form['name'].strip()
@@ -2325,7 +2336,7 @@ def edit_customer(id):
 @app.route('/customers/delete/<int:id>', methods=['POST'])
 @login_required
 def delete_customer(id):
-    customer = Customer.query.get_or_404(id)
+    customer = tenant_get_or_404(Customer, id)
     if Appointment.query.filter_by(customer_id=id).first() or Invoice.query.filter_by(customer_id=id).first():
         flash('This customer has appointment or invoice history and cannot be deleted. Edit the customer instead.', 'warning')
         return redirect(url_for('customers'))
