@@ -633,9 +633,9 @@ from sqlalchemy.orm import Session as SQLAlchemySession
 
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
-    if not has_request_context():
-        return
-    tenant_id = getattr(g, "salon_account_id", None)
+    tenant_id = getattr(g, "salon_account_id", None) if has_request_context() else None
+    if tenant_id is None and app.config.get("TESTING"):
+        tenant_id = app.config.get("_TEST_TENANT_ID")
     if tenant_id is None:
         return
 
@@ -966,6 +966,8 @@ def establish_login_session(user):
     account_id = _account_id_for_user(user)
     if account_id:
         session['account_id'] = int(account_id)
+        if app.config.get("TESTING"):
+            app.config["_TEST_TENANT_ID"] = int(account_id)
 
 
 @app.route('/auth/google', methods=['POST'])
