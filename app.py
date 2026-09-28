@@ -2705,18 +2705,18 @@ def staff_intelligence():
 @app.route('/customers/<int:id>')
 @login_required
 def customer_detail(id):
-    customer = Customer.query.get_or_404(id)
-    customer_appointments = Appointment.query.filter_by(customer_id=id).order_by(
+    customer = tenant_get_or_404(Customer, id)
+    customer_appointments = tenant_query(Appointment).filter_by(customer_id=id).order_by(
         Appointment.appointment_date.desc(), Appointment.appointment_time.desc()
     ).all()
     customer_invoices = tenant_query(Invoice).filter_by(customer_id=id).order_by(Invoice.created_at.desc()).all()
-    completed_visits = Appointment.query.filter_by(customer_id=id, status='Completed').count()
+    completed_visits = tenant_query(Appointment).filter_by(customer_id=id, status='Completed').count()
     # Use the same payment/refund accounting as invoices and BI. This prevents
     # refunded revenue from remaining in the customer profile and includes
     # partial-payment balances.
     total_spend = round(sum(invoice_net_paid_amount(i) for i in customer_invoices), 2)
     pending_amount = round(sum(invoice_balance(i) for i in customer_invoices), 2)
-    last_visit = Appointment.query.filter_by(customer_id=id, status='Completed').order_by(
+    last_visit = tenant_query(Appointment).filter_by(customer_id=id, status='Completed').order_by(
         Appointment.appointment_date.desc()
     ).first()
     crm = _customer_metrics(id)
