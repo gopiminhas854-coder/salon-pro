@@ -2214,7 +2214,7 @@ def quick_sale():
             return redirect(url_for('view_invoice',id=inv.id))
         except (ValueError,TypeError,KeyError) as exc:
             db.session.rollback(); flash(str(exc) or 'Quick checkout failed.','danger')
-    return render_template('quick_sale.html',customers=Customer.query.order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),today_iso=date.today().isoformat(),tax_rate=get_tax_rate())
+    return render_template('quick_sale.html',customers=tenant_query(Customer).order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),today_iso=date.today().isoformat(),tax_rate=get_tax_rate())
 
 # ==================== CUSTOMERS ====================
 
@@ -3136,7 +3136,7 @@ def update_appointment_status(id,status):
 @app.route('/invoices')
 @login_required
 def invoices():
-    invoices_list = Invoice.query.order_by(Invoice.created_at.desc()).all()
+    invoices_list = tenant_query(Invoice).order_by(Invoice.created_at.desc()).all()
     return render_template('invoices.html', invoices=invoices_list)
 
 @app.route('/api/staff/<int:staff_id>/availability', methods=['GET','POST'])
@@ -3176,7 +3176,7 @@ def staff_availability_api(staff_id):
 @app.route('/api/staff/<int:staff_id>/breaks', methods=['GET','POST'])
 @login_required
 def staff_break_create_api(staff_id):
-    Staff.query.get_or_404(staff_id)
+    tenant_query(Staff).filter_by(id=staff_id).first_or_404()
     if request.method == 'GET':
         rows = tenant_query(StaffBreak).filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
         return jsonify({'breaks': [{'id': b.id, 'day_of_week': b.day_of_week, 'start_time': b.start_time, 'end_time': b.end_time, 'is_active': b.is_active} for b in rows]})
@@ -3220,9 +3220,9 @@ def update_invoice_tip(id):
 @app.route('/invoices/<int:id>')
 @login_required
 def view_invoice(id):
-    invoice = Invoice.query.get_or_404(id)
-    inventory_products = InventoryItem.query.filter_by(is_active=True).order_by(InventoryItem.name).all()
-    salon_setting = SalonSetting.query.first()
+    invoice = tenant_query(Invoice).filter_by(id=id).first_or_404()
+    inventory_products = tenant_query(InventoryItem).filter_by(is_active=True).order_by(InventoryItem.name).all()
+    salon_setting = tenant_query(SalonSetting).first()
     return render_template('invoice_detail.html', invoice=invoice, inventory_products=inventory_products, salon_setting=salon_setting)
 
 @app.route('/invoices/pay/<int:id>', methods=['POST'])
@@ -4379,7 +4379,7 @@ def gift_cards():
             flash(f'Gift card {code} created with ₹{amount:,.0f}.','success')
         except (ValueError,TypeError): db.session.rollback(); flash('Enter a valid customer, amount and expiry.','danger')
         return redirect(url_for('gift_cards'))
-    return render_template('gift_cards.html',cards=GiftCard.query.order_by(GiftCard.created_at.desc()).limit(200).all(),customers=Customer.query.order_by(Customer.name).all())
+    return render_template('gift_cards.html',cards=tenant_query(GiftCard).order_by(GiftCard.created_at.desc()).limit(200).all(),customers=Customer.query.order_by(Customer.name).all())
 
 @app.route('/gift-cards/redeem/<int:id>', methods=['POST'])
 @login_required
