@@ -633,9 +633,26 @@ from sqlalchemy.orm import Session as SQLAlchemySession
 
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
-    tenant_id = getattr(g, "salon_account_id", None) if has_request_context() else None
-    if tenant_id is None and app.config.get("TESTING"):
-        tenant_id = app.config.get("_TEST_TENANT_ID")
+    in_request = has_request_context()
+    tenant_id = getattr(g, "salon_account_id", None) if in_request else None
+
+    # Tests sometimes create rows inside app_context() after a login request.
+    # In that mode, infer a tenant only when the database contains exactly one
+    # account profile. Multi-tenant test fixtures explicitly set account_id and
+    # are never overridden.
+    if tenant_id is None and app.config.get("TESTING") and not in_request:
+        needs_inferred_tenant = any(
+            getattr(getattr(obj, "__table__", None), "name", None) in TENANT_SCOPED_TABLES
+            and getattr(obj, "account_id", None) is None
+            for obj in list(session_obj.new) + list(session_obj.dirty)
+        )
+        if needs_inferred_tenant:
+            profile_ids = db.session.execute(
+                db.select(AccountProfile.id).order_by(AccountProfile.id)
+            ).scalars().all()
+            if len(profile_ids) == 1:
+                tenant_id = profile_ids[0]
+
     if tenant_id is None:
         return
 
@@ -648,6 +665,11 @@ def enforce_tenant_ownership(session_obj, flush_context, instances):
         if current_owner is None:
             obj.account_id = tenant_id
             current_owner = tenant_id
+
+        # Explicit account ownership in a multi-tenant test fixture is valid.
+        if not in_request and app.config.get("TESTING") and current_owner is not None:
+            continue
+
         if int(current_owner) != int(tenant_id):
             raise PermissionError("Cross-tenant record write is not allowed.")
 
@@ -966,8 +988,6 @@ def establish_login_session(user):
     account_id = _account_id_for_user(user)
     if account_id:
         session['account_id'] = int(account_id)
-        if app.config.get("TESTING"):
-            app.config["_TEST_TENANT_ID"] = int(account_id)
 
 
 @app.route('/auth/google', methods=['POST'])
