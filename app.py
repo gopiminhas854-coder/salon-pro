@@ -645,20 +645,7 @@ def tenant_query(model):
 def tenant_get_or_404(model, ident, description=None):
     """Fetch one row through the same tenant scope used by legacy Model.query."""
     if getattr(model, "__tenant_scoped__", False) and has_request_context():
-        account_id = _current_account_id()
         obj = tenant_query(model).filter_by(id=ident).first()
-        app.logger.warning(
-            "TENANT_LOOKUP model=%s ident=%s session_account=%r g_account=%r "
-            "user_id=%r resolved_account=%r obj_account=%r found=%s",
-            getattr(model, "__name__", model),
-            ident,
-            session.get("account_id"),
-            getattr(g, "salon_account_id", None),
-            session.get("user_id"),
-            account_id,
-            getattr(obj, "account_id", None) if obj else None,
-            bool(obj),
-        )
         if obj is None:
             abort(404, description=description)
         return obj
@@ -978,13 +965,6 @@ def security_headers(response):
 
 @app.errorhandler(404)
 def handle_not_found(error):
-    app.logger.warning(
-        "NOT_FOUND path=%s endpoint=%s user_id=%r session_account=%r",
-        request.path,
-        request.endpoint,
-        session.get("user_id"),
-        session.get("account_id"),
-    )
     return (
         "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         "<title>Salon Pro - Page not found</title></head><body style=\"font-family:system-ui;padding:40px\">"
