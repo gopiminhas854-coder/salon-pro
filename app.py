@@ -1701,6 +1701,25 @@ def award_loyalty_for_invoice(invoice):
 APPOINTMENT_STATUSES = ['Booked', 'Confirmed', 'Arrived', 'In service', 'Completed', 'Cancelled', 'No-Show']
 ACTIVE_APPOINTMENT_STATUSES = {'Scheduled', 'Booked', 'Confirmed', 'Arrived', 'In service'}
 
+def parse_boolean(value, default=None):
+    """Parse JSON/form boolean values without treating 'false' as truthy."""
+    if value is None:
+        if default is None:
+            raise ValueError
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {'1', 'true', 'yes', 'on'}:
+            return True
+        if normalized in {'0', 'false', 'no', 'off'}:
+            return False
+    raise ValueError
+
+
 def normalize_appointment_status(status):
     return 'Booked' if status == 'Scheduled' else (status or 'Booked')
 
@@ -3186,7 +3205,7 @@ def staff_availability_api(staff_id):
             day = int(payload.get('day_of_week'))
             start_time = payload.get('start_time', '09:00')
             end_time = payload.get('end_time', '20:00')
-            is_working = bool(payload.get('is_working', True))
+            is_working = parse_boolean(payload.get('is_working'), default=True)
             datetime.strptime(start_time, '%H:%M')
             datetime.strptime(end_time, '%H:%M')
             if day not in range(7) or start_time >= end_time:
@@ -3226,7 +3245,13 @@ def staff_break_create_api(staff_id):
         datetime.strptime(end_time, '%H:%M')
         if day not in range(7) or start_time >= end_time:
             raise ValueError
-        row = StaffBreak(staff_id=staff_id, day_of_week=day, start_time=start_time, end_time=end_time, is_active=bool(payload.get('is_active', True)))
+        row = StaffBreak(
+            staff_id=staff_id,
+            day_of_week=day,
+            start_time=start_time,
+            end_time=end_time,
+            is_active=parse_boolean(payload.get('is_active'), default=True),
+        )
         db.session.add(row)
         db.session.commit()
         return jsonify({'ok': True, 'id': row.id})

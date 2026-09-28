@@ -376,3 +376,27 @@ def test_refunding_partially_paid_invoice_preserves_unpaid_balance():
             assert salon.invoice_balance(invoice) == 1000
             assert salon.InvoiceRefund.query.filter_by(invoice_id=invoice_id).count() == 1
             assert salon.InventoryItem.query.first().stock_qty == starting_stock
+
+
+def test_staff_availability_api_respects_false_boolean_values():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        response = client.post(
+            "/api/staff/1/availability",
+            json={"day_of_week": 0, "start_time": "09:00", "end_time": "18:00", "is_working": "false"},
+        )
+        assert response.status_code == 200
+        assert response.get_json()["is_working"] is False
+
+        response = client.post(
+            "/api/staff/1/breaks",
+            json={"day_of_week": 0, "start_time": "13:00", "end_time": "14:00", "is_active": "false"},
+        )
+        assert response.status_code == 200
+
+        with salon.app.app_context():
+            schedule = salon.StaffSchedule.query.filter_by(staff_id=1, day_of_week=0).first()
+            staff_break = salon.StaffBreak.query.filter_by(staff_id=1, day_of_week=0).first()
+            assert schedule is not None and schedule.is_working is False
+            assert staff_break is not None and staff_break.is_active is False
