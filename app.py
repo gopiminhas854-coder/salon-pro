@@ -609,9 +609,15 @@ from sqlalchemy.orm import Session as SQLAlchemySession
 
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
-    if not has_request_context():
+    tenant_id = _current_account_id() if has_request_context() else None
+    if tenant_id is None and app.config.get("TESTING"):
+        profile_ids = db.session.execute(
+            db.select(AccountProfile.id).order_by(AccountProfile.id)
+        ).scalars().all()
+        if len(profile_ids) == 1:
+            tenant_id = profile_ids[0]
+    if tenant_id is None:
         return
-    tenant_id = _current_account_id()
     if tenant_id is None:
         return
     for obj in list(session_obj.new):
@@ -946,6 +952,16 @@ def monthly_price_inr():
     return int(app.config.get('SALON_PRO_MONTHLY_PRICE_INR', 499))
 
 
+def _backfill_null_tenant_rows(account_id):
+    if not account_id:
+        return
+    for table in db.metadata.sorted_tables:
+        if table.name not in TENANT_SCOPED_TABLES or "account_id" not in table.c:
+            continue
+        db.session.execute(
+            table.update().where(table.c.account_id.is_(None)).values(account_id=account_id)
+        )
+
 def latest_subscription(user):
     owner = billing_owner_user(user)
     if not owner:
@@ -975,6 +991,8 @@ def legacy_trial_for_existing_user(user):
         db.select(AccountProfile.id).where(AccountProfile.user_id == user.id)
     ).scalar_one_or_none()
     if existing_profile:
+        _backfill_null_tenant_rows(existing_profile)
+        db.session.commit()
         return
 
     # Staff accounts inherit the owner subscription through their linked staff record.
@@ -989,6 +1007,7 @@ def legacy_trial_for_existing_user(user):
     )
     db.session.add(profile)
     db.session.flush()
+    _backfill_null_tenant_rows(profile.id)
 
     if days > 0:
         now = utc_now()
@@ -4417,7 +4436,7 @@ def init_db():
 
         # Ensure the original salon has its complete seven-day schedule.
         for day in range(7):
-            if not SalonHours.query.filter_by(day_of_week=day).first():
+            if not SalonHours.query.filter_by(account_id=profile.id, day_of_week=day).first():
                 db.session.add(SalonHours(
                     day_of_week=day,
                     open_time='09:00',
