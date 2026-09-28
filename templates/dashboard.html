@@ -34,7 +34,7 @@
  <div class="col-xl-4">
   <div class="card h-100"><div class="card-header"><strong>🎂 Today</strong></div><div class="card-body">
    {% for c in birthday_today %}<div class="d-flex justify-content-between py-2 border-bottom"><div><strong>{{ c.name }}</strong><div class="text-muted small">Birthday</div></div><a class="btn btn-sm btn-outline-success" href="{{ url_for('whatsapp_send',customer_id=c.id,key='birthday') }}">WhatsApp</a></div>{% endfor %}
-   {% for c in anniversary_today %}<div class="d-flex justify-content-between py-2 border-bottom"><div><strong>{{ c.name }}</strong><div class="text-muted small">Anniversary 💍</div></div><a class="btn btn-sm btn-outline-success" href="{{ url_for('whatsapp_send',customer_id=c.id,key='birthday') }}">WhatsApp</a></div>{% endfor %}
+   {% for c in anniversary_today %}<div class="d-flex justify-content-between py-2 border-bottom"><div><strong>{{ c.name }}</strong><div class="text-muted small">Anniversary 💍</div></div><a class="btn btn-sm btn-outline-success" href="{{ url_for('whatsapp_send',customer_id=c.id,key='anniversary') }}">WhatsApp</a></div>{% endfor %}
    {% if not birthday_today and not anniversary_today %}<div class="text-muted small">No birthdays or anniversaries today.</div>{% endif %}
   </div></div>
  </div>
