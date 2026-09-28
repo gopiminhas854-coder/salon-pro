@@ -36,6 +36,8 @@ def test_login_page_is_not_blank_and_static_css_loads():
         css = client.get("/static/css/style.css")
         assert css.status_code == 200
         assert css.data.strip()
+        assert b"safe-area-inset-top" in css.data
+        assert b"safe-area-inset-bottom" in css.data
 
 
 def test_dashboard_requires_login_then_renders_after_login():
