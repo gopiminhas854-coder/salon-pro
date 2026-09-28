@@ -88,7 +88,7 @@ def test_customers_are_isolated_by_salon_account():
             f"/customers/delete/{customer2_id}",
             follow_redirects=True,
         )
-        assert deleted.status_code == 200
+        assert deleted.status_code == 404
 
     with salon.app.app_context():
         assert salon.db.session.get(salon.Customer, customer2_id) is not None
