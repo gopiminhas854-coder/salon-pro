@@ -133,8 +133,14 @@ class TenantQuery(Query):
         tenant_id = _current_account_id()
         if tenant_id is None:
             return None
-        scoped = Query.filter(self, model.id == ident, model.account_id == tenant_id)
-        return Query.first(scoped)
+        # Use a direct SELECT for primary-key lookups so tenant scoping is
+        # applied before any LIMIT/OFFSET state carried by the legacy Query.
+        return db.session.execute(
+            db.select(model).where(
+                model.id == ident,
+                model.account_id == tenant_id,
+            )
+        ).scalar_one_or_none()
 
     def get_or_404(self, ident, description=None):
         value = self.get(ident)
