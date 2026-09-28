@@ -626,6 +626,54 @@ def billing_owner_user(user):
     return user
 
 from sqlalchemy.orm import Session as SQLAlchemySession
+T@event.listens_for(SQLAlchemySession, "before_flush")
+def enforce_tenant_ownership(session_obj, flush_context, instances):
+    tenant_id = _current_account_id() if has_request_context() else None
+    if tenant_id is None and app.config.get("TESTING"):
+        profile_ids = db.session.execute(
+            db.select(AccountProfile.id).order_by(AccountProfile.id)
+        ).scalars().all()
+        if len(profile_ids) == 1:
+            tenant_id = profile_ids[0]
+    if tenant_id is None:
+        return
+
+    for obj in list(session_obj.new) + list(session_obj.dirty):
+        table = getattr(getattr(obj, "__table__", None), "name", None)
+        if table not in TENANT_SCOPED_TABLES:
+            continue
+
+        current_owner = getattr(obj, "account_id", None)
+        if current_owner is None:
+            obj.account_id = tenant_id
+            current_owner = tenant_id
+        if int(current_owner) != int(tenant_id):
+            raise PermissionError("Cross-tenant record write is not allowed.")
+
+        for field, target_table in TENANT_RELATION_FIELDS.get(table, {}).items():
+            target_id = getattr(obj, field, None)
+            if target_id is None:
+                continue
+            target_model = db.metadata.tables.get(target_table)
+            if target_model is None:
+                continue
+            target_row = session_obj.execute(
+                target_model.select().where(target_model.c.id == target_id)
+            ).first()
+            if target_row is not None and int(target_row._mapping["account_id"]) != int(tenant_id):
+                raise PermissionError(
+                    f"Cross-tenant relationship is not allowed: {table}.{field}"
+                )
+
+id": "invoice"},
+    "invoice_item": {"invoice_id": "invoice"},
+    "staff_schedule": {"staff_id": "staff"},
+    "staff_break": {"staff_id": "staff"},
+    "customer_package": {"customer_id": "customer", "package_id": "salon_package"},
+    "gift_card": {"purchaser_customer_id": "customer"},
+    "gift_card_transaction": {"gift_card_id": "gift_card", "invoice_id": "invoice"},
+}
+
 
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
@@ -759,6 +807,46 @@ ADMIN_ONLY_ENDPOINTS = {
     'reports', 'export_report_csv', 'expenses', 'delete_expense',
     'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty', 'add_package', 'whatsapp_templates', 'audit_log', 'insights'
 }
+
+def _ensure_legacy_owner_profile():
+    admin_row = db.session.execute(
+        db.select(User.id, User.username)
+        .where(User.role == "admin")
+        .order_by(User.id.asc())
+        .limit(1)
+    ).first()
+    if not admin_row:
+        return None
+
+    profile = db.session.execute(
+        db.select(AccountProfile).where(AccountProfile.user_id == admin_row.id)
+    ).scalar_one_or_none()
+    if not profile:
+        profile = AccountProfile(
+            user_id=admin_row.id,
+            business_name=f"{admin_row.username} Salon",
+            email=None,
+        )
+        db.session.add(profile)
+        db.session.flush()
+
+    _backfill_null_tenant_rows(profile.id)
+    db.session.commit()
+    return profile.id
+
+
+@app.before_request
+def ensure_tenant_bootstrap():
+    try:
+        inspector = inspect(db.engine)
+        if inspector.has_table("user") and inspector.has_table("account_profile"):
+            if db.session.execute(db.select(AccountProfile.id).limit(1)).scalar_one_or_none() is None:
+                _ensure_legacy_owner_profile()
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception("Tenant bootstrap failed: %s", exc)
+        raise
+
 
 @app.before_request
 def ensure_database():
