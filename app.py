@@ -2152,11 +2152,17 @@ def dashboard():
             avg_visit_interval = None
         service = service_map.get(last_visit.service_id)
         low, high = service_retention_window(service, avg_visit_interval)
+        service_counts = {}
+        for visit in history:
+            if visit.service:
+                service_counts[visit.service.name] = service_counts.get(visit.service.name, 0) + 1
+        favorite_service = max(service_counts, key=service_counts.get) if service_counts else None
         metrics = {
             'visits': len(history),
             'last_visit': last_visit,
             'days_since_visit': days_since_visit,
             'avg_visit_interval_days': avg_visit_interval,
+            'favorite_service': favorite_service,
         }
         if days_since_visit >= high:
             retention_at_risk.append((customer, metrics))
@@ -4253,6 +4259,7 @@ DEFAULT_WHATSAPP_TEMPLATES = {
     'confirmation': ('Appointment confirmation', 'Hello {{name}}, please confirm your {{service}} appointment on {{date}} at {{time}}.'),
     'cancellation': ('Cancellation', 'Hello {{name}}, your {{service}} appointment on {{date}} at {{time}} has been cancelled. Please contact {{salon_name}} to rebook.'),
     'birthday': ('Birthday', 'Happy Birthday {{name}}! 🎂 We would love to celebrate with you at {{salon_name}}.'),
+    'anniversary': ('Anniversary', 'Happy Anniversary {{name}}! 💍 We wish you a beautiful celebration. — {{salon_name}}'),
     'return': ('Return reminder', 'Hello {{name}}, it has been {{days_since}} days since your last visit. We would love to see you again at {{salon_name}}.'),
     'payment': ('Payment receipt', 'Hello {{name}}, your payment has been received. Thank you for visiting {{salon_name}}.'),
     'package_expiry': ('Package expiry', 'Hello {{name}}, your {{package}} expires on {{expiry}}. Contact {{salon_name}} if you would like to renew.'),
@@ -4478,22 +4485,40 @@ def settings():
             google_identity = GoogleIdentity.query.filter_by(user_id=session['user_id']).first()
             return render_template('settings.html', setting=setting, hours=hours, closures=closures, google_identity=google_identity)
 
-        # Save the seven-day business-hours schedule.
-        for day in range(7):
+        # Validate the entire seven-day schedule before mutating database rows.
+        parsed_hours = {}
+        try:
+            for day in range(7):
+                open_time = request.form.get(f'open_{day}', '09:00').strip()
+                close_time = request.form.get(f'close_{day}', '20:00').strip()
+                closed = request.form.get(f'closed_{day}') == '1'
+                open_t = datetime.strptime(open_time, '%H:%M').time()
+                close_t = datetime.strptime(close_time, '%H:%M').time()
+                if not closed and open_t >= close_t:
+                    raise ValueError(f'Business hours for day {day + 1} must have closing time after opening time.')
+                parsed_hours[day] = (open_time, close_time, closed)
+        except (TypeError, ValueError) as exc:
+            db.session.rollback()
+            flash(str(exc) or 'Enter valid business hours.', 'danger')
+            hours = {h.day_of_week: h for h in SalonHours.query.all()}
+            closures = SalonClosure.query.order_by(SalonClosure.closure_date).all()
+            google_identity = GoogleIdentity.query.filter_by(user_id=session['user_id']).first()
+            return render_template(
+                'settings.html',
+                setting=setting,
+                hours=hours,
+                closures=closures,
+                google_identity=google_identity
+            )
+
+        for day, (open_time, close_time, closed) in parsed_hours.items():
             hour = SalonHours.query.filter_by(day_of_week=day).first()
             if not hour:
                 hour = SalonHours(day_of_week=day)
                 db.session.add(hour)
-            hour.open_time = request.form.get(f'open_{day}', '09:00')
-            hour.close_time = request.form.get(f'close_{day}', '20:00')
-            try:
-                open_t = datetime.strptime(hour.open_time, '%H:%M').time()
-                close_t = datetime.strptime(hour.close_time, '%H:%M').time()
-            except ValueError:
-                raise ValueError
-            if not hour.is_closed and open_t >= close_t:
-                raise ValueError
-            hour.is_closed = request.form.get(f'closed_{day}') == '1'
+            hour.open_time = open_time
+            hour.close_time = close_time
+            hour.is_closed = closed
 
         # Add/update a closure date when supplied.
         closure_value = request.form.get('closure_date', '').strip()
@@ -4512,7 +4537,22 @@ def settings():
                 google_identity = GoogleIdentity.query.filter_by(user_id=session['user_id']).first()
                 return render_template('settings.html', setting=setting, hours=hours, closures=closures, google_identity=google_identity)
 
-        db.session.commit()
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            app.logger.exception('Salon settings save failed')
+            flash('Settings could not be saved. No changes were made.', 'danger')
+            hours = {h.day_of_week: h for h in SalonHours.query.all()}
+            closures = SalonClosure.query.order_by(SalonClosure.closure_date).all()
+            google_identity = GoogleIdentity.query.filter_by(user_id=session['user_id']).first()
+            return render_template(
+                'settings.html',
+                setting=setting,
+                hours=hours,
+                closures=closures,
+                google_identity=google_identity
+            )
         flash('Salon settings and business hours saved.', 'success')
         return redirect(url_for('settings'))
 
