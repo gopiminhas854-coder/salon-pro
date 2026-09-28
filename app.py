@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory, has_request_context, abort, g
 from flask_sqlalchemy import SQLAlchemy
+from flask_sqlalchemy.query import Query
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timedelta, timezone
 from functools import wraps
@@ -15,7 +16,7 @@ import hashlib
 import hmac
 import requests
 from urllib.parse import quote
-from sqlalchemy import func, inspect, event
+from sqlalchemy import func, inspect, event, false
 from flask_migrate import Migrate
 
 def commit_or_rollback():
@@ -81,6 +82,88 @@ class TenantScopedMixin:
         index=True,
     )
 
+class TenantQuery(Query):
+    """Fail-closed tenant scoping for Salon Pro's legacy Model.query API."""
+    def _tenant_model(self):
+        try:
+            entity = self.column_descriptions[0].get("entity")
+        except (IndexError, AttributeError):
+            return None
+        if entity is None or not getattr(entity, "__tenant_scoped__", False):
+            return None
+        return entity
+
+    def _scoped_query(self):
+        model = self._tenant_model()
+        if model is None or not has_request_context():
+            return self
+        tenant_id = _current_account_id()
+        scoped = self._generate()
+        criterion = false() if tenant_id is None else (model.account_id == tenant_id)
+        # Query.filter() cannot be called after limit()/offset(); append directly
+        # to the query's WHERE criteria on a cloned Query instead.
+        scoped._where_criteria = tuple(scoped._where_criteria) + (criterion,)
+        return scoped
+
+    def all(self):
+        return Query.all(self._scoped_query())
+
+    def first(self):
+        return Query.first(self._scoped_query())
+
+    def one(self):
+        return Query.one(self._scoped_query())
+
+    def one_or_none(self):
+        return Query.one_or_none(self._scoped_query())
+
+    def count(self):
+        return Query.count(self._scoped_query())
+
+    def scalar(self):
+        return Query.scalar(self._scoped_query())
+
+    def __iter__(self):
+        return Query.__iter__(self._scoped_query())
+
+    def get(self, ident):
+        model = self._tenant_model()
+        if model is None or not has_request_context():
+            return Query.get(self, ident)
+        tenant_id = _current_account_id()
+        if tenant_id is None:
+            return None
+        scoped = Query.filter(self, model.id == ident, model.account_id == tenant_id)
+        return Query.first(scoped)
+
+    def get_or_404(self, ident, description=None):
+        value = self.get(ident)
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def first_or_404(self, description=None):
+        value = self.first()
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def one_or_404(self, description=None):
+        try:
+            value = self.one()
+        except Exception:
+            value = None
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def update(self, values, synchronize_session="auto", **kwargs):
+        return Query.update(self._scoped_query(), values, synchronize_session=synchronize_session, **kwargs)
+
+    def delete(self, synchronize_session="auto", **kwargs):
+        return Query.delete(self._scoped_query(), synchronize_session=synchronize_session, **kwargs)
+
+db.Model.query_class = TenantQuery
 
 # ==================== MODELS ====================
 
@@ -546,48 +629,17 @@ def billing_owner_user(user):
         return profile.user
     return user
 
-from sqlalchemy.orm import Session as SQLAlchemySession, with_loader_criteria
-
-@event.listens_for(SQLAlchemySession, "do_orm_execute")
-def enforce_tenant_query_scope(orm_execute_state):
-    if not has_request_context():
-        return
-    if not getattr(orm_execute_state, "is_orm_statement", False):
-        return
-    if not (
-        orm_execute_state.is_select
-        or orm_execute_state.is_update
-        or orm_execute_state.is_delete
-    ):
-        return
-    if orm_execute_state.is_column_load or orm_execute_state.is_relationship_load:
-        return
-
-    tenant_id = getattr(g, "salon_account_id", None) or session.get("account_id")
-    if tenant_id is None:
-        return
-
-    statement = orm_execute_state.statement
-    for mapper in orm_execute_state.all_mappers:
-        model = TENANT_SCOPED_MAPPERS.get(mapper)
-        if model is None:
-            continue
-        statement = statement.options(
-            with_loader_criteria(
-                model,
-                lambda cls: cls.account_id == tenant_id,
-                include_aliases=True,
-                propagate_to_loaders=True,
-            )
-        )
-    orm_execute_state.statement = statement
-
+from sqlalchemy.orm import Session as SQLAlchemySession
 
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
     in_request = has_request_context()
     tenant_id = getattr(g, "salon_account_id", None) if in_request else None
 
+    # Tests sometimes create rows inside app_context() after a login request.
+    # In that mode, infer a tenant only when the database contains exactly one
+    # account profile. Multi-tenant test fixtures explicitly set account_id and
+    # are never overridden.
     if tenant_id is None and app.config.get("TESTING") and not in_request:
         needs_inferred_tenant = any(
             getattr(getattr(obj, "__table__", None), "name", None) in TENANT_SCOPED_TABLES
@@ -614,23 +666,12 @@ def enforce_tenant_ownership(session_obj, flush_context, instances):
             obj.account_id = tenant_id
             current_owner = tenant_id
 
-        if not in_request and app.config.get("TESTING"):
+        # Explicit account ownership in a multi-tenant test fixture is valid.
+        if not in_request and app.config.get("TESTING") and current_owner is not None:
             continue
 
         if int(current_owner) != int(tenant_id):
             raise PermissionError("Cross-tenant record write is not allowed.")
-
-TENANT_SCOPED_MODELS = [
-    BackupLog, Customer, Service, Staff, Appointment, WaitlistEntry,
-    Expense, InventoryItem, Invoice, StaffCommission, StaffAttendance,
-    CustomerLoyalty, InventorySale, Supplier, InventoryTransaction,
-    InventoryPurchase, InventorySaleLine, LoyaltyTransaction, SalonHours,
-    SalonClosure, SalonSetting, InvoiceRefund, InvoicePayment, InvoiceItem,
-    StaffSchedule, StaffBreak, SalonPackage, CustomerPackage, WhatsAppTemplate,
-    GiftCard, GiftCardTransaction, AuditLog,
-]
-TENANT_SCOPED_MAPPERS = {model.__mapper__: model for model in TENANT_SCOPED_MODELS}
-
 
 # ==================== AUTH ====================
 
