@@ -595,6 +595,10 @@ def _current_account_id():
     cached = getattr(g, "salon_account_id", None)
     if cached:
         return cached
+    session_account_id = session.get("account_id")
+    if session_account_id:
+        g.salon_account_id = session_account_id
+        return session_account_id
     user_id = session.get("user_id")
     if not user_id:
         return None
@@ -959,6 +963,9 @@ def establish_login_session(user):
     session['user_id'] = user.id
     session['username'] = user.username
     session['role'] = user.role or 'staff'
+    account_id = _account_id_for_user(user)
+    if account_id:
+        session['account_id'] = int(account_id)
 
 
 @app.route('/auth/google', methods=['POST'])
