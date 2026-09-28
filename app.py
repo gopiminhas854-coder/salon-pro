@@ -1742,7 +1742,7 @@ def smart_schedule_slots(service_id, target_date, preferred_staff_id=None, limit
         if all(member.id != row.id for row in staff_rows):
             staff_rows.append(member)
 
-    hours = SalonHours.query.filter_by(day_of_week=target_date.weekday()).first()
+    hours = tenant_query(SalonHours).filter_by(day_of_week=target_date.weekday()).first()
     if hours and hours.is_closed:
         return []
     opening = datetime.strptime(hours.open_time, '%H:%M').time() if hours else datetime.strptime('09:00', '%H:%M').time()
@@ -1750,7 +1750,7 @@ def smart_schedule_slots(service_id, target_date, preferred_staff_id=None, limit
     slots = []
     now = datetime.now()
     for member in staff_rows:
-        schedule = StaffSchedule.query.filter_by(staff_id=member.id, day_of_week=target_date.weekday()).first()
+        schedule = tenant_query(StaffSchedule).filter_by(staff_id=member.id, day_of_week=target_date.weekday()).first()
         if schedule and not schedule.is_working:
             continue
         start = datetime.strptime(schedule.start_time, '%H:%M').time() if schedule else opening
@@ -2091,8 +2091,8 @@ def dashboard():
     # loyalty), which could make the post-login dashboard slow enough to trigger
     # a Render gateway timeout on a larger salon database.
     retention_due, retention_at_risk = [], []
-    retention_candidates = Customer.query.all()
-    completed_visits = Appointment.query.filter_by(status='Completed').order_by(
+    retention_candidates = tenant_query(Customer).all()
+    completed_visits = tenant_query(Appointment).filter_by(status='Completed').order_by(
         Appointment.customer_id.asc(),
         Appointment.appointment_date.asc(),
         Appointment.appointment_time.asc(),
@@ -2102,7 +2102,7 @@ def dashboard():
         visit_history.setdefault(appt.customer_id, []).append(appt)
 
     service_ids = {appt.service_id for appt in completed_visits if appt.service_id}
-    service_rows = Service.query.filter(Service.id.in_(service_ids)).all() if service_ids else []
+    service_rows = tenant_query(Service).filter(Service.id.in_(service_ids)).all() if service_ids else []
     service_map = {service.id: service for service in service_rows}
 
     for customer in retention_candidates:
@@ -2680,7 +2680,7 @@ def customer_detail(id):
     customer_appointments = Appointment.query.filter_by(customer_id=id).order_by(
         Appointment.appointment_date.desc(), Appointment.appointment_time.desc()
     ).all()
-    customer_invoices = Invoice.query.filter_by(customer_id=id).order_by(Invoice.created_at.desc()).all()
+    customer_invoices = tenant_query(Invoice).filter_by(customer_id=id).order_by(Invoice.created_at.desc()).all()
     completed_visits = Appointment.query.filter_by(customer_id=id, status='Completed').count()
     # Use the same payment/refund accounting as invoices and BI. This prevents
     # refunded revenue from remaining in the customer profile and includes
@@ -3051,7 +3051,7 @@ def add_appointment():
         try:
             appointment_date=datetime.strptime(request.form['appointment_date'],'%Y-%m-%d').date(); appointment_time=request.form['appointment_time']; datetime.strptime(appointment_time,'%H:%M')
             staff_id=int(request.form['staff_id']); service_id=int(request.form['service_id']); customer_id=int(request.form['customer_id'])
-            service=Service.query.filter_by(id=service_id,is_active=True).first_or_404(); Staff.query.filter_by(id=staff_id,is_active=True).first_or_404(); Customer.query.get_or_404(customer_id)
+            service=tenant_query(Service).filter_by(id=service_id,is_active=True).first_or_404(); tenant_query(Staff).filter_by(id=staff_id,is_active=True).first_or_404(); tenant_query(Customer).filter_by(id=customer_id).first_or_404()
             allowed,reason=booking_allowed(appointment_date,appointment_time,service.duration_minutes or 30)
             if not allowed: raise ValueError(reason)
             conflict=appointment_conflict(staff_id,appointment_date,appointment_time,service.duration_minutes or 30)
@@ -3086,7 +3086,7 @@ def edit_appointment(id):
         try:
             appt_date=datetime.strptime(request.form['appointment_date'],'%Y-%m-%d').date(); appt_time=request.form['appointment_time']; datetime.strptime(appt_time,'%H:%M')
             staff_id=int(request.form['staff_id']); service_id=int(request.form['service_id']); customer_id=int(request.form['customer_id'])
-            service=Service.query.filter_by(id=service_id,is_active=True).first_or_404(); Staff.query.filter_by(id=staff_id,is_active=True).first_or_404(); Customer.query.get_or_404(customer_id)
+            service=tenant_query(Service).filter_by(id=service_id,is_active=True).first_or_404(); tenant_query(Staff).filter_by(id=staff_id,is_active=True).first_or_404(); tenant_query(Customer).filter_by(id=customer_id).first_or_404()
             allowed,reason=booking_allowed(appt_date,appt_time,service.duration_minutes or 30)
             if not allowed: raise ValueError(reason)
             conflict=appointment_conflict(staff_id,appt_date,appt_time,service.duration_minutes or 30,exclude_id=appt.id)
