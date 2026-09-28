@@ -627,8 +627,6 @@ def billing_owner_user(user):
 
 from sqlalchemy.orm import Session as SQLAlchemySession
 
-from sqlalchemy.orm import Session as SQLAlchemySession
-
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
     if not has_request_context():
@@ -773,6 +771,7 @@ def _ensure_legacy_owner_profile():
         db.select(AccountProfile).where(AccountProfile.user_id == admin_row.id)
     ).scalar_one_or_none()
     created_profile = False
+
     if not profile:
         profile = AccountProfile(
             user_id=admin_row.id,
@@ -785,12 +784,12 @@ def _ensure_legacy_owner_profile():
 
     _backfill_null_tenant_rows(profile.id)
 
-    # Accounts that pre-date tenant billing receive the configured one-time
-    # legacy trial. Newly registered accounts already have a profile before
-    # this hook runs, so they are not accidentally given a free trial.
+    # Existing pre-billing owners receive the configured legacy trial exactly once.
     if created_profile and app.config.get("SALON_PRO_BILLING_REQUIRED", True):
         existing_sub = db.session.execute(
-            db.select(Subscription.id).where(Subscription.user_id == admin_row.id).limit(1)
+            db.select(Subscription.id)
+            .where(Subscription.user_id == admin_row.id)
+            .limit(1)
         ).scalar_one_or_none()
         if existing_sub is None:
             days = int(app.config.get("SALON_PRO_LEGACY_TRIAL_DAYS", 30) or 0)
@@ -817,46 +816,7 @@ def ensure_tenant_bootstrap():
         if inspector.has_table("user") and inspector.has_table("account_profile"):
             if db.session.execute(db.select(AccountProfile.id).limit(1)).scalar_one_or_none() is None:
                 _ensure_legacy_owner_profile()
-    except Exception as exc:
-        db.session.rollback()
-        app.logger.exception("Tenant bootstrap failed: %s", exc)
-        raise
 
-
-def _ensure_legacy_owner_profile():
-    admin_row = db.session.execute(
-        db.select(User.id, User.username)
-        .where(User.role == "admin")
-        .order_by(User.id.asc())
-        .limit(1)
-    ).first()
-    if not admin_row:
-        return None
-
-    profile = db.session.execute(
-        db.select(AccountProfile).where(AccountProfile.user_id == admin_row.id)
-    ).scalar_one_or_none()
-    if not profile:
-        profile = AccountProfile(
-            user_id=admin_row.id,
-            business_name=f"{admin_row.username} Salon",
-            email=None,
-        )
-        db.session.add(profile)
-        db.session.flush()
-
-    _backfill_null_tenant_rows(profile.id)
-    db.session.commit()
-    return profile.id
-
-
-@app.before_request
-def ensure_tenant_bootstrap():
-    try:
-        inspector = inspect(db.engine)
-        if inspector.has_table("user") and inspector.has_table("account_profile"):
-            if db.session.execute(db.select(AccountProfile.id).limit(1)).scalar_one_or_none() is None:
-                _ensure_legacy_owner_profile()
             user_id = session.get("user_id")
             if user_id:
                 user = db.session.get(User, user_id)
@@ -865,6 +825,7 @@ def ensure_tenant_bootstrap():
         db.session.rollback()
         app.logger.exception("Tenant bootstrap failed: %s", exc)
         raise
+
 
 
 @app.before_request
