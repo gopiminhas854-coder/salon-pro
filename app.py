@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory, has_request_context, abort
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory, has_request_context, abort, g
 from flask_sqlalchemy import SQLAlchemy
 from flask_sqlalchemy.query import Query
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -98,9 +98,12 @@ class TenantQuery(Query):
         if model is None or not has_request_context():
             return self
         tenant_id = _current_account_id()
-        if tenant_id is None:
-            return Query.filter(self, false())
-        return Query.filter(self, model.account_id == tenant_id)
+        scoped = self._generate()
+        criterion = false() if tenant_id is None else (model.account_id == tenant_id)
+        # Query.filter() cannot be called after limit()/offset(); append directly
+        # to the query's WHERE criteria on a cloned Query instead.
+        scoped._where_criteria = tuple(scoped._where_criteria) + (criterion,)
+        return scoped
 
     def all(self):
         return Query.all(self._scoped_query())
@@ -589,11 +592,28 @@ def _account_id_for_user(user):
 def _current_account_id():
     if not has_request_context():
         return None
+    public_account_id = getattr(g, "salon_account_id", None)
+    if public_account_id:
+        return public_account_id
     user_id = session.get("user_id")
     if not user_id:
         return None
     user = db.session.get(User, user_id)
     return _account_id_for_user(user)
+
+def _public_account_id():
+    configured = (os.environ.get("SALON_PRO_PUBLIC_ACCOUNT_ID") or "").strip()
+    if configured.isdigit():
+        account_id = int(configured)
+        if db.session.get(AccountProfile, account_id):
+            return account_id
+    return db.session.execute(
+        db.select(AccountProfile.id)
+        .join(User, User.id == AccountProfile.user_id)
+        .where(User.role == "admin")
+        .order_by(AccountProfile.id.asc())
+        .limit(1)
+    ).scalar_one_or_none()
 
 def tenant_profile_for_user(user):
     account_id = _account_id_for_user(user)
@@ -1348,8 +1368,11 @@ def login():
         link = _staff_link_for_user(user.id) if user else None
         if user and (not link or (link.staff and link.staff.is_active)) and check_password_hash(user.password_hash, password):
             establish_login_session(user)
-            if not active_subscription(user) and app.config.get('SALON_PRO_BILLING_REQUIRED', True):
-                return redirect(url_for('subscription', reason='required'))
+            if app.config.get('SALON_PRO_BILLING_REQUIRED', True):
+                if not tenant_profile_for_user(user) and not _staff_link_for_user(user.id):
+                    legacy_trial_for_existing_user(user)
+                if not active_subscription(user):
+                    return redirect(url_for('subscription', reason='required'))
             flash('Welcome back!', 'success')
             return redirect(url_for('dashboard'))
         flash('Invalid username or password.', 'danger')
@@ -1695,6 +1718,12 @@ def move_appointment():
 
 @app.route('/book', methods=['GET', 'POST'])
 def public_booking():
+    public_account_id = _public_account_id()
+    if public_account_id is None:
+        flash('Online booking is not available yet.', 'danger')
+        return redirect(url_for('login'))
+    g.salon_account_id = public_account_id
+
     if request.method == 'POST':
         try:
             name = request.form['name'].strip()
