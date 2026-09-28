@@ -102,7 +102,7 @@ def _add_account_id(bind, table_name):
                 sa.Column(
                     "account_id",
                     sa.Integer(),
-                    sa.ForeignKey("account_profile.id"),
+                    sa.ForeignKey("account_profile.id", name=f"fk_{table_name}_account_id"),
                     nullable=True,
                 )
             )
