@@ -815,6 +815,7 @@ def _ensure_legacy_owner_profile():
     profile = db.session.execute(
         db.select(AccountProfile).where(AccountProfile.user_id == admin_row.id)
     ).scalar_one_or_none()
+    created_profile = False
     if not profile:
         profile = AccountProfile(
             user_id=admin_row.id,
@@ -823,8 +824,31 @@ def _ensure_legacy_owner_profile():
         )
         db.session.add(profile)
         db.session.flush()
+        created_profile = True
 
     _backfill_null_tenant_rows(profile.id)
+
+    # Accounts that pre-date tenant billing receive the configured one-time
+    # legacy trial. Newly registered accounts already have a profile before
+    # this hook runs, so they are not accidentally given a free trial.
+    if created_profile and app.config.get("SALON_PRO_BILLING_REQUIRED", True):
+        existing_sub = db.session.execute(
+            db.select(Subscription.id).where(Subscription.user_id == admin_row.id).limit(1)
+        ).scalar_one_or_none()
+        if existing_sub is None:
+            days = int(app.config.get("SALON_PRO_LEGACY_TRIAL_DAYS", 30) or 0)
+            if days > 0:
+                now = utc_now()
+                db.session.add(Subscription(
+                    user_id=admin_row.id,
+                    plan_key="legacy_trial",
+                    status="trial",
+                    amount_paise=0,
+                    currency="INR",
+                    start_at=now,
+                    expires_at=now + timedelta(days=days),
+                ))
+
     db.session.commit()
     return profile.id
 
