@@ -1,5 +1,6 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory, has_request_context, abort
 from flask_sqlalchemy import SQLAlchemy
+from flask_sqlalchemy.query import Query
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timedelta, timezone
 from functools import wraps
@@ -15,7 +16,7 @@ import hashlib
 import hmac
 import requests
 from urllib.parse import quote
-from sqlalchemy import func, inspect
+from sqlalchemy import func, inspect, event, false
 from flask_migrate import Migrate
 
 def commit_or_rollback():
@@ -61,6 +62,106 @@ app.config['SALON_PRO_LEGACY_TRIAL_DAYS'] = max(
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+TENANT_SCOPED_TABLES = {
+    "backup_log", "customer", "service", "staff", "appointment", "waitlist_entry",
+    "expense", "inventory_item", "invoice", "staff_commission", "staff_attendance",
+    "customer_loyalty", "inventory_sale", "supplier", "inventory_transaction",
+    "inventory_purchase", "invoice_item", "inventory_sale_line", "loyalty_transaction",
+    "salon_hours", "salon_closure", "salon_setting", "invoice_refund", "invoice_payment",
+    "staff_schedule", "staff_break", "salon_package", "customer_package",
+    "whatsapp_template", "gift_card", "gift_card_transaction", "audit_log",
+}
+
+class TenantScopedMixin:
+    """Marks records that must belong to exactly one salon account."""
+    __tenant_scoped__ = True
+    account_id = db.Column(
+        db.Integer,
+        db.ForeignKey("account_profile.id"),
+        nullable=True,
+        index=True,
+    )
+
+class TenantQuery(Query):
+    """Fail-closed tenant scoping for Salon Pro's legacy Model.query API."""
+    def _tenant_model(self):
+        try:
+            entity = self.column_descriptions[0].get("entity")
+        except (IndexError, AttributeError):
+            return None
+        if entity is None or not getattr(entity, "__tenant_scoped__", False):
+            return None
+        return entity
+
+    def _scoped_query(self):
+        model = self._tenant_model()
+        if model is None or not has_request_context():
+            return self
+        tenant_id = _current_account_id()
+        if tenant_id is None:
+            return Query.filter(self, false())
+        return Query.filter(self, model.account_id == tenant_id)
+
+    def all(self):
+        return Query.all(self._scoped_query())
+
+    def first(self):
+        return Query.first(self._scoped_query())
+
+    def one(self):
+        return Query.one(self._scoped_query())
+
+    def one_or_none(self):
+        return Query.one_or_none(self._scoped_query())
+
+    def count(self):
+        return Query.count(self._scoped_query())
+
+    def scalar(self):
+        return Query.scalar(self._scoped_query())
+
+    def __iter__(self):
+        return Query.__iter__(self._scoped_query())
+
+    def get(self, ident):
+        model = self._tenant_model()
+        if model is None or not has_request_context():
+            return Query.get(self, ident)
+        tenant_id = _current_account_id()
+        if tenant_id is None:
+            return None
+        scoped = Query.filter(self, model.id == ident, model.account_id == tenant_id)
+        return Query.first(scoped)
+
+    def get_or_404(self, ident, description=None):
+        value = self.get(ident)
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def first_or_404(self, description=None):
+        value = self.first()
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def one_or_404(self, description=None):
+        try:
+            value = self.one()
+        except Exception:
+            value = None
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def update(self, values, synchronize_session="auto", **kwargs):
+        return Query.update(self._scoped_query(), values, synchronize_session=synchronize_session, **kwargs)
+
+    def delete(self, synchronize_session="auto", **kwargs):
+        return Query.delete(self._scoped_query(), synchronize_session=synchronize_session, **kwargs)
+
+db.Model.query_class = TenantQuery
+
 # ==================== MODELS ====================
 
 class User(db.Model):
@@ -96,7 +197,7 @@ class Subscription(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = db.relationship('User', backref=db.backref('subscriptions', lazy=True))
 
-class BackupLog(db.Model):
+class BackupLog(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     file_name = db.Column(db.String(180), nullable=False)
     size_bytes = db.Column(db.Integer, default=0)
@@ -120,7 +221,7 @@ class UserStaffLink(db.Model):
     user = db.relationship('User', backref=db.backref('staff_link', uselist=False))
     staff = db.relationship('Staff', backref=db.backref('user_link', uselist=False))
 
-class Customer(db.Model):
+class Customer(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(20), nullable=False)
@@ -133,7 +234,7 @@ class Customer(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     appointments = db.relationship('Appointment', backref='customer', lazy=True)
 
-class Service(db.Model):
+class Service(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
@@ -144,7 +245,7 @@ class Service(db.Model):
     retention_max_days = db.Column(db.Integer, default=45)
     is_active = db.Column(db.Boolean, default=True)
 
-class Staff(db.Model):
+class Staff(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(20))
@@ -153,7 +254,7 @@ class Staff(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     appointments = db.relationship('Appointment', backref='staff', lazy=True)
 
-class Appointment(db.Model):
+class Appointment(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
@@ -167,7 +268,7 @@ class Appointment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     service = db.relationship('Service')
 
-class WaitlistEntry(db.Model):
+class WaitlistEntry(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     service_id = db.Column(db.Integer, db.ForeignKey('service.id'), nullable=False)
@@ -183,7 +284,7 @@ class WaitlistEntry(db.Model):
     preferred_staff = db.relationship('Staff')
 
 
-class Expense(db.Model):
+class Expense(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(120), nullable=False)
     category = db.Column(db.String(60), nullable=False)
@@ -192,10 +293,10 @@ class Expense(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class InventoryItem(db.Model):
+class InventoryItem(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
-    sku = db.Column(db.String(50), unique=True)
+    sku = db.Column(db.String(50))
     category = db.Column(db.String(60))
     stock_qty = db.Column(db.Float, default=0)
     reorder_level = db.Column(db.Float, default=5)
@@ -203,8 +304,9 @@ class InventoryItem(db.Model):
     sale_price = db.Column(db.Float, default=0)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("account_id", "sku", name="uq_inventory_item_account_sku"),)
 
-class Invoice(db.Model):
+class Invoice(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     appointment_id = db.Column(db.Integer, db.ForeignKey('appointment.id'), unique=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
@@ -220,14 +322,14 @@ class Invoice(db.Model):
     appointment = db.relationship('Appointment')
     customer = db.relationship('Customer')
 
-class StaffCommission(db.Model):
+class StaffCommission(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), unique=True, nullable=False)
     commission_rate = db.Column(db.Float, default=0)
     commission_type = db.Column(db.String(20), default='Percentage')
     staff = db.relationship('Staff', backref=db.backref('commission_settings', uselist=False))
 
-class StaffAttendance(db.Model):
+class StaffAttendance(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
     attendance_date = db.Column(db.Date, nullable=False)
@@ -237,7 +339,7 @@ class StaffAttendance(db.Model):
     notes = db.Column(db.Text)
     staff = db.relationship('Staff', backref='attendance_records')
 
-class CustomerLoyalty(db.Model):
+class CustomerLoyalty(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), unique=True, nullable=False)
     points = db.Column(db.Integer, default=0)
@@ -245,7 +347,7 @@ class CustomerLoyalty(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     customer = db.relationship('Customer', backref=db.backref('loyalty', uselist=False))
 
-class InventorySale(db.Model):
+class InventorySale(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
@@ -255,7 +357,7 @@ class InventorySale(db.Model):
     invoice = db.relationship('Invoice', backref='inventory_sales')
     inventory_item = db.relationship('InventoryItem')
 
-class Supplier(db.Model):
+class Supplier(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(30))
@@ -265,7 +367,7 @@ class Supplier(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class InventoryTransaction(db.Model):
+class InventoryTransaction(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
     transaction_type = db.Column(db.String(30), nullable=False)
@@ -277,7 +379,7 @@ class InventoryTransaction(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     inventory_item = db.relationship('InventoryItem', backref='inventory_transactions')
 
-class InventoryPurchase(db.Model):
+class InventoryPurchase(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))
     inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
@@ -291,7 +393,7 @@ class InventoryPurchase(db.Model):
     supplier = db.relationship('Supplier', backref='purchases')
     inventory_item = db.relationship('InventoryItem', backref='purchases')
 
-class InventorySaleLine(db.Model):
+class InventorySaleLine(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     inventory_sale_id = db.Column(db.Integer, db.ForeignKey('inventory_sale.id'), unique=True, nullable=False)
     invoice_item_id = db.Column(db.Integer, db.ForeignKey('invoice_item.id'), unique=True, nullable=False)
@@ -302,7 +404,7 @@ class InventorySaleLine(db.Model):
     invoice_item = db.relationship('InvoiceItem', backref=db.backref('inventory_sale_line', uselist=False))
     inventory_item = db.relationship('InventoryItem')
 
-class LoyaltyTransaction(db.Model):
+class LoyaltyTransaction(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     points = db.Column(db.Integer, nullable=False)
@@ -312,19 +414,21 @@ class LoyaltyTransaction(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     customer = db.relationship('Customer', backref='loyalty_transactions')
 
-class SalonHours(db.Model):
+class SalonHours(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    day_of_week = db.Column(db.Integer, unique=True, nullable=False)
+    day_of_week = db.Column(db.Integer, nullable=False)
     open_time = db.Column(db.String(5), default='09:00')
     close_time = db.Column(db.String(5), default='20:00')
     is_closed = db.Column(db.Boolean, default=False)
+    __table_args__ = (db.UniqueConstraint("account_id", "day_of_week", name="uq_salon_hours_account_day"),)
 
-class SalonClosure(db.Model):
+class SalonClosure(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    closure_date = db.Column(db.Date, unique=True, nullable=False)
+    closure_date = db.Column(db.Date, nullable=False)
     reason = db.Column(db.String(200))
+    __table_args__ = (db.UniqueConstraint("account_id", "closure_date", name="uq_salon_closure_account_date"),)
 
-class SalonSetting(db.Model):
+class SalonSetting(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     salon_name = db.Column(db.String(120), default='Salon Pro')
     phone = db.Column(db.String(30))
@@ -338,8 +442,9 @@ class SalonSetting(db.Model):
     gst_number = db.Column(db.String(30))
     logo_data_url = db.Column(db.Text)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("account_id", name="uq_salon_setting_account"),)
 
-class InvoiceRefund(db.Model):
+class InvoiceRefund(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
@@ -348,7 +453,7 @@ class InvoiceRefund(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     invoice = db.relationship('Invoice', backref='refunds')
 
-class InvoicePayment(db.Model):
+class InvoicePayment(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
@@ -357,7 +462,7 @@ class InvoicePayment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     invoice = db.relationship('Invoice', backref='payments')
 
-class InvoiceItem(db.Model):
+class InvoiceItem(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     description = db.Column(db.String(150), nullable=False)
@@ -366,7 +471,7 @@ class InvoiceItem(db.Model):
     total = db.Column(db.Float, nullable=False)
     invoice = db.relationship('Invoice', backref=db.backref('items', lazy=True, cascade='all, delete-orphan'))
 
-class StaffSchedule(db.Model):
+class StaffSchedule(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
     day_of_week = db.Column(db.Integer, nullable=False)
@@ -375,7 +480,7 @@ class StaffSchedule(db.Model):
     is_working = db.Column(db.Boolean, default=True)
     staff = db.relationship('Staff', backref='schedules')
 
-class StaffBreak(db.Model):
+class StaffBreak(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
     day_of_week = db.Column(db.Integer, nullable=False)
@@ -384,7 +489,7 @@ class StaffBreak(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     staff = db.relationship('Staff', backref='breaks')
 
-class SalonPackage(db.Model):
+class SalonPackage(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     package_type = db.Column(db.String(20), default='Package')
@@ -396,7 +501,7 @@ class SalonPackage(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class CustomerPackage(db.Model):
+class CustomerPackage(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     package_id = db.Column(db.Integer, db.ForeignKey('salon_package.id'), nullable=False)
@@ -409,16 +514,17 @@ class CustomerPackage(db.Model):
     customer = db.relationship('Customer', backref='customer_packages')
     package = db.relationship('SalonPackage', backref='customer_packages')
 
-class WhatsAppTemplate(db.Model):
+class WhatsAppTemplate(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    key = db.Column(db.String(40), unique=True, nullable=False)
+    key = db.Column(db.String(40), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     category = db.Column(db.String(40), nullable=False)
     body = db.Column(db.Text, nullable=False)
     is_active = db.Column(db.Boolean, default=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("account_id", "key", name="uq_whatsapp_template_account_key"),)
 
-class GiftCard(db.Model):
+class GiftCard(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(40), unique=True, nullable=False)
     purchaser_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
@@ -430,7 +536,7 @@ class GiftCard(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     purchaser = db.relationship('Customer', foreign_keys=[purchaser_customer_id])
 
-class GiftCardTransaction(db.Model):
+class GiftCardTransaction(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     gift_card_id = db.Column(db.Integer, db.ForeignKey('gift_card.id'), nullable=False)
     transaction_type = db.Column(db.String(20), nullable=False)
@@ -441,7 +547,7 @@ class GiftCardTransaction(db.Model):
     gift_card = db.relationship('GiftCard', backref='transactions')
     invoice = db.relationship('Invoice')
 
-class AuditLog(db.Model):
+class AuditLog(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     action = db.Column(db.String(80), nullable=False)
@@ -450,6 +556,74 @@ class AuditLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user = db.relationship('User')
 
+
+# ---------------------------------------------------------------------------
+# Tenant context and automatic ownership enforcement
+# ---------------------------------------------------------------------------
+def _staff_link_for_user(user_id):
+    if not user_id:
+        return None
+    return db.session.execute(
+        db.select(UserStaffLink).where(UserStaffLink.user_id == user_id)
+    ).scalar_one_or_none()
+
+def _account_id_for_user(user):
+    if not user:
+        return None
+
+    if (user.role or "").lower() == "admin":
+        profile_id = db.session.execute(
+            db.select(AccountProfile.id).where(AccountProfile.user_id == user.id)
+        ).scalar_one_or_none()
+        if profile_id:
+            return profile_id
+
+    link = _staff_link_for_user(user.id)
+    if link and link.staff and link.staff.account_id:
+        return link.staff.account_id
+
+    profile_id = db.session.execute(
+        db.select(AccountProfile.id).where(AccountProfile.user_id == user.id)
+    ).scalar_one_or_none()
+    return profile_id
+
+def _current_account_id():
+    if not has_request_context():
+        return None
+    user_id = session.get("user_id")
+    if not user_id:
+        return None
+    user = db.session.get(User, user_id)
+    return _account_id_for_user(user)
+
+def tenant_profile_for_user(user):
+    account_id = _account_id_for_user(user)
+    return db.session.get(AccountProfile, account_id) if account_id else None
+
+def billing_owner_user(user):
+    profile = tenant_profile_for_user(user)
+    if profile and profile.user:
+        return profile.user
+    return user
+
+from sqlalchemy.orm import Session as SQLAlchemySession
+
+@event.listens_for(SQLAlchemySession, "before_flush")
+def enforce_tenant_ownership(session_obj, flush_context, instances):
+    if not has_request_context():
+        return
+    tenant_id = _current_account_id()
+    if tenant_id is None:
+        return
+    for obj in list(session_obj.new):
+        table = getattr(getattr(obj, "__table__", None), "name", None)
+        if table not in TENANT_SCOPED_TABLES:
+            continue
+        current_owner = getattr(obj, "account_id", None)
+        if current_owner is None:
+            obj.account_id = tenant_id
+        elif int(current_owner) != int(tenant_id):
+            raise PermissionError("Cross-tenant record creation is not allowed.")
 
 # ==================== AUTH ====================
 
@@ -461,7 +635,7 @@ def current_user():
     if not user:
         session.clear()
         return None
-    link = UserStaffLink.query.filter_by(user_id=user.id).first()
+    link = _staff_link_for_user(user.id)
     if link and (not link.staff or not link.staff.is_active):
         session.clear()
         return None
