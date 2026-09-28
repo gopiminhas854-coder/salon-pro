@@ -79,6 +79,15 @@ def test_customers_are_isolated_by_salon_account():
             assert sess.get("user_id") == owner1_id
             assert sess.get("account_id") == account1_id
 
+        with salon.app.test_request_context(f"/customers/{customer1_id}"):
+            salon.session["user_id"] = owner1_id
+            salon.session["account_id"] = account1_id
+            salon.g.salon_account_id = account1_id
+            row = salon.db.session.execute(
+                salon.db.select(salon.Customer).where(salon.Customer.id == customer1_id)
+            ).scalar_one_or_none()
+            assert row is not None, f"tenant-scoped select hid own customer: account={account1_id}"
+
         own = client1.get(f"/customers/{customer1_id}")
         assert own.status_code == 200
         assert b"Customer One" in own.data
