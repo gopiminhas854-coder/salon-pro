@@ -643,12 +643,18 @@ def tenant_query(model):
     return model.query.filter(model.account_id == account_id)
 
 def tenant_get_or_404(model, ident, description=None):
-    """Fetch one tenant-owned row without relying on Query.get identity semantics."""
+    """Fetch one tenant-owned row using the authenticated user's ownership."""
     obj = db.session.get(model, ident)
     if obj is None:
         abort(404, description=description)
     if getattr(model, "__tenant_scoped__", False) and has_request_context():
-        account_id = _current_account_id()
+        account_id = None
+        user_id = session.get("user_id")
+        if user_id:
+            user = db.session.get(User, user_id)
+            account_id = _account_id_for_user(user)
+        elif request.endpoint == "public_booking":
+            account_id = _public_account_id()
         if account_id is None or int(getattr(obj, "account_id", -1)) != int(account_id):
             abort(404, description=description)
     return obj
