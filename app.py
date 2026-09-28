@@ -561,21 +561,21 @@ def enforce_tenant_query_scope(orm_execute_state):
     if orm_execute_state.is_column_load or orm_execute_state.is_relationship_load:
         return
 
-    # Tenant context must already be resolved by the request bootstrap/login
-    # layer. Do not query AccountProfile from inside do_orm_execute itself,
-    # otherwise tenant resolution would recursively trigger this hook.
     tenant_id = getattr(g, "salon_account_id", None) or session.get("account_id")
     if tenant_id is None:
         return
 
-    orm_execute_state.statement = orm_execute_state.statement.options(
-        with_loader_criteria(
-            TenantScopedMixin,
-            lambda cls: cls.account_id == tenant_id,
-            include_aliases=True,
-            propagate_to_loaders=True,
+    statement = orm_execute_state.statement
+    for model in TENANT_SCOPED_MODELS:
+        statement = statement.options(
+            with_loader_criteria(
+                model,
+                model.account_id == tenant_id,
+                include_aliases=True,
+                propagate_to_loaders=True,
+            )
         )
-    )
+    orm_execute_state.statement = statement
 
 
 @event.listens_for(SQLAlchemySession, "before_flush")
@@ -614,6 +614,16 @@ def enforce_tenant_ownership(session_obj, flush_context, instances):
 
         if int(current_owner) != int(tenant_id):
             raise PermissionError("Cross-tenant record write is not allowed.")
+
+TENANT_SCOPED_MODELS = [
+    BackupLog, Customer, Service, Staff, Appointment, WaitlistEntry,
+    Expense, InventoryItem, Invoice, StaffCommission, StaffAttendance,
+    CustomerLoyalty, InventorySale, Supplier, InventoryTransaction,
+    InventoryPurchase, InventorySaleLine, LoyaltyTransaction, SalonHours,
+    SalonClosure, SalonSetting, InvoiceRefund, InvoicePayment, InvoiceItem,
+    StaffSchedule, StaffBreak, SalonPackage, CustomerPackage, WhatsAppTemplate,
+    GiftCard, GiftCardTransaction, AuditLog,
+]
 
 
 # ==================== AUTH ====================
