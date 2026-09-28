@@ -1,5 +1,6 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify, send_file, send_from_directory, has_request_context, abort, g
 from flask_sqlalchemy import SQLAlchemy
+from flask_sqlalchemy.query import Query
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, date, timedelta, timezone
 from functools import wraps
@@ -15,7 +16,7 @@ import hashlib
 import hmac
 import requests
 from urllib.parse import quote
-from sqlalchemy import func, inspect
+from sqlalchemy import func, inspect, event, false
 from flask_migrate import Migrate
 
 def commit_or_rollback():
@@ -61,6 +62,111 @@ app.config['SALON_PRO_LEGACY_TRIAL_DAYS'] = max(
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+TENANT_SCOPED_TABLES = {
+    "backup_log", "customer", "service", "staff", "appointment", "waitlist_entry",
+    "expense", "inventory_item", "invoice", "staff_commission", "staff_attendance",
+    "customer_loyalty", "inventory_sale", "supplier", "inventory_transaction",
+    "inventory_purchase", "invoice_item", "inventory_sale_line", "loyalty_transaction",
+    "salon_hours", "salon_closure", "salon_setting", "invoice_refund", "invoice_payment",
+    "staff_schedule", "staff_break", "salon_package", "customer_package",
+    "whatsapp_template", "gift_card", "gift_card_transaction", "audit_log",
+}
+
+class TenantScopedMixin:
+    """Marks records that must belong to exactly one salon account."""
+    __tenant_scoped__ = True
+    account_id = db.Column(
+        db.Integer,
+        db.ForeignKey("account_profile.id"),
+        nullable=True,
+        index=True,
+    )
+
+class TenantQuery(Query):
+    """Fail-closed tenant scoping for Salon Pro's legacy Model.query API."""
+    def _tenant_model(self):
+        try:
+            entity = self.column_descriptions[0].get("entity")
+        except (IndexError, AttributeError):
+            return None
+        if entity is None or not getattr(entity, "__tenant_scoped__", False):
+            return None
+        return entity
+
+    def _scoped_query(self):
+        model = self._tenant_model()
+        if model is None or not has_request_context():
+            return self
+        tenant_id = _current_account_id()
+        scoped = self._generate()
+        criterion = false() if tenant_id is None else (model.account_id == tenant_id)
+        # Query.filter() cannot be called after limit()/offset(); append directly
+        # to the query's WHERE criteria on a cloned Query instead.
+        scoped._where_criteria = tuple(scoped._where_criteria) + (criterion,)
+        return scoped
+
+    def all(self):
+        return Query.all(self._scoped_query())
+
+    def first(self):
+        return Query.first(self._scoped_query())
+
+    def one(self):
+        return Query.one(self._scoped_query())
+
+    def one_or_none(self):
+        return Query.one_or_none(self._scoped_query())
+
+    def count(self):
+        return Query.count(self._scoped_query())
+
+    def scalar(self):
+        return Query.scalar(self._scoped_query())
+
+    def __iter__(self):
+        return Query.__iter__(self._scoped_query())
+
+    def get(self, ident):
+        model = self._tenant_model()
+        if model is None or not has_request_context():
+            return Query.get(self, ident)
+        tenant_id = _current_account_id()
+        if tenant_id is None:
+            return None
+        value = db.session.execute(
+            db.select(model).where(model.id == ident, model.account_id == tenant_id)
+        ).scalar_one_or_none()
+        return value
+
+    def get_or_404(self, ident, description=None):
+        value = self.get(ident)
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def first_or_404(self, description=None):
+        value = self.first()
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def one_or_404(self, description=None):
+        try:
+            value = self.one()
+        except Exception:
+            value = None
+        if value is None:
+            abort(404, description=description)
+        return value
+
+    def update(self, values, synchronize_session="auto", **kwargs):
+        return Query.update(self._scoped_query(), values, synchronize_session=synchronize_session, **kwargs)
+
+    def delete(self, synchronize_session="auto", **kwargs):
+        return Query.delete(self._scoped_query(), synchronize_session=synchronize_session, **kwargs)
+
+db.Model.query_class = TenantQuery
+
 # ==================== MODELS ====================
 
 class User(db.Model):
@@ -96,7 +202,7 @@ class Subscription(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = db.relationship('User', backref=db.backref('subscriptions', lazy=True))
 
-class BackupLog(db.Model):
+class BackupLog(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     file_name = db.Column(db.String(180), nullable=False)
     size_bytes = db.Column(db.Integer, default=0)
@@ -120,7 +226,7 @@ class UserStaffLink(db.Model):
     user = db.relationship('User', backref=db.backref('staff_link', uselist=False))
     staff = db.relationship('Staff', backref=db.backref('user_link', uselist=False))
 
-class Customer(db.Model):
+class Customer(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(20), nullable=False)
@@ -133,7 +239,7 @@ class Customer(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     appointments = db.relationship('Appointment', backref='customer', lazy=True)
 
-class Service(db.Model):
+class Service(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
@@ -144,7 +250,7 @@ class Service(db.Model):
     retention_max_days = db.Column(db.Integer, default=45)
     is_active = db.Column(db.Boolean, default=True)
 
-class Staff(db.Model):
+class Staff(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(20))
@@ -153,7 +259,7 @@ class Staff(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     appointments = db.relationship('Appointment', backref='staff', lazy=True)
 
-class Appointment(db.Model):
+class Appointment(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
@@ -167,7 +273,7 @@ class Appointment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     service = db.relationship('Service')
 
-class WaitlistEntry(db.Model):
+class WaitlistEntry(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     service_id = db.Column(db.Integer, db.ForeignKey('service.id'), nullable=False)
@@ -183,7 +289,7 @@ class WaitlistEntry(db.Model):
     preferred_staff = db.relationship('Staff')
 
 
-class Expense(db.Model):
+class Expense(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(120), nullable=False)
     category = db.Column(db.String(60), nullable=False)
@@ -192,10 +298,10 @@ class Expense(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class InventoryItem(db.Model):
+class InventoryItem(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
-    sku = db.Column(db.String(50), unique=True)
+    sku = db.Column(db.String(50))
     category = db.Column(db.String(60))
     stock_qty = db.Column(db.Float, default=0)
     reorder_level = db.Column(db.Float, default=5)
@@ -203,8 +309,9 @@ class InventoryItem(db.Model):
     sale_price = db.Column(db.Float, default=0)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("account_id", "sku", name="uq_inventory_item_account_sku"),)
 
-class Invoice(db.Model):
+class Invoice(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     appointment_id = db.Column(db.Integer, db.ForeignKey('appointment.id'), unique=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
@@ -220,14 +327,14 @@ class Invoice(db.Model):
     appointment = db.relationship('Appointment')
     customer = db.relationship('Customer')
 
-class StaffCommission(db.Model):
+class StaffCommission(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), unique=True, nullable=False)
     commission_rate = db.Column(db.Float, default=0)
     commission_type = db.Column(db.String(20), default='Percentage')
     staff = db.relationship('Staff', backref=db.backref('commission_settings', uselist=False))
 
-class StaffAttendance(db.Model):
+class StaffAttendance(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
     attendance_date = db.Column(db.Date, nullable=False)
@@ -237,7 +344,7 @@ class StaffAttendance(db.Model):
     notes = db.Column(db.Text)
     staff = db.relationship('Staff', backref='attendance_records')
 
-class CustomerLoyalty(db.Model):
+class CustomerLoyalty(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), unique=True, nullable=False)
     points = db.Column(db.Integer, default=0)
@@ -245,7 +352,7 @@ class CustomerLoyalty(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     customer = db.relationship('Customer', backref=db.backref('loyalty', uselist=False))
 
-class InventorySale(db.Model):
+class InventorySale(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
@@ -255,7 +362,7 @@ class InventorySale(db.Model):
     invoice = db.relationship('Invoice', backref='inventory_sales')
     inventory_item = db.relationship('InventoryItem')
 
-class Supplier(db.Model):
+class Supplier(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(30))
@@ -265,7 +372,7 @@ class Supplier(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class InventoryTransaction(db.Model):
+class InventoryTransaction(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
     transaction_type = db.Column(db.String(30), nullable=False)
@@ -277,7 +384,7 @@ class InventoryTransaction(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('user.id'))
     inventory_item = db.relationship('InventoryItem', backref='inventory_transactions')
 
-class InventoryPurchase(db.Model):
+class InventoryPurchase(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'))
     inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), nullable=False)
@@ -291,7 +398,7 @@ class InventoryPurchase(db.Model):
     supplier = db.relationship('Supplier', backref='purchases')
     inventory_item = db.relationship('InventoryItem', backref='purchases')
 
-class InventorySaleLine(db.Model):
+class InventorySaleLine(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     inventory_sale_id = db.Column(db.Integer, db.ForeignKey('inventory_sale.id'), unique=True, nullable=False)
     invoice_item_id = db.Column(db.Integer, db.ForeignKey('invoice_item.id'), unique=True, nullable=False)
@@ -302,7 +409,7 @@ class InventorySaleLine(db.Model):
     invoice_item = db.relationship('InvoiceItem', backref=db.backref('inventory_sale_line', uselist=False))
     inventory_item = db.relationship('InventoryItem')
 
-class LoyaltyTransaction(db.Model):
+class LoyaltyTransaction(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     points = db.Column(db.Integer, nullable=False)
@@ -312,19 +419,21 @@ class LoyaltyTransaction(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     customer = db.relationship('Customer', backref='loyalty_transactions')
 
-class SalonHours(db.Model):
+class SalonHours(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    day_of_week = db.Column(db.Integer, unique=True, nullable=False)
+    day_of_week = db.Column(db.Integer, nullable=False)
     open_time = db.Column(db.String(5), default='09:00')
     close_time = db.Column(db.String(5), default='20:00')
     is_closed = db.Column(db.Boolean, default=False)
+    __table_args__ = (db.UniqueConstraint("account_id", "day_of_week", name="uq_salon_hours_account_day"),)
 
-class SalonClosure(db.Model):
+class SalonClosure(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    closure_date = db.Column(db.Date, unique=True, nullable=False)
+    closure_date = db.Column(db.Date, nullable=False)
     reason = db.Column(db.String(200))
+    __table_args__ = (db.UniqueConstraint("account_id", "closure_date", name="uq_salon_closure_account_date"),)
 
-class SalonSetting(db.Model):
+class SalonSetting(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     salon_name = db.Column(db.String(120), default='Salon Pro')
     phone = db.Column(db.String(30))
@@ -339,7 +448,7 @@ class SalonSetting(db.Model):
     logo_data_url = db.Column(db.Text)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-class InvoiceRefund(db.Model):
+class InvoiceRefund(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
@@ -348,7 +457,7 @@ class InvoiceRefund(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     invoice = db.relationship('Invoice', backref='refunds')
 
-class InvoicePayment(db.Model):
+class InvoicePayment(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
@@ -357,7 +466,7 @@ class InvoicePayment(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     invoice = db.relationship('Invoice', backref='payments')
 
-class InvoiceItem(db.Model):
+class InvoiceItem(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     description = db.Column(db.String(150), nullable=False)
@@ -366,7 +475,7 @@ class InvoiceItem(db.Model):
     total = db.Column(db.Float, nullable=False)
     invoice = db.relationship('Invoice', backref=db.backref('items', lazy=True, cascade='all, delete-orphan'))
 
-class StaffSchedule(db.Model):
+class StaffSchedule(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
     day_of_week = db.Column(db.Integer, nullable=False)
@@ -375,7 +484,7 @@ class StaffSchedule(db.Model):
     is_working = db.Column(db.Boolean, default=True)
     staff = db.relationship('Staff', backref='schedules')
 
-class StaffBreak(db.Model):
+class StaffBreak(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), nullable=False)
     day_of_week = db.Column(db.Integer, nullable=False)
@@ -384,7 +493,7 @@ class StaffBreak(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     staff = db.relationship('Staff', backref='breaks')
 
-class SalonPackage(db.Model):
+class SalonPackage(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), nullable=False)
     package_type = db.Column(db.String(20), default='Package')
@@ -396,7 +505,7 @@ class SalonPackage(db.Model):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
-class CustomerPackage(db.Model):
+class CustomerPackage(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     package_id = db.Column(db.Integer, db.ForeignKey('salon_package.id'), nullable=False)
@@ -409,16 +518,17 @@ class CustomerPackage(db.Model):
     customer = db.relationship('Customer', backref='customer_packages')
     package = db.relationship('SalonPackage', backref='customer_packages')
 
-class WhatsAppTemplate(db.Model):
+class WhatsAppTemplate(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    key = db.Column(db.String(40), unique=True, nullable=False)
+    key = db.Column(db.String(40), nullable=False)
     name = db.Column(db.String(100), nullable=False)
     category = db.Column(db.String(40), nullable=False)
     body = db.Column(db.Text, nullable=False)
     is_active = db.Column(db.Boolean, default=True)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    __table_args__ = (db.UniqueConstraint("account_id", "key", name="uq_whatsapp_template_account_key"),)
 
-class GiftCard(db.Model):
+class GiftCard(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(40), unique=True, nullable=False)
     purchaser_customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'))
@@ -430,7 +540,7 @@ class GiftCard(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     purchaser = db.relationship('Customer', foreign_keys=[purchaser_customer_id])
 
-class GiftCardTransaction(db.Model):
+class GiftCardTransaction(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     gift_card_id = db.Column(db.Integer, db.ForeignKey('gift_card.id'), nullable=False)
     transaction_type = db.Column(db.String(20), nullable=False)
@@ -441,7 +551,7 @@ class GiftCardTransaction(db.Model):
     gift_card = db.relationship('GiftCard', backref='transactions')
     invoice = db.relationship('Invoice')
 
-class AuditLog(db.Model):
+class AuditLog(TenantScopedMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'))
     action = db.Column(db.String(80), nullable=False)
@@ -450,6 +560,150 @@ class AuditLog(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     user = db.relationship('User')
 
+
+# ---------------------------------------------------------------------------
+# Tenant context and automatic ownership enforcement
+# ---------------------------------------------------------------------------
+def _staff_link_for_user(user_id):
+    if not user_id:
+        return None
+    return db.session.execute(
+        db.select(UserStaffLink).where(UserStaffLink.user_id == user_id)
+    ).scalar_one_or_none()
+
+def _account_id_for_user(user):
+    if not user:
+        return None
+
+    if (user.role or "").lower() == "admin":
+        profile_id = db.session.execute(
+            db.select(AccountProfile.id).where(AccountProfile.user_id == user.id)
+        ).scalar_one_or_none()
+        if profile_id:
+            return profile_id
+
+    link = _staff_link_for_user(user.id)
+    if link and link.staff and link.staff.account_id:
+        return link.staff.account_id
+
+    profile_id = db.session.execute(
+        db.select(AccountProfile.id).where(AccountProfile.user_id == user.id)
+    ).scalar_one_or_none()
+    return profile_id
+
+def _current_account_id():
+    if not has_request_context():
+        return None
+    cached = getattr(g, "salon_account_id", None)
+    if cached:
+        return cached
+    session_account_id = session.get("account_id")
+    if session_account_id:
+        g.salon_account_id = int(session_account_id)
+        return int(session_account_id)
+    user_id = session.get("user_id")
+    if user_id:
+        user = db.session.get(User, user_id)
+        account_id = _account_id_for_user(user)
+        if account_id:
+            g.salon_account_id = int(account_id)
+            return int(account_id)
+    # The public booking endpoint is intentionally bound to one configured
+    # salon account. This keeps logged-out booking lookups tenant-scoped too.
+    if request.endpoint == "public_booking":
+        account_id = _public_account_id()
+        if account_id:
+            g.salon_account_id = int(account_id)
+            return int(account_id)
+    return None
+
+def _public_account_id():
+    configured = (os.environ.get("SALON_PRO_PUBLIC_ACCOUNT_ID") or "").strip()
+    if configured.isdigit():
+        account_id = int(configured)
+        if db.session.get(AccountProfile, account_id):
+            return account_id
+    return db.session.execute(
+        db.select(AccountProfile.id)
+        .join(User, User.id == AccountProfile.user_id)
+        .where(User.role == "admin")
+        .order_by(AccountProfile.id.asc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+def tenant_profile_for_user(user):
+    account_id = _account_id_for_user(user)
+    return db.session.get(AccountProfile, account_id) if account_id else None
+
+def tenant_query(model):
+    """Return a query restricted to the authenticated/public salon account."""
+    account_id = _current_account_id()
+    if account_id is None:
+        return model.query.filter(db.literal(False))
+    return model.query.filter(model.account_id == account_id)
+
+def tenant_get_or_404(model, ident, description=None):
+    """Fetch one row through the same tenant scope used by legacy Model.query."""
+    if getattr(model, "__tenant_scoped__", False) and has_request_context():
+        obj = tenant_query(model).filter_by(id=ident).first()
+        if obj is None:
+            abort(404, description=description)
+        return obj
+
+    obj = db.session.get(model, ident)
+    if obj is None:
+        abort(404, description=description)
+    return obj
+
+def billing_owner_user(user):
+    profile = tenant_profile_for_user(user)
+    if profile and profile.user:
+        return profile.user
+    return user
+
+from sqlalchemy.orm import Session as SQLAlchemySession
+
+@event.listens_for(SQLAlchemySession, "before_flush")
+def enforce_tenant_ownership(session_obj, flush_context, instances):
+    in_request = has_request_context()
+    tenant_id = _current_account_id() if in_request else None
+
+    # Tests sometimes create rows inside app_context() after a login request.
+    # In that mode, infer a tenant only when the database contains exactly one
+    # account profile. Multi-tenant test fixtures explicitly set account_id and
+    # are never overridden.
+    if tenant_id is None and app.config.get("TESTING") and not in_request:
+        needs_inferred_tenant = any(
+            getattr(getattr(obj, "__table__", None), "name", None) in TENANT_SCOPED_TABLES
+            and getattr(obj, "account_id", None) is None
+            for obj in list(session_obj.new) + list(session_obj.dirty)
+        )
+        if needs_inferred_tenant:
+            profile_ids = db.session.execute(
+                db.select(AccountProfile.id).order_by(AccountProfile.id)
+            ).scalars().all()
+            if len(profile_ids) == 1:
+                tenant_id = profile_ids[0]
+
+    if tenant_id is None:
+        return
+
+    for obj in list(session_obj.new) + list(session_obj.dirty):
+        table = getattr(getattr(obj, "__table__", None), "name", None)
+        if table not in TENANT_SCOPED_TABLES:
+            continue
+
+        current_owner = getattr(obj, "account_id", None)
+        if current_owner is None:
+            obj.account_id = tenant_id
+            current_owner = tenant_id
+
+        # Explicit account ownership in a multi-tenant test fixture is valid.
+        if not in_request and app.config.get("TESTING") and current_owner is not None:
+            continue
+
+        if int(current_owner) != int(tenant_id):
+            raise PermissionError("Cross-tenant record write is not allowed.")
 
 # ==================== AUTH ====================
 
@@ -461,7 +715,7 @@ def current_user():
     if not user:
         session.clear()
         return None
-    link = UserStaffLink.query.filter_by(user_id=user.id).first()
+    link = _staff_link_for_user(user.id)
     if link and (not link.staff or not link.staff.is_active):
         session.clear()
         return None
@@ -560,6 +814,77 @@ ADMIN_ONLY_ENDPOINTS = {
     'reports', 'export_report_csv', 'expenses', 'delete_expense',
     'suppliers', 'add_supplier', 'edit_supplier', 'purchases', 'add_purchase', 'loyalty', 'add_package', 'whatsapp_templates', 'audit_log', 'insights'
 }
+
+def _ensure_legacy_owner_profile():
+    admin_row = db.session.execute(
+        db.select(User.id, User.username)
+        .where(User.role == "admin")
+        .order_by(User.id.asc())
+        .limit(1)
+    ).first()
+    if not admin_row:
+        return None
+
+    profile = db.session.execute(
+        db.select(AccountProfile).where(AccountProfile.user_id == admin_row.id)
+    ).scalar_one_or_none()
+    created_profile = False
+
+    if not profile:
+        profile = AccountProfile(
+            user_id=admin_row.id,
+            business_name=f"{admin_row.username} Salon",
+            email=None,
+        )
+        db.session.add(profile)
+        db.session.flush()
+        created_profile = True
+
+    _backfill_null_tenant_rows(profile.id)
+
+    # Existing pre-billing owners receive the configured legacy trial exactly once.
+    if created_profile and app.config.get("SALON_PRO_BILLING_REQUIRED", True):
+        existing_sub = db.session.execute(
+            db.select(Subscription.id)
+            .where(Subscription.user_id == admin_row.id)
+            .limit(1)
+        ).scalar_one_or_none()
+        if existing_sub is None:
+            days = int(app.config.get("SALON_PRO_LEGACY_TRIAL_DAYS", 30) or 0)
+            if days > 0:
+                now = utc_now()
+                db.session.add(Subscription(
+                    user_id=admin_row.id,
+                    plan_key="legacy_trial",
+                    status="trial",
+                    amount_paise=0,
+                    currency="INR",
+                    start_at=now,
+                    expires_at=now + timedelta(days=days),
+                ))
+
+    db.session.commit()
+    return profile.id
+
+
+@app.before_request
+def ensure_tenant_bootstrap():
+    try:
+        inspector = inspect(db.engine)
+        if inspector.has_table("user") and inspector.has_table("account_profile"):
+            if db.session.execute(db.select(AccountProfile.id).limit(1)).scalar_one_or_none() is None:
+                _ensure_legacy_owner_profile()
+
+            user_id = session.get("user_id")
+            if user_id:
+                user = db.session.get(User, user_id)
+                g.salon_account_id = _account_id_for_user(user)
+    except Exception as exc:
+        db.session.rollback()
+        app.logger.exception("Tenant bootstrap failed: %s", exc)
+        raise
+
+
 
 @app.before_request
 def ensure_database():
@@ -692,6 +1017,9 @@ def establish_login_session(user):
     session['user_id'] = user.id
     session['username'] = user.username
     session['role'] = user.role or 'staff'
+    account_id = _account_id_for_user(user)
+    if account_id:
+        session['account_id'] = int(account_id)
 
 
 @app.route('/auth/google', methods=['POST'])
@@ -755,7 +1083,7 @@ def google_auth():
         flash('The linked Salon Pro account no longer exists.', 'danger')
         return redirect(url_for('login'))
 
-    link = UserStaffLink.query.filter_by(user_id=user.id).first()
+    link = _staff_link_for_user(user.id)
     if link and (not link.staff or not link.staff.is_active):
         flash('This Salon Pro account is inactive.', 'danger')
         return redirect(url_for('login'))
@@ -773,49 +1101,81 @@ def monthly_price_inr():
     return int(app.config.get('SALON_PRO_MONTHLY_PRICE_INR', 499))
 
 
+def _backfill_null_tenant_rows(account_id):
+    if not account_id:
+        return
+    for table in db.metadata.sorted_tables:
+        if table.name not in TENANT_SCOPED_TABLES or "account_id" not in table.c:
+            continue
+        db.session.execute(
+            table.update().where(table.c.account_id.is_(None)).values(account_id=account_id)
+        )
+
 def latest_subscription(user):
-    if not user:
+    owner = billing_owner_user(user)
+    if not owner:
         return None
-    return Subscription.query.filter_by(user_id=user.id).order_by(
+    return Subscription.query.filter_by(user_id=owner.id).order_by(
         Subscription.created_at.desc(), Subscription.id.desc()
     ).first()
-
 
 def active_subscription(user):
     sub = latest_subscription(user)
     if not sub:
         return None
     now = utc_now()
-    if sub.status in {'active', 'trial'} and sub.expires_at and sub.expires_at > now:
+    if sub.status in {"active", "trial"} and sub.expires_at and sub.expires_at > now:
         return sub
-    if sub.status == 'active' and sub.expires_at and sub.expires_at <= now:
-        sub.status = 'expired'
+    if sub.status == "active" and sub.expires_at and sub.expires_at <= now:
+        sub.status = "expired"
         db.session.commit()
     return None
 
 
 def legacy_trial_for_existing_user(user):
-    if not user or AccountProfile.query.filter_by(user_id=user.id).first():
+    if not user:
         return
-    days = int(app.config.get('SALON_PRO_LEGACY_TRIAL_DAYS', 30) or 0)
+
+    existing_profile = db.session.execute(
+        db.select(AccountProfile.id).where(AccountProfile.user_id == user.id)
+    ).scalar_one_or_none()
+    if existing_profile:
+        _backfill_null_tenant_rows(existing_profile)
+        db.session.commit()
+        if has_request_context():
+            session['account_id'] = int(existing_profile)
+            g.salon_account_id = int(existing_profile)
+        return
+
+    # Staff accounts inherit the owner subscription through their linked staff record.
+    if _staff_link_for_user(user.id):
+        return
+
+    days = int(app.config.get("SALON_PRO_LEGACY_TRIAL_DAYS", 30) or 0)
     profile = AccountProfile(
         user_id=user.id,
         business_name=f"{user.username} Salon",
         email=None,
     )
     db.session.add(profile)
+    db.session.flush()
+    _backfill_null_tenant_rows(profile.id)
+
     if days > 0:
         now = utc_now()
         db.session.add(Subscription(
             user_id=user.id,
-            plan_key='legacy_trial',
-            status='trial',
+            plan_key="legacy_trial",
+            status="trial",
             amount_paise=0,
-            currency='INR',
+            currency="INR",
             start_at=now,
             expires_at=now + timedelta(days=days),
         ))
     db.session.commit()
+    if has_request_context():
+        session['account_id'] = int(profile.id)
+        g.salon_account_id = int(profile.id)
 
 
 def subscription_is_exempt():
@@ -942,12 +1302,12 @@ def register():
 @login_required
 def subscription():
     user = current_user()
-    if not AccountProfile.query.filter_by(user_id=user.id).first():
+    if not tenant_profile_for_user(user):
         legacy_trial_for_existing_user(user)
     payload = current_subscription_payload(user)
     return render_template(
         'subscription.html',
-        business=AccountProfile.query.filter_by(user_id=user.id).first(),
+        business=tenant_profile_for_user(user),
         **payload,
         reason=request.args.get('reason', ''),
     )
@@ -965,6 +1325,9 @@ def subscription_create_order():
     user = current_user()
     if not user:
         return jsonify({'ok': False, 'error': 'Please log in again.'}), 401
+    owner = billing_owner_user(user)
+    if not owner or owner.id != user.id:
+        return jsonify({'ok': False, 'error': 'Only the salon owner can manage the subscription.'}), 403
 
     amount_paise = monthly_price_inr() * 100
     payload = {
@@ -990,7 +1353,7 @@ def subscription_create_order():
         return jsonify({'ok': False, 'error': 'Could not start payment. Please try again.'}), 502
 
     sub = Subscription(
-        user_id=user.id,
+        user_id=owner.id,
         plan_key='monthly',
         status='pending',
         amount_paise=amount_paise,
@@ -1006,8 +1369,8 @@ def subscription_create_order():
         'order_id': order.get('id'),
         'amount': amount_paise,
         'currency': 'INR',
-        'name': AccountProfile.query.filter_by(user_id=user.id).first().business_name if AccountProfile.query.filter_by(user_id=user.id).first() else user.username,
-        'email': AccountProfile.query.filter_by(user_id=user.id).first().email if AccountProfile.query.filter_by(user_id=user.id).first() else '',
+        'name': tenant_profile_for_user(user).business_name if tenant_profile_for_user(user) else user.username,
+        'email': tenant_profile_for_user(user).email if tenant_profile_for_user(user) else '',
         'phone': user.phone_number or '',
     })
 
@@ -1038,6 +1401,11 @@ def subscription_verify_payment():
     if not app.config.get('RAZORPAY_KEY_ID') or not app.config.get('RAZORPAY_KEY_SECRET'):
         return jsonify({'ok': False, 'error': 'Razorpay is not configured.'}), 503
 
+    user = current_user()
+    owner = billing_owner_user(user) if user else None
+    if not owner or owner.id != user.id:
+        return jsonify({'ok': False, 'error': 'Only the salon owner can verify a subscription payment.'}), 403
+
     data = request.get_json(silent=True) or {}
     order_id = (data.get('razorpay_order_id') or '').strip()
     payment_id = (data.get('razorpay_payment_id') or '').strip()
@@ -1054,7 +1422,7 @@ def subscription_verify_payment():
         return jsonify({'ok': False, 'error': 'Payment signature verification failed.'}), 400
 
     sub = Subscription.query.filter_by(
-        user_id=session['user_id'],
+        user_id=owner.id,
         razorpay_order_id=order_id,
     ).first()
     if not sub:
@@ -1132,11 +1500,14 @@ def login():
         if not user and identifier:
             profile = AccountProfile.query.filter_by(email=identifier.lower()).first()
             user = profile.user if profile else None
-        link = UserStaffLink.query.filter_by(user_id=user.id).first() if user else None
+        link = _staff_link_for_user(user.id) if user else None
         if user and (not link or (link.staff and link.staff.is_active)) and check_password_hash(user.password_hash, password):
             establish_login_session(user)
-            if not active_subscription(user) and app.config.get('SALON_PRO_BILLING_REQUIRED', True):
-                return redirect(url_for('subscription', reason='required'))
+            if app.config.get('SALON_PRO_BILLING_REQUIRED', True):
+                if not tenant_profile_for_user(user) and not _staff_link_for_user(user.id):
+                    legacy_trial_for_existing_user(user)
+                if not active_subscription(user):
+                    return redirect(url_for('subscription', reason='required'))
             flash('Welcome back!', 'success')
             return redirect(url_for('dashboard'))
         flash('Invalid username or password.', 'danger')
@@ -1336,10 +1707,10 @@ def normalize_appointment_status(status):
 def booking_allowed(appointment_date, appointment_time, duration_minutes):
     if appointment_date < date.today():
         return False, 'Appointments cannot be booked for a past date.'
-    closure = SalonClosure.query.filter_by(closure_date=appointment_date).first()
+    closure = tenant_query(SalonClosure).filter_by(closure_date=appointment_date).first()
     if closure:
         return False, closure.reason or 'The salon is closed on this date.'
-    hours = SalonHours.query.filter_by(day_of_week=appointment_date.weekday()).first()
+    hours = tenant_query(SalonHours).filter_by(day_of_week=appointment_date.weekday()).first()
     if hours and hours.is_closed:
         return False, 'The salon is closed on this day.'
     if hours:
@@ -1355,7 +1726,7 @@ def booking_allowed(appointment_date, appointment_time, duration_minutes):
     return True, ''
 
 def appointment_conflict(staff_id, appointment_date, appointment_time, duration_minutes, exclude_id=None):
-    schedule = StaffSchedule.query.filter_by(staff_id=staff_id, day_of_week=appointment_date.weekday()).first()
+    schedule = tenant_query(StaffSchedule).filter_by(staff_id=staff_id, day_of_week=appointment_date.weekday()).first()
     if schedule and not schedule.is_working:
         return 'This staff member is not available on this day.'
     if schedule:
@@ -1367,7 +1738,7 @@ def appointment_conflict(staff_id, appointment_date, appointment_time, duration_
             return f'Staff availability is {schedule.start_time}–{schedule.end_time}.'
     start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
     end = start + timedelta(minutes=duration_minutes or 30)
-    breaks = StaffBreak.query.filter_by(
+    breaks = tenant_query(StaffBreak).filter_by(
         staff_id=staff_id, day_of_week=appointment_date.weekday(), is_active=True
     ).all()
     for break_row in breaks:
@@ -1375,7 +1746,7 @@ def appointment_conflict(staff_id, appointment_date, appointment_time, duration_
         break_end = datetime.combine(appointment_date, datetime.strptime(break_row.end_time, '%H:%M').time())
         if start < break_end and break_start < end:
             return f'Staff break is from {break_row.start_time} to {break_row.end_time}.'
-    query = Appointment.query.filter(
+    query = tenant_query(Appointment).filter(
         Appointment.staff_id == staff_id,
         Appointment.appointment_date == appointment_date,
         Appointment.status.in_(list(ACTIVE_APPOINTMENT_STATUSES))
@@ -1392,7 +1763,7 @@ def appointment_conflict(staff_id, appointment_date, appointment_time, duration_
     return None
 
 def smart_schedule_slots(service_id, target_date, preferred_staff_id=None, limit=8):
-    service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+    service = tenant_query(Service).filter_by(id=service_id, is_active=True).first_or_404()
     staff_rows = []
     if preferred_staff_id:
         preferred = Staff.query.filter_by(id=preferred_staff_id, is_active=True).first()
@@ -1402,7 +1773,7 @@ def smart_schedule_slots(service_id, target_date, preferred_staff_id=None, limit
         if all(member.id != row.id for row in staff_rows):
             staff_rows.append(member)
 
-    hours = SalonHours.query.filter_by(day_of_week=target_date.weekday()).first()
+    hours = tenant_query(SalonHours).filter_by(day_of_week=target_date.weekday()).first()
     if hours and hours.is_closed:
         return []
     opening = datetime.strptime(hours.open_time, '%H:%M').time() if hours else datetime.strptime('09:00', '%H:%M').time()
@@ -1410,7 +1781,7 @@ def smart_schedule_slots(service_id, target_date, preferred_staff_id=None, limit
     slots = []
     now = datetime.now()
     for member in staff_rows:
-        schedule = StaffSchedule.query.filter_by(staff_id=member.id, day_of_week=target_date.weekday()).first()
+        schedule = tenant_query(StaffSchedule).filter_by(staff_id=member.id, day_of_week=target_date.weekday()).first()
         if schedule and not schedule.is_working:
             continue
         start = datetime.strptime(schedule.start_time, '%H:%M').time() if schedule else opening
@@ -1482,6 +1853,12 @@ def move_appointment():
 
 @app.route('/book', methods=['GET', 'POST'])
 def public_booking():
+    public_account_id = _public_account_id()
+    if public_account_id is None:
+        flash('Online booking is not available yet.', 'danger')
+        return redirect(url_for('login'))
+    g.salon_account_id = public_account_id
+
     if request.method == 'POST':
         try:
             name = request.form['name'].strip()
@@ -1493,7 +1870,7 @@ def public_booking():
             if not name or not phone:
                 raise ValueError
             service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
-            staff = Staff.query.filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
+            staff = tenant_query(Staff).filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
             allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
             if not allowed:
                 flash(reason, 'danger')
@@ -1504,9 +1881,9 @@ def public_booking():
             if conflict:
                 flash(conflict, 'danger')
                 return redirect(url_for('public_booking'))
-            customer = Customer.query.filter_by(phone=phone).first()
+            customer = tenant_query(Customer).filter_by(phone=phone).first()
             if not customer:
-                customer = Customer(name=name, phone=phone)
+                customer = Customer(name=name, phone=phone, account_id=public_account_id)
                 db.session.add(customer)
                 db.session.flush()
             else:
@@ -1519,16 +1896,24 @@ def public_booking():
             return redirect(url_for('public_booking'))
         except (KeyError, ValueError, TypeError):
             flash('Please enter valid booking details.', 'danger')
-    customers = Customer.query.order_by(Customer.name).all()
-    services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
-    staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
+    customers = tenant_query(Customer).order_by(Customer.name).all()
+    services = tenant_query(Service).filter_by(is_active=True).order_by(Service.name).all()
+    staff_list = tenant_query(Staff).filter_by(is_active=True).order_by(Staff.name).all()
     return render_template('booking.html', services=services, staff_list=staff_list, today_iso=date.today().isoformat())
 
 def _backup_json():
+    account_id = _current_account_id()
+    if account_id is None:
+        raise PermissionError("Salon account context is required for backup.")
+
     tables = {}
     for table in db.metadata.sorted_tables:
+        if table.name not in TENANT_SCOPED_TABLES or "account_id" not in table.c:
+            continue
         rows = []
-        for row in db.session.execute(table.select()).mappings():
+        for row in db.session.execute(
+            table.select().where(table.c.account_id == account_id)
+        ).mappings():
             item = {}
             for key, value in row.items():
                 if isinstance(value, (datetime, date)):
@@ -1537,13 +1922,16 @@ def _backup_json():
                     item[key] = value
             rows.append(item)
         tables[table.name] = rows
+
     return {
-        'format': 'salon-pro-backup',
-        'version': 1,
-        'created_at': datetime.now(timezone.utc).isoformat(),
-        'database': db.engine.url.get_backend_name(),
-        'tables': tables,
+        "format": "salon-pro-backup",
+        "version": 2,
+        "tenant_id": str(account_id),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "database": db.engine.url.get_backend_name(),
+        "tables": tables,
     }
+
 
 def _restore_value(column, value):
     if value is None:
@@ -1593,28 +1981,38 @@ def restore_backup():
         flash('Choose a Salon Pro backup file first.', 'danger')
         return redirect(url_for('settings'))
     if confirmation != 'RESTORE':
-        flash('Type RESTORE to confirm replacing the current database data.', 'danger')
+        flash('Type RESTORE to confirm replacing the current salon data.', 'danger')
         return redirect(url_for('settings'))
+
+    account_id = _current_account_id()
+    if account_id is None:
+        flash('Salon account could not be identified.', 'danger')
+        return redirect(url_for('settings'))
+
     try:
         raw = upload.read()
         if upload.filename.lower().endswith(('.gz', '.gzip')):
             raw = gzip.decompress(raw)
         backup = json.loads(raw.decode('utf-8'))
-        if backup.get('format') != 'salon-pro-backup' or backup.get('version') != 1:
-            raise ValueError('Unsupported backup format.')
+        if backup.get('format') != 'salon-pro-backup' or backup.get('version') != 2:
+            raise ValueError('Only tenant-scoped Salon Pro backups created by the current version can be restored.')
+        if str(backup.get('tenant_id')) != str(account_id):
+            raise ValueError('This backup belongs to a different salon account.')
+
         tables = backup.get('tables')
         if not isinstance(tables, dict):
             raise ValueError('Backup table data is invalid.')
 
-        known = set(db.metadata.tables)
-        unknown = set(tables) - known
-        missing_tables = known - set(tables)
+        known_tenant = {
+            name: table for name, table in db.metadata.tables.items()
+            if name in TENANT_SCOPED_TABLES and "account_id" in table.c
+        }
+        unknown = set(tables) - set(known_tenant)
         if unknown:
-            raise ValueError(f'Backup contains unknown tables: {", ".join(sorted(unknown))}')
-        if missing_tables:
-            raise ValueError(f'Backup is incomplete; missing tables: {", ".join(sorted(missing_tables))}')
+            raise ValueError(f'Backup contains unknown or non-tenant tables: {", ".join(sorted(unknown))}')
+
         for table_name, rows in tables.items():
-            table = db.metadata.tables[table_name]
+            table = known_tenant[table_name]
             expected_columns = {col.name for col in table.columns}
             if not isinstance(rows, list):
                 raise ValueError(f'Backup rows for {table_name} must be a list.')
@@ -1622,41 +2020,54 @@ def restore_backup():
                 if not isinstance(row, dict):
                     raise ValueError(f'Invalid row in {table_name}.')
                 if set(row) != expected_columns:
-                    raise ValueError(f'Backup schema mismatch for {table_name}. Expected columns: {", ".join(sorted(expected_columns))}')
+                    raise ValueError(
+                        f'Backup schema mismatch for {table_name}. Expected columns: {", ".join(sorted(expected_columns))}'
+                    )
+                if row.get('account_id') not in (account_id, str(account_id)):
+                    raise ValueError(f'Backup tenant mismatch in {table_name}.')
 
         db.session.rollback()
-        # Delete children before parents so foreign keys remain valid.
-        for table in reversed(db.metadata.sorted_tables):
-            db.session.execute(table.delete())
-        # Restore in dependency order.
-        for table in db.metadata.sorted_tables:
+
+        tenant_tables = [
+            table for table in db.metadata.sorted_tables
+            if table.name in TENANT_SCOPED_TABLES and "account_id" in table.c
+        ]
+        for table in reversed(tenant_tables):
+            db.session.execute(
+                table.delete().where(table.c.account_id == account_id)
+            )
+
+        for table in tenant_tables:
             rows = tables.get(table.name, [])
             if not rows:
                 continue
             valid_columns = {c.name: c for c in table.columns}
             for row in rows:
-                if not isinstance(row, dict):
-                    raise ValueError(f'Invalid row in {table.name}.')
-                values = {key: _restore_value(valid_columns[key], value)
-                          for key, value in row.items() if key in valid_columns}
+                values = {
+                    key: _restore_value(valid_columns[key], value)
+                    for key, value in row.items()
+                    if key in valid_columns and key != "account_id"
+                }
+                values["account_id"] = account_id
                 db.session.execute(table.insert().values(**values))
 
-        # PostgreSQL integer sequences must be moved past restored primary keys.
         if db.engine.dialect.name == 'postgresql':
-            for table in db.metadata.sorted_tables:
+            for table in tenant_tables:
                 pk = next(iter(table.primary_key.columns), None)
                 if pk is not None and getattr(pk.type, 'python_type', None) is int:
                     db.session.execute(db.text(
                         "SELECT setval(pg_get_serial_sequence(:table_name, :column_name), "
                         "COALESCE((SELECT MAX(" + pk.name + ") FROM " + table.name + "), 1), true)"
                     ), {'table_name': table.name, 'column_name': pk.name})
+
         db.session.commit()
-        flash('Database restore completed successfully.', 'success')
+        flash('Salon data restore completed successfully. Other salons were left untouched.', 'success')
     except Exception as exc:
         db.session.rollback()
         app.logger.exception('Database restore failed: %s', exc)
         flash(f'Database restore failed: {exc}', 'danger')
     return redirect(url_for('settings'))
+
 
 # ==================== DASHBOARD ====================
 
@@ -1711,8 +2122,8 @@ def dashboard():
     # loyalty), which could make the post-login dashboard slow enough to trigger
     # a Render gateway timeout on a larger salon database.
     retention_due, retention_at_risk = [], []
-    retention_candidates = Customer.query.all()
-    completed_visits = Appointment.query.filter_by(status='Completed').order_by(
+    retention_candidates = tenant_query(Customer).all()
+    completed_visits = tenant_query(Appointment).filter_by(status='Completed').order_by(
         Appointment.customer_id.asc(),
         Appointment.appointment_date.asc(),
         Appointment.appointment_time.asc(),
@@ -1722,7 +2133,7 @@ def dashboard():
         visit_history.setdefault(appt.customer_id, []).append(appt)
 
     service_ids = {appt.service_id for appt in completed_visits if appt.service_id}
-    service_rows = Service.query.filter(Service.id.in_(service_ids)).all() if service_ids else []
+    service_rows = tenant_query(Service).filter(Service.id.in_(service_ids)).all() if service_ids else []
     service_map = {service.id: service for service in service_rows}
 
     for customer in retention_candidates:
@@ -1834,7 +2245,7 @@ def quick_sale():
             return redirect(url_for('view_invoice',id=inv.id))
         except (ValueError,TypeError,KeyError) as exc:
             db.session.rollback(); flash(str(exc) or 'Quick checkout failed.','danger')
-    return render_template('quick_sale.html',customers=Customer.query.order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),today_iso=date.today().isoformat(),tax_rate=get_tax_rate())
+    return render_template('quick_sale.html',customers=tenant_query(Customer).order_by(Customer.name).all(),staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),services=Service.query.filter_by(is_active=True).order_by(Service.name).all(),today_iso=date.today().isoformat(),tax_rate=get_tax_rate())
 
 # ==================== CUSTOMERS ====================
 
@@ -1897,7 +2308,7 @@ def add_customer():
 @app.route('/customers/edit/<int:id>', methods=['GET', 'POST'])
 @login_required
 def edit_customer(id):
-    customer = Customer.query.get_or_404(id)
+    customer = tenant_get_or_404(Customer, id)
     if request.method == 'POST':
         try:
             customer.name = request.form['name'].strip()
@@ -1927,7 +2338,7 @@ def edit_customer(id):
 @app.route('/customers/delete/<int:id>', methods=['POST'])
 @login_required
 def delete_customer(id):
-    customer = Customer.query.get_or_404(id)
+    customer = tenant_get_or_404(Customer, id)
     if Appointment.query.filter_by(customer_id=id).first() or Invoice.query.filter_by(customer_id=id).first():
         flash('This customer has appointment or invoice history and cannot be deleted. Edit the customer instead.', 'warning')
         return redirect(url_for('customers'))
@@ -2296,18 +2707,18 @@ def staff_intelligence():
 @app.route('/customers/<int:id>')
 @login_required
 def customer_detail(id):
-    customer = Customer.query.get_or_404(id)
-    customer_appointments = Appointment.query.filter_by(customer_id=id).order_by(
+    customer = tenant_get_or_404(Customer, id)
+    customer_appointments = tenant_query(Appointment).filter_by(customer_id=id).order_by(
         Appointment.appointment_date.desc(), Appointment.appointment_time.desc()
     ).all()
-    customer_invoices = Invoice.query.filter_by(customer_id=id).order_by(Invoice.created_at.desc()).all()
-    completed_visits = Appointment.query.filter_by(customer_id=id, status='Completed').count()
+    customer_invoices = tenant_query(Invoice).filter_by(customer_id=id).order_by(Invoice.created_at.desc()).all()
+    completed_visits = tenant_query(Appointment).filter_by(customer_id=id, status='Completed').count()
     # Use the same payment/refund accounting as invoices and BI. This prevents
     # refunded revenue from remaining in the customer profile and includes
     # partial-payment balances.
     total_spend = round(sum(invoice_net_paid_amount(i) for i in customer_invoices), 2)
     pending_amount = round(sum(invoice_balance(i) for i in customer_invoices), 2)
-    last_visit = Appointment.query.filter_by(customer_id=id, status='Completed').order_by(
+    last_visit = tenant_query(Appointment).filter_by(customer_id=id, status='Completed').order_by(
         Appointment.appointment_date.desc()
     ).first()
     crm = _customer_metrics(id)
@@ -2671,7 +3082,7 @@ def add_appointment():
         try:
             appointment_date=datetime.strptime(request.form['appointment_date'],'%Y-%m-%d').date(); appointment_time=request.form['appointment_time']; datetime.strptime(appointment_time,'%H:%M')
             staff_id=int(request.form['staff_id']); service_id=int(request.form['service_id']); customer_id=int(request.form['customer_id'])
-            service=Service.query.filter_by(id=service_id,is_active=True).first_or_404(); Staff.query.filter_by(id=staff_id,is_active=True).first_or_404(); Customer.query.get_or_404(customer_id)
+            service=tenant_query(Service).filter_by(id=service_id,is_active=True).first_or_404(); tenant_query(Staff).filter_by(id=staff_id,is_active=True).first_or_404(); tenant_query(Customer).filter_by(id=customer_id).first_or_404()
             allowed,reason=booking_allowed(appointment_date,appointment_time,service.duration_minutes or 30)
             if not allowed: raise ValueError(reason)
             conflict=appointment_conflict(staff_id,appointment_date,appointment_time,service.duration_minutes or 30)
@@ -2706,7 +3117,7 @@ def edit_appointment(id):
         try:
             appt_date=datetime.strptime(request.form['appointment_date'],'%Y-%m-%d').date(); appt_time=request.form['appointment_time']; datetime.strptime(appt_time,'%H:%M')
             staff_id=int(request.form['staff_id']); service_id=int(request.form['service_id']); customer_id=int(request.form['customer_id'])
-            service=Service.query.filter_by(id=service_id,is_active=True).first_or_404(); Staff.query.filter_by(id=staff_id,is_active=True).first_or_404(); Customer.query.get_or_404(customer_id)
+            service=tenant_query(Service).filter_by(id=service_id,is_active=True).first_or_404(); tenant_query(Staff).filter_by(id=staff_id,is_active=True).first_or_404(); tenant_query(Customer).filter_by(id=customer_id).first_or_404()
             allowed,reason=booking_allowed(appt_date,appt_time,service.duration_minutes or 30)
             if not allowed: raise ValueError(reason)
             conflict=appointment_conflict(staff_id,appt_date,appt_time,service.duration_minutes or 30,exclude_id=appt.id)
@@ -2756,13 +3167,13 @@ def update_appointment_status(id,status):
 @app.route('/invoices')
 @login_required
 def invoices():
-    invoices_list = Invoice.query.order_by(Invoice.created_at.desc()).all()
+    invoices_list = tenant_query(Invoice).order_by(Invoice.created_at.desc()).all()
     return render_template('invoices.html', invoices=invoices_list)
 
 @app.route('/api/staff/<int:staff_id>/availability', methods=['GET','POST'])
 @login_required
 def staff_availability_api(staff_id):
-    Staff.query.get_or_404(staff_id)
+    tenant_query(Staff).filter_by(id=staff_id).first_or_404()
     if request.method == 'POST':
         payload = request.get_json(silent=True) or {}
         try:
@@ -2774,7 +3185,7 @@ def staff_availability_api(staff_id):
             datetime.strptime(end_time, '%H:%M')
             if day not in range(7) or start_time >= end_time:
                 raise ValueError
-            row = StaffSchedule.query.filter_by(staff_id=staff_id, day_of_week=day).first()
+            row = tenant_query(StaffSchedule).filter_by(staff_id=staff_id, day_of_week=day).first()
             if not row:
                 row = StaffSchedule(staff_id=staff_id, day_of_week=day)
                 db.session.add(row)
@@ -2786,8 +3197,8 @@ def staff_availability_api(staff_id):
         except (TypeError, ValueError):
             db.session.rollback()
             return jsonify({'ok': False, 'error': 'Invalid staff availability.'}), 400
-    rows = StaffSchedule.query.filter_by(staff_id=staff_id).order_by(StaffSchedule.day_of_week).all()
-    breaks = StaffBreak.query.filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
+    rows = tenant_query(StaffSchedule).filter_by(staff_id=staff_id).order_by(StaffSchedule.day_of_week).all()
+    breaks = tenant_query(StaffBreak).filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
     return jsonify({
         'availability': [{'day_of_week': r.day_of_week, 'start_time': r.start_time, 'end_time': r.end_time, 'is_working': r.is_working} for r in rows],
         'breaks': [{'id': b.id, 'day_of_week': b.day_of_week, 'start_time': b.start_time, 'end_time': b.end_time, 'is_active': b.is_active} for b in breaks]
@@ -2796,9 +3207,9 @@ def staff_availability_api(staff_id):
 @app.route('/api/staff/<int:staff_id>/breaks', methods=['GET','POST'])
 @login_required
 def staff_break_create_api(staff_id):
-    Staff.query.get_or_404(staff_id)
+    tenant_query(Staff).filter_by(id=staff_id).first_or_404()
     if request.method == 'GET':
-        rows = StaffBreak.query.filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
+        rows = tenant_query(StaffBreak).filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
         return jsonify({'breaks': [{'id': b.id, 'day_of_week': b.day_of_week, 'start_time': b.start_time, 'end_time': b.end_time, 'is_active': b.is_active} for b in rows]})
     payload = request.get_json(silent=True) or {}
     try:
@@ -2820,7 +3231,7 @@ def staff_break_create_api(staff_id):
 @app.route('/invoices/<int:id>/tip', methods=['POST'])
 @login_required
 def update_invoice_tip(id):
-    invoice = Invoice.query.get_or_404(id)
+    invoice = tenant_query(Invoice).filter_by(id=id).first_or_404()
     if invoice.payment_status in {'Paid','Refunded'} or invoice_net_paid_amount(invoice) > 0:
         flash('Tip cannot be edited after payment. Create a new charge if needed.', 'warning')
         return redirect(url_for('view_invoice', id=id))
@@ -2840,15 +3251,15 @@ def update_invoice_tip(id):
 @app.route('/invoices/<int:id>')
 @login_required
 def view_invoice(id):
-    invoice = Invoice.query.get_or_404(id)
-    inventory_products = InventoryItem.query.filter_by(is_active=True).order_by(InventoryItem.name).all()
-    salon_setting = SalonSetting.query.first()
+    invoice = tenant_query(Invoice).filter_by(id=id).first_or_404()
+    inventory_products = tenant_query(InventoryItem).filter_by(is_active=True).order_by(InventoryItem.name).all()
+    salon_setting = tenant_query(SalonSetting).first()
     return render_template('invoice_detail.html', invoice=invoice, inventory_products=inventory_products, salon_setting=salon_setting)
 
 @app.route('/invoices/pay/<int:id>', methods=['POST'])
 @login_required
 def mark_paid(id):
-    invoice = Invoice.query.filter_by(id=id).with_for_update().first_or_404()
+    invoice = tenant_query(Invoice).filter_by(id=id).with_for_update().first_or_404()
     if invoice.payment_status == 'Refunded':
         flash('A refunded invoice cannot receive another payment.', 'danger')
         return redirect(url_for('view_invoice', id=id))
@@ -2875,7 +3286,7 @@ def mark_paid(id):
         gift_card = None
         if method == 'Gift Card':
             code = request.form.get('gift_card_code', '').strip().upper()
-            gift_card = GiftCard.query.filter_by(code=code, status='Active').with_for_update().first() if code else None
+            gift_card = tenant_query(GiftCard).filter_by(code=code, status='Active').with_for_update().first() if code else None
             if not gift_card:
                 raise ValueError('Enter a valid active gift card code.')
             if gift_card.expires_at and gift_card.expires_at < date.today():
@@ -3213,7 +3624,7 @@ def add_invoice_item(id):
 @app.route('/invoices/<int:id>/items/<int:item_id>/delete', methods=['POST'])
 @login_required
 def delete_invoice_item(id, item_id):
-    invoice = Invoice.query.get_or_404(id)
+    invoice = tenant_query(Invoice).filter_by(id=id).first_or_404()
     if invoice.payment_status in ('Paid', 'Refunded') or invoice_net_paid_amount(invoice) > 0:
         flash('An invoice with payments cannot be edited. Refund the payment first if a correction is required.', 'warning')
         return redirect(url_for('view_invoice', id=id))
@@ -3804,7 +4215,7 @@ def add_inventory_sale(id):
     except (KeyError, ValueError, TypeError):
         flash('Enter a valid product and quantity.', 'danger')
         return redirect(url_for('view_invoice', id=id))
-    item = InventoryItem.query.filter_by(id=item_id).with_for_update().first_or_404()
+    item = tenant_query(InventoryItem).filter_by(id=item_id).with_for_update().first_or_404()
     if not item.is_active or item.stock_qty < quantity:
         flash(f'Not enough stock for {item.name}. Available: {item.stock_qty:g}.', 'danger')
         return redirect(url_for('view_invoice', id=id))
@@ -3993,18 +4404,18 @@ def gift_cards():
             if amount<=0 or not customer_id: raise ValueError
             expiry_raw=request.form.get('expires_at','').strip(); expiry=date.fromisoformat(expiry_raw) if expiry_raw else None
             code='SPGC-'+secrets.token_hex(4).upper()
-            while GiftCard.query.filter_by(code=code).first(): code='SPGC-'+secrets.token_hex(4).upper()
+            while tenant_query(GiftCard).filter_by(code=code).first(): code='SPGC-'+secrets.token_hex(4).upper()
             card=GiftCard(code=code,purchaser_customer_id=customer_id,recipient_name=request.form.get('recipient_name','').strip() or None,original_amount=amount,balance=amount,expires_at=expiry)
             db.session.add(card); db.session.flush(); db.session.add(GiftCardTransaction(gift_card_id=card.id,transaction_type='Issued',amount=amount,notes='Gift card created')); db.session.commit()
             flash(f'Gift card {code} created with ₹{amount:,.0f}.','success')
         except (ValueError,TypeError): db.session.rollback(); flash('Enter a valid customer, amount and expiry.','danger')
         return redirect(url_for('gift_cards'))
-    return render_template('gift_cards.html',cards=GiftCard.query.order_by(GiftCard.created_at.desc()).limit(200).all(),customers=Customer.query.order_by(Customer.name).all())
+    return render_template('gift_cards.html',cards=tenant_query(GiftCard).order_by(GiftCard.created_at.desc()).limit(200).all(),customers=tenant_query(Customer).order_by(Customer.name).all())
 
 @app.route('/gift-cards/redeem/<int:id>', methods=['POST'])
 @login_required
 def redeem_gift_card(id):
-    card=GiftCard.query.get_or_404(id)
+    card=tenant_query(GiftCard).filter_by(id=id).first_or_404()
     try:
         amount=round(float(request.form.get('amount',0)),2)
         if amount<=0 or amount>card.balance+0.01 or (card.expires_at and card.expires_at<date.today()): raise ValueError
@@ -4136,21 +4547,10 @@ def change_password():
 def init_db():
     with app.app_context():
         db.create_all()
-        # Backfill line items for invoices created by older versions.
-        for inv in Invoice.query.all():
-            if not inv.items and inv.appointment and inv.appointment.service:
-                svc = inv.appointment.service
-                db.session.add(InvoiceItem(invoice_id=inv.id, description=svc.name,
-                                           quantity=1, unit_price=svc.price,
-                                           total=svc.price))
-        # Ensure the application always has a complete seven-day schedule. This
-        # also repairs existing installations that predate SalonHours initialization.
-        for day in range(7):
-            if not SalonHours.query.filter_by(day_of_week=day).first():
-                db.session.add(SalonHours(day_of_week=day, open_time='09:00', close_time='20:00', is_closed=False))
-        db.session.commit()
-        # Create default admin if not exists
-        if not User.query.filter_by(username='admin').first():
+
+        admin = User.query.filter_by(username='admin').first()
+        created_admin = False
+        if not admin:
             admin_password = os.environ.get('SALON_PRO_ADMIN_PASSWORD')
             if not admin_password:
                 raise RuntimeError(
@@ -4164,30 +4564,71 @@ def init_db():
                 role='admin'
             )
             db.session.add(admin)
-            
-            # Sample services
-            sample_services = [
-                Service(name='Haircut (Men)', duration_minutes=30, price=200, category='Hair'),
-                Service(name='Haircut (Women)', duration_minutes=45, price=350, category='Hair'),
-                Service(name='Hair Coloring', duration_minutes=90, price=1500, category='Hair'),
-                Service(name='Facial', duration_minutes=60, price=800, category='Skin'),
-                Service(name='Manicure', duration_minutes=40, price=400, category='Nails'),
-                Service(name='Pedicure', duration_minutes=50, price=500, category='Nails'),
-                Service(name='Bridal Makeup', duration_minutes=120, price=5000, category='Makeup'),
-            ]
-            db.session.add_all(sample_services)
-            
-            # Sample staff
-            sample_staff = [
-                Staff(name='Priya Sharma', phone='9876543210', specialty='Hair Stylist'),
-                Staff(name='Rahul Verma', phone='9876543211', specialty='Barber & Color'),
-                Staff(name='Anjali Patel', phone='9876543212', specialty='Makeup Artist'),
-                Staff(name='Sneha Gupta', phone='9876543213', specialty='Skin & Nails'),
-            ]
-            db.session.add_all(sample_staff)
-            
-            db.session.commit()
-            print("Database initialized with admin account and sample data.")
+            db.session.flush()
+            created_admin = True
+
+        profile = AccountProfile.query.filter_by(user_id=admin.id).first()
+        if not profile:
+            profile = AccountProfile(
+                user_id=admin.id,
+                business_name=f"{admin.username} Salon",
+                email=None,
+            )
+            db.session.add(profile)
+            db.session.flush()
+
+        # Legacy records created before tenant isolation belong to the original owner.
+        for table in db.metadata.sorted_tables:
+            if table.name not in TENANT_SCOPED_TABLES or "account_id" not in table.c:
+                continue
+            db.session.execute(
+                table.update().where(table.c.account_id.is_(None)).values(account_id=profile.id)
+            )
+
+        # Backfill invoice line items created by older versions.
+        for inv in Invoice.query.all():
+            if not inv.items and inv.appointment and inv.appointment.service:
+                svc = inv.appointment.service
+                db.session.add(InvoiceItem(
+                    invoice_id=inv.id,
+                    description=svc.name,
+                    quantity=1,
+                    unit_price=svc.price,
+                    total=svc.price,
+                    account_id=inv.account_id,
+                ))
+
+        # Ensure the original salon has its complete seven-day schedule.
+        for day in range(7):
+            if not SalonHours.query.filter_by(account_id=profile.id, day_of_week=day).first():
+                db.session.add(SalonHours(
+                    day_of_week=day,
+                    open_time='09:00',
+                    close_time='20:00',
+                    is_closed=False,
+                    account_id=profile.id,
+                ))
+
+        if created_admin:
+            db.session.add_all([
+                Service(name='Haircut (Men)', duration_minutes=30, price=200, category='Hair', account_id=profile.id),
+                Service(name='Haircut (Women)', duration_minutes=45, price=350, category='Hair', account_id=profile.id),
+                Service(name='Hair Coloring', duration_minutes=90, price=1500, category='Hair', account_id=profile.id),
+                Service(name='Facial', duration_minutes=60, price=800, category='Skin', account_id=profile.id),
+                Service(name='Manicure', duration_minutes=40, price=400, category='Nails', account_id=profile.id),
+                Service(name='Pedicure', duration_minutes=50, price=500, category='Nails', account_id=profile.id),
+                Service(name='Bridal Makeup', duration_minutes=120, price=5000, category='Makeup', account_id=profile.id),
+            ])
+            db.session.add_all([
+                Staff(name='Priya Sharma', phone='9876543210', specialty='Hair Stylist', account_id=profile.id),
+                Staff(name='Rahul Verma', phone='9876543211', specialty='Barber & Color', account_id=profile.id),
+                Staff(name='Anjali Patel', phone='9876543212', specialty='Makeup Artist', account_id=profile.id),
+                Staff(name='Sneha Gupta', phone='9876543213', specialty='Skin & Nails', account_id=profile.id),
+            ])
+
+        db.session.commit()
+        print("Database initialized with tenant isolation and owner account ready.")
+
 
 if __name__ == '__main__':
     init_db()
