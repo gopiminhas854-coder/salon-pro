@@ -73,6 +73,13 @@ def login(client, username, password):
 def test_customers_are_isolated_by_salon_account():
     owner1_id, owner2_id, account1_id, account2_id, customer1_id, customer2_id = setup_database()
 
+    with salon.app.app_context():
+        raw_before_login = salon.db.session.execute(
+            salon.db.text("SELECT id, account_id FROM customer WHERE id = :id"),
+            {"id": customer1_id},
+        ).first()
+        assert raw_before_login is not None, "customer row is missing before login"
+
     with salon.app.test_client() as client1:
         login(client1, "owner1", "password-1")
         with client1.session_transaction() as sess:
