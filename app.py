@@ -561,7 +561,10 @@ def enforce_tenant_query_scope(orm_execute_state):
     if orm_execute_state.is_column_load or orm_execute_state.is_relationship_load:
         return
 
-    tenant_id = _current_account_id()
+    # Tenant context must already be resolved by the request bootstrap/login
+    # layer. Do not query AccountProfile from inside do_orm_execute itself,
+    # otherwise tenant resolution would recursively trigger this hook.
+    tenant_id = getattr(g, "salon_account_id", None) or session.get("account_id")
     if tenant_id is None:
         return
 
