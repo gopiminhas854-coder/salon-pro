@@ -978,6 +978,13 @@ def security_headers(response):
 
 @app.errorhandler(404)
 def handle_not_found(error):
+    app.logger.warning(
+        "NOT_FOUND path=%s endpoint=%s user_id=%r session_account=%r",
+        request.path,
+        request.endpoint,
+        session.get("user_id"),
+        session.get("account_id"),
+    )
     return (
         "<!doctype html><html><head><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
         "<title>Salon Pro - Page not found</title></head><body style=\"font-family:system-ui;padding:40px\">"
