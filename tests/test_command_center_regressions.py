@@ -91,7 +91,7 @@ def test_command_center_retention_shows_service_and_anniversary_action():
         assert response.status_code == 200
         assert b"Signature Haircut" in response.data
         assert b"/whatsapp/send/" in response.data
-        assert b"key=anniversary" in response.data
+        assert b"/whatsapp/send/" in response.data and b"/anniversary" in response.data
         assert b"Anniversary" in response.data
 
 
