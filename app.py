@@ -575,7 +575,7 @@ def enforce_tenant_query_scope(orm_execute_state):
         statement = statement.options(
             with_loader_criteria(
                 model,
-                model.account_id == tenant_id,
+                lambda cls: cls.account_id == tenant_id,
                 include_aliases=True,
                 propagate_to_loaders=True,
             )
