@@ -3611,7 +3611,7 @@ def add_invoice_item(id):
 @app.route('/invoices/<int:id>/items/<int:item_id>/delete', methods=['POST'])
 @login_required
 def delete_invoice_item(id, item_id):
-    invoice = Invoice.query.get_or_404(id)
+    invoice = tenant_query(Invoice).filter_by(id=id).first_or_404()
     if invoice.payment_status in ('Paid', 'Refunded') or invoice_net_paid_amount(invoice) > 0:
         flash('An invoice with payments cannot be edited. Refund the payment first if a correction is required.', 'warning')
         return redirect(url_for('view_invoice', id=id))
@@ -4202,7 +4202,7 @@ def add_inventory_sale(id):
     except (KeyError, ValueError, TypeError):
         flash('Enter a valid product and quantity.', 'danger')
         return redirect(url_for('view_invoice', id=id))
-    item = InventoryItem.query.filter_by(id=item_id).with_for_update().first_or_404()
+    item = tenant_query(InventoryItem).filter_by(id=item_id).with_for_update().first_or_404()
     if not item.is_active or item.stock_qty < quantity:
         flash(f'Not enough stock for {item.name}. Available: {item.stock_qty:g}.', 'danger')
         return redirect(url_for('view_invoice', id=id))
