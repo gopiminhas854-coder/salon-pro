@@ -233,7 +233,6 @@ def upgrade():
 
     # No existing data should remain ownerless after migration when a user exists.
     # New application-created rows are assigned automatically by the request guard.
-    bind.commit()
 
 
 def downgrade():
