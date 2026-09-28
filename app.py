@@ -929,7 +929,7 @@ def google_auth():
         flash('The linked Salon Pro account no longer exists.', 'danger')
         return redirect(url_for('login'))
 
-    link = UserStaffLink.query.filter_by(user_id=user.id).first()
+    link = _staff_link_for_user(user.id)
     if link and (not link.staff or not link.staff.is_active):
         flash('This Salon Pro account is inactive.', 'danger')
         return redirect(url_for('login'))
@@ -948,44 +948,57 @@ def monthly_price_inr():
 
 
 def latest_subscription(user):
-    if not user:
+    owner = billing_owner_user(user)
+    if not owner:
         return None
-    return Subscription.query.filter_by(user_id=user.id).order_by(
+    return Subscription.query.filter_by(user_id=owner.id).order_by(
         Subscription.created_at.desc(), Subscription.id.desc()
     ).first()
-
 
 def active_subscription(user):
     sub = latest_subscription(user)
     if not sub:
         return None
     now = utc_now()
-    if sub.status in {'active', 'trial'} and sub.expires_at and sub.expires_at > now:
+    if sub.status in {"active", "trial"} and sub.expires_at and sub.expires_at > now:
         return sub
-    if sub.status == 'active' and sub.expires_at and sub.expires_at <= now:
-        sub.status = 'expired'
+    if sub.status == "active" and sub.expires_at and sub.expires_at <= now:
+        sub.status = "expired"
         db.session.commit()
     return None
 
 
 def legacy_trial_for_existing_user(user):
-    if not user or AccountProfile.query.filter_by(user_id=user.id).first():
+    if not user:
         return
-    days = int(app.config.get('SALON_PRO_LEGACY_TRIAL_DAYS', 30) or 0)
+
+    existing_profile = db.session.execute(
+        db.select(AccountProfile.id).where(AccountProfile.user_id == user.id)
+    ).scalar_one_or_none()
+    if existing_profile:
+        return
+
+    # Staff accounts inherit the owner subscription through their linked staff record.
+    if _staff_link_for_user(user.id):
+        return
+
+    days = int(app.config.get("SALON_PRO_LEGACY_TRIAL_DAYS", 30) or 0)
     profile = AccountProfile(
         user_id=user.id,
         business_name=f"{user.username} Salon",
         email=None,
     )
     db.session.add(profile)
+    db.session.flush()
+
     if days > 0:
         now = utc_now()
         db.session.add(Subscription(
             user_id=user.id,
-            plan_key='legacy_trial',
-            status='trial',
+            plan_key="legacy_trial",
+            status="trial",
             amount_paise=0,
-            currency='INR',
+            currency="INR",
             start_at=now,
             expires_at=now + timedelta(days=days),
         ))
@@ -1116,12 +1129,12 @@ def register():
 @login_required
 def subscription():
     user = current_user()
-    if not AccountProfile.query.filter_by(user_id=user.id).first():
+    if not tenant_profile_for_user(user):
         legacy_trial_for_existing_user(user)
     payload = current_subscription_payload(user)
     return render_template(
         'subscription.html',
-        business=AccountProfile.query.filter_by(user_id=user.id).first(),
+        business=tenant_profile_for_user(user),
         **payload,
         reason=request.args.get('reason', ''),
     )
@@ -1139,6 +1152,9 @@ def subscription_create_order():
     user = current_user()
     if not user:
         return jsonify({'ok': False, 'error': 'Please log in again.'}), 401
+    owner = billing_owner_user(user)
+    if not owner or owner.id != user.id:
+        return jsonify({'ok': False, 'error': 'Only the salon owner can manage the subscription.'}), 403
 
     amount_paise = monthly_price_inr() * 100
     payload = {
@@ -1164,7 +1180,7 @@ def subscription_create_order():
         return jsonify({'ok': False, 'error': 'Could not start payment. Please try again.'}), 502
 
     sub = Subscription(
-        user_id=user.id,
+        user_id=owner.id,
         plan_key='monthly',
         status='pending',
         amount_paise=amount_paise,
@@ -1180,8 +1196,8 @@ def subscription_create_order():
         'order_id': order.get('id'),
         'amount': amount_paise,
         'currency': 'INR',
-        'name': AccountProfile.query.filter_by(user_id=user.id).first().business_name if AccountProfile.query.filter_by(user_id=user.id).first() else user.username,
-        'email': AccountProfile.query.filter_by(user_id=user.id).first().email if AccountProfile.query.filter_by(user_id=user.id).first() else '',
+        'name': tenant_profile_for_user(user).business_name if tenant_profile_for_user(user) else user.username,
+        'email': tenant_profile_for_user(user).email if tenant_profile_for_user(user) else '',
         'phone': user.phone_number or '',
     })
 
@@ -1212,6 +1228,11 @@ def subscription_verify_payment():
     if not app.config.get('RAZORPAY_KEY_ID') or not app.config.get('RAZORPAY_KEY_SECRET'):
         return jsonify({'ok': False, 'error': 'Razorpay is not configured.'}), 503
 
+    user = current_user()
+    owner = billing_owner_user(user) if user else None
+    if not owner or owner.id != user.id:
+        return jsonify({'ok': False, 'error': 'Only the salon owner can verify a subscription payment.'}), 403
+
     data = request.get_json(silent=True) or {}
     order_id = (data.get('razorpay_order_id') or '').strip()
     payment_id = (data.get('razorpay_payment_id') or '').strip()
@@ -1228,7 +1249,7 @@ def subscription_verify_payment():
         return jsonify({'ok': False, 'error': 'Payment signature verification failed.'}), 400
 
     sub = Subscription.query.filter_by(
-        user_id=session['user_id'],
+        user_id=owner.id,
         razorpay_order_id=order_id,
     ).first()
     if not sub:
@@ -1306,7 +1327,7 @@ def login():
         if not user and identifier:
             profile = AccountProfile.query.filter_by(email=identifier.lower()).first()
             user = profile.user if profile else None
-        link = UserStaffLink.query.filter_by(user_id=user.id).first() if user else None
+        link = _staff_link_for_user(user.id) if user else None
         if user and (not link or (link.staff and link.staff.is_active)) and check_password_hash(user.password_hash, password):
             establish_login_session(user)
             if not active_subscription(user) and app.config.get('SALON_PRO_BILLING_REQUIRED', True):
@@ -1699,10 +1720,18 @@ def public_booking():
     return render_template('booking.html', services=services, staff_list=staff_list, today_iso=date.today().isoformat())
 
 def _backup_json():
+    account_id = _current_account_id()
+    if account_id is None:
+        raise PermissionError("Salon account context is required for backup.")
+
     tables = {}
     for table in db.metadata.sorted_tables:
+        if table.name not in TENANT_SCOPED_TABLES or "account_id" not in table.c:
+            continue
         rows = []
-        for row in db.session.execute(table.select()).mappings():
+        for row in db.session.execute(
+            table.select().where(table.c.account_id == account_id)
+        ).mappings():
             item = {}
             for key, value in row.items():
                 if isinstance(value, (datetime, date)):
@@ -1711,13 +1740,16 @@ def _backup_json():
                     item[key] = value
             rows.append(item)
         tables[table.name] = rows
+
     return {
-        'format': 'salon-pro-backup',
-        'version': 1,
-        'created_at': datetime.now(timezone.utc).isoformat(),
-        'database': db.engine.url.get_backend_name(),
-        'tables': tables,
+        "format": "salon-pro-backup",
+        "version": 2,
+        "tenant_id": str(account_id),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "database": db.engine.url.get_backend_name(),
+        "tables": tables,
     }
+
 
 def _restore_value(column, value):
     if value is None:
@@ -1767,28 +1799,38 @@ def restore_backup():
         flash('Choose a Salon Pro backup file first.', 'danger')
         return redirect(url_for('settings'))
     if confirmation != 'RESTORE':
-        flash('Type RESTORE to confirm replacing the current database data.', 'danger')
+        flash('Type RESTORE to confirm replacing the current salon data.', 'danger')
         return redirect(url_for('settings'))
+
+    account_id = _current_account_id()
+    if account_id is None:
+        flash('Salon account could not be identified.', 'danger')
+        return redirect(url_for('settings'))
+
     try:
         raw = upload.read()
         if upload.filename.lower().endswith(('.gz', '.gzip')):
             raw = gzip.decompress(raw)
         backup = json.loads(raw.decode('utf-8'))
-        if backup.get('format') != 'salon-pro-backup' or backup.get('version') != 1:
-            raise ValueError('Unsupported backup format.')
+        if backup.get('format') != 'salon-pro-backup' or backup.get('version') != 2:
+            raise ValueError('Only tenant-scoped Salon Pro backups created by the current version can be restored.')
+        if str(backup.get('tenant_id')) != str(account_id):
+            raise ValueError('This backup belongs to a different salon account.')
+
         tables = backup.get('tables')
         if not isinstance(tables, dict):
             raise ValueError('Backup table data is invalid.')
 
-        known = set(db.metadata.tables)
-        unknown = set(tables) - known
-        missing_tables = known - set(tables)
+        known_tenant = {
+            name: table for name, table in db.metadata.tables.items()
+            if name in TENANT_SCOPED_TABLES and "account_id" in table.c
+        }
+        unknown = set(tables) - set(known_tenant)
         if unknown:
-            raise ValueError(f'Backup contains unknown tables: {", ".join(sorted(unknown))}')
-        if missing_tables:
-            raise ValueError(f'Backup is incomplete; missing tables: {", ".join(sorted(missing_tables))}')
+            raise ValueError(f'Backup contains unknown or non-tenant tables: {", ".join(sorted(unknown))}')
+
         for table_name, rows in tables.items():
-            table = db.metadata.tables[table_name]
+            table = known_tenant[table_name]
             expected_columns = {col.name for col in table.columns}
             if not isinstance(rows, list):
                 raise ValueError(f'Backup rows for {table_name} must be a list.')
@@ -1796,41 +1838,54 @@ def restore_backup():
                 if not isinstance(row, dict):
                     raise ValueError(f'Invalid row in {table_name}.')
                 if set(row) != expected_columns:
-                    raise ValueError(f'Backup schema mismatch for {table_name}. Expected columns: {", ".join(sorted(expected_columns))}')
+                    raise ValueError(
+                        f'Backup schema mismatch for {table_name}. Expected columns: {", ".join(sorted(expected_columns))}'
+                    )
+                if row.get('account_id') not in (account_id, str(account_id)):
+                    raise ValueError(f'Backup tenant mismatch in {table_name}.')
 
         db.session.rollback()
-        # Delete children before parents so foreign keys remain valid.
-        for table in reversed(db.metadata.sorted_tables):
-            db.session.execute(table.delete())
-        # Restore in dependency order.
-        for table in db.metadata.sorted_tables:
+
+        tenant_tables = [
+            table for table in db.metadata.sorted_tables
+            if table.name in TENANT_SCOPED_TABLES and "account_id" in table.c
+        ]
+        for table in reversed(tenant_tables):
+            db.session.execute(
+                table.delete().where(table.c.account_id == account_id)
+            )
+
+        for table in tenant_tables:
             rows = tables.get(table.name, [])
             if not rows:
                 continue
             valid_columns = {c.name: c for c in table.columns}
             for row in rows:
-                if not isinstance(row, dict):
-                    raise ValueError(f'Invalid row in {table.name}.')
-                values = {key: _restore_value(valid_columns[key], value)
-                          for key, value in row.items() if key in valid_columns}
+                values = {
+                    key: _restore_value(valid_columns[key], value)
+                    for key, value in row.items()
+                    if key in valid_columns and key != "account_id"
+                }
+                values["account_id"] = account_id
                 db.session.execute(table.insert().values(**values))
 
-        # PostgreSQL integer sequences must be moved past restored primary keys.
         if db.engine.dialect.name == 'postgresql':
-            for table in db.metadata.sorted_tables:
+            for table in tenant_tables:
                 pk = next(iter(table.primary_key.columns), None)
                 if pk is not None and getattr(pk.type, 'python_type', None) is int:
                     db.session.execute(db.text(
                         "SELECT setval(pg_get_serial_sequence(:table_name, :column_name), "
                         "COALESCE((SELECT MAX(" + pk.name + ") FROM " + table.name + "), 1), true)"
                     ), {'table_name': table.name, 'column_name': pk.name})
+
         db.session.commit()
-        flash('Database restore completed successfully.', 'success')
+        flash('Salon data restore completed successfully. Other salons were left untouched.', 'success')
     except Exception as exc:
         db.session.rollback()
         app.logger.exception('Database restore failed: %s', exc)
         flash(f'Database restore failed: {exc}', 'danger')
     return redirect(url_for('settings'))
+
 
 # ==================== DASHBOARD ====================
 
@@ -4310,21 +4365,10 @@ def change_password():
 def init_db():
     with app.app_context():
         db.create_all()
-        # Backfill line items for invoices created by older versions.
-        for inv in Invoice.query.all():
-            if not inv.items and inv.appointment and inv.appointment.service:
-                svc = inv.appointment.service
-                db.session.add(InvoiceItem(invoice_id=inv.id, description=svc.name,
-                                           quantity=1, unit_price=svc.price,
-                                           total=svc.price))
-        # Ensure the application always has a complete seven-day schedule. This
-        # also repairs existing installations that predate SalonHours initialization.
-        for day in range(7):
-            if not SalonHours.query.filter_by(day_of_week=day).first():
-                db.session.add(SalonHours(day_of_week=day, open_time='09:00', close_time='20:00', is_closed=False))
-        db.session.commit()
-        # Create default admin if not exists
-        if not User.query.filter_by(username='admin').first():
+
+        admin = User.query.filter_by(username='admin').first()
+        created_admin = False
+        if not admin:
             admin_password = os.environ.get('SALON_PRO_ADMIN_PASSWORD')
             if not admin_password:
                 raise RuntimeError(
@@ -4338,30 +4382,71 @@ def init_db():
                 role='admin'
             )
             db.session.add(admin)
-            
-            # Sample services
-            sample_services = [
-                Service(name='Haircut (Men)', duration_minutes=30, price=200, category='Hair'),
-                Service(name='Haircut (Women)', duration_minutes=45, price=350, category='Hair'),
-                Service(name='Hair Coloring', duration_minutes=90, price=1500, category='Hair'),
-                Service(name='Facial', duration_minutes=60, price=800, category='Skin'),
-                Service(name='Manicure', duration_minutes=40, price=400, category='Nails'),
-                Service(name='Pedicure', duration_minutes=50, price=500, category='Nails'),
-                Service(name='Bridal Makeup', duration_minutes=120, price=5000, category='Makeup'),
-            ]
-            db.session.add_all(sample_services)
-            
-            # Sample staff
-            sample_staff = [
-                Staff(name='Priya Sharma', phone='9876543210', specialty='Hair Stylist'),
-                Staff(name='Rahul Verma', phone='9876543211', specialty='Barber & Color'),
-                Staff(name='Anjali Patel', phone='9876543212', specialty='Makeup Artist'),
-                Staff(name='Sneha Gupta', phone='9876543213', specialty='Skin & Nails'),
-            ]
-            db.session.add_all(sample_staff)
-            
-            db.session.commit()
-            print("Database initialized with admin account and sample data.")
+            db.session.flush()
+            created_admin = True
+
+        profile = AccountProfile.query.filter_by(user_id=admin.id).first()
+        if not profile:
+            profile = AccountProfile(
+                user_id=admin.id,
+                business_name=f"{admin.username} Salon",
+                email=None,
+            )
+            db.session.add(profile)
+            db.session.flush()
+
+        # Legacy records created before tenant isolation belong to the original owner.
+        for table in db.metadata.sorted_tables:
+            if table.name not in TENANT_SCOPED_TABLES or "account_id" not in table.c:
+                continue
+            db.session.execute(
+                table.update().where(table.c.account_id.is_(None)).values(account_id=profile.id)
+            )
+
+        # Backfill invoice line items created by older versions.
+        for inv in Invoice.query.all():
+            if not inv.items and inv.appointment and inv.appointment.service:
+                svc = inv.appointment.service
+                db.session.add(InvoiceItem(
+                    invoice_id=inv.id,
+                    description=svc.name,
+                    quantity=1,
+                    unit_price=svc.price,
+                    total=svc.price,
+                    account_id=inv.account_id,
+                ))
+
+        # Ensure the original salon has its complete seven-day schedule.
+        for day in range(7):
+            if not SalonHours.query.filter_by(day_of_week=day).first():
+                db.session.add(SalonHours(
+                    day_of_week=day,
+                    open_time='09:00',
+                    close_time='20:00',
+                    is_closed=False,
+                    account_id=profile.id,
+                ))
+
+        if created_admin:
+            db.session.add_all([
+                Service(name='Haircut (Men)', duration_minutes=30, price=200, category='Hair', account_id=profile.id),
+                Service(name='Haircut (Women)', duration_minutes=45, price=350, category='Hair', account_id=profile.id),
+                Service(name='Hair Coloring', duration_minutes=90, price=1500, category='Hair', account_id=profile.id),
+                Service(name='Facial', duration_minutes=60, price=800, category='Skin', account_id=profile.id),
+                Service(name='Manicure', duration_minutes=40, price=400, category='Nails', account_id=profile.id),
+                Service(name='Pedicure', duration_minutes=50, price=500, category='Nails', account_id=profile.id),
+                Service(name='Bridal Makeup', duration_minutes=120, price=5000, category='Makeup', account_id=profile.id),
+            ])
+            db.session.add_all([
+                Staff(name='Priya Sharma', phone='9876543210', specialty='Hair Stylist', account_id=profile.id),
+                Staff(name='Rahul Verma', phone='9876543211', specialty='Barber & Color', account_id=profile.id),
+                Staff(name='Anjali Patel', phone='9876543212', specialty='Makeup Artist', account_id=profile.id),
+                Staff(name='Sneha Gupta', phone='9876543213', specialty='Skin & Nails', account_id=profile.id),
+            ])
+
+        db.session.commit()
+        print("Database initialized with tenant isolation and owner account ready.")
+
 
 if __name__ == '__main__':
     init_db()
