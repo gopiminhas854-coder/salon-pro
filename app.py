@@ -552,6 +552,8 @@ from sqlalchemy.orm import Session as SQLAlchemySession, with_loader_criteria
 def enforce_tenant_query_scope(orm_execute_state):
     if not has_request_context():
         return
+    if not getattr(orm_execute_state, "is_orm_statement", False):
+        return
     if not (
         orm_execute_state.is_select
         or orm_execute_state.is_update
