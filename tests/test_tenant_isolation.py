@@ -79,6 +79,17 @@ def test_customers_are_isolated_by_salon_account():
             assert sess.get("user_id") == owner1_id
             assert sess.get("account_id") == account1_id
 
+        with salon.app.app_context():
+            with salon.db.engine.connect() as conn:
+                raw = conn.execute(
+                    salon.db.text("SELECT id, account_id FROM customer WHERE id = :id"),
+                    {"id": customer1_id},
+                ).first()
+            assert raw is not None, "customer missing from database after login"
+            assert int(raw.account_id) == int(account1_id), (
+                f"customer owner mismatch after login: {raw.account_id} != {account1_id}"
+            )
+
         own = client1.get(f"/customers/{customer1_id}")
         assert own.status_code == 200
         assert b"Customer One" in own.data
