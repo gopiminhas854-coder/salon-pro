@@ -623,6 +623,13 @@ def tenant_profile_for_user(user):
     account_id = _account_id_for_user(user)
     return db.session.get(AccountProfile, account_id) if account_id else None
 
+def tenant_query(model):
+    """Return a query restricted to the authenticated/public salon account."""
+    account_id = _current_account_id()
+    if account_id is None:
+        return model.query.filter(db.literal(False))
+    return model.query.filter(model.account_id == account_id)
+
 def billing_owner_user(user):
     profile = tenant_profile_for_user(user)
     if profile and profile.user:
@@ -1669,10 +1676,10 @@ def normalize_appointment_status(status):
 def booking_allowed(appointment_date, appointment_time, duration_minutes):
     if appointment_date < date.today():
         return False, 'Appointments cannot be booked for a past date.'
-    closure = SalonClosure.query.filter_by(closure_date=appointment_date).first()
+    closure = tenant_query(SalonClosure).filter_by(closure_date=appointment_date).first()
     if closure:
         return False, closure.reason or 'The salon is closed on this date.'
-    hours = SalonHours.query.filter_by(day_of_week=appointment_date.weekday()).first()
+    hours = tenant_query(SalonHours).filter_by(day_of_week=appointment_date.weekday()).first()
     if hours and hours.is_closed:
         return False, 'The salon is closed on this day.'
     if hours:
@@ -1688,7 +1695,7 @@ def booking_allowed(appointment_date, appointment_time, duration_minutes):
     return True, ''
 
 def appointment_conflict(staff_id, appointment_date, appointment_time, duration_minutes, exclude_id=None):
-    schedule = StaffSchedule.query.filter_by(staff_id=staff_id, day_of_week=appointment_date.weekday()).first()
+    schedule = tenant_query(StaffSchedule).filter_by(staff_id=staff_id, day_of_week=appointment_date.weekday()).first()
     if schedule and not schedule.is_working:
         return 'This staff member is not available on this day.'
     if schedule:
@@ -1700,7 +1707,7 @@ def appointment_conflict(staff_id, appointment_date, appointment_time, duration_
             return f'Staff availability is {schedule.start_time}–{schedule.end_time}.'
     start = datetime.combine(appointment_date, datetime.strptime(appointment_time, '%H:%M').time())
     end = start + timedelta(minutes=duration_minutes or 30)
-    breaks = StaffBreak.query.filter_by(
+    breaks = tenant_query(StaffBreak).filter_by(
         staff_id=staff_id, day_of_week=appointment_date.weekday(), is_active=True
     ).all()
     for break_row in breaks:
@@ -1708,7 +1715,7 @@ def appointment_conflict(staff_id, appointment_date, appointment_time, duration_
         break_end = datetime.combine(appointment_date, datetime.strptime(break_row.end_time, '%H:%M').time())
         if start < break_end and break_start < end:
             return f'Staff break is from {break_row.start_time} to {break_row.end_time}.'
-    query = Appointment.query.filter(
+    query = tenant_query(Appointment).filter(
         Appointment.staff_id == staff_id,
         Appointment.appointment_date == appointment_date,
         Appointment.status.in_(list(ACTIVE_APPOINTMENT_STATUSES))
@@ -1843,9 +1850,9 @@ def public_booking():
             if conflict:
                 flash(conflict, 'danger')
                 return redirect(url_for('public_booking'))
-            customer = Customer.query.filter_by(phone=phone).first()
+            customer = tenant_query(Customer).filter_by(phone=phone).first()
             if not customer:
-                customer = Customer(name=name, phone=phone)
+                customer = Customer(name=name, phone=phone, account_id=public_account_id)
                 db.session.add(customer)
                 db.session.flush()
             else:
@@ -3135,7 +3142,7 @@ def invoices():
 @app.route('/api/staff/<int:staff_id>/availability', methods=['GET','POST'])
 @login_required
 def staff_availability_api(staff_id):
-    Staff.query.get_or_404(staff_id)
+    tenant_query(Staff).filter_by(id=staff_id).first_or_404()
     if request.method == 'POST':
         payload = request.get_json(silent=True) or {}
         try:
@@ -3147,7 +3154,7 @@ def staff_availability_api(staff_id):
             datetime.strptime(end_time, '%H:%M')
             if day not in range(7) or start_time >= end_time:
                 raise ValueError
-            row = StaffSchedule.query.filter_by(staff_id=staff_id, day_of_week=day).first()
+            row = tenant_query(StaffSchedule).filter_by(staff_id=staff_id, day_of_week=day).first()
             if not row:
                 row = StaffSchedule(staff_id=staff_id, day_of_week=day)
                 db.session.add(row)
@@ -3159,8 +3166,8 @@ def staff_availability_api(staff_id):
         except (TypeError, ValueError):
             db.session.rollback()
             return jsonify({'ok': False, 'error': 'Invalid staff availability.'}), 400
-    rows = StaffSchedule.query.filter_by(staff_id=staff_id).order_by(StaffSchedule.day_of_week).all()
-    breaks = StaffBreak.query.filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
+    rows = tenant_query(StaffSchedule).filter_by(staff_id=staff_id).order_by(StaffSchedule.day_of_week).all()
+    breaks = tenant_query(StaffBreak).filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
     return jsonify({
         'availability': [{'day_of_week': r.day_of_week, 'start_time': r.start_time, 'end_time': r.end_time, 'is_working': r.is_working} for r in rows],
         'breaks': [{'id': b.id, 'day_of_week': b.day_of_week, 'start_time': b.start_time, 'end_time': b.end_time, 'is_active': b.is_active} for b in breaks]
@@ -3171,7 +3178,7 @@ def staff_availability_api(staff_id):
 def staff_break_create_api(staff_id):
     Staff.query.get_or_404(staff_id)
     if request.method == 'GET':
-        rows = StaffBreak.query.filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
+        rows = tenant_query(StaffBreak).filter_by(staff_id=staff_id).order_by(StaffBreak.day_of_week, StaffBreak.start_time).all()
         return jsonify({'breaks': [{'id': b.id, 'day_of_week': b.day_of_week, 'start_time': b.start_time, 'end_time': b.end_time, 'is_active': b.is_active} for b in rows]})
     payload = request.get_json(silent=True) or {}
     try:
@@ -3193,7 +3200,7 @@ def staff_break_create_api(staff_id):
 @app.route('/invoices/<int:id>/tip', methods=['POST'])
 @login_required
 def update_invoice_tip(id):
-    invoice = Invoice.query.get_or_404(id)
+    invoice = tenant_query(Invoice).filter_by(id=id).first_or_404()
     if invoice.payment_status in {'Paid','Refunded'} or invoice_net_paid_amount(invoice) > 0:
         flash('Tip cannot be edited after payment. Create a new charge if needed.', 'warning')
         return redirect(url_for('view_invoice', id=id))
@@ -3221,7 +3228,7 @@ def view_invoice(id):
 @app.route('/invoices/pay/<int:id>', methods=['POST'])
 @login_required
 def mark_paid(id):
-    invoice = Invoice.query.filter_by(id=id).with_for_update().first_or_404()
+    invoice = tenant_query(Invoice).filter_by(id=id).with_for_update().first_or_404()
     if invoice.payment_status == 'Refunded':
         flash('A refunded invoice cannot receive another payment.', 'danger')
         return redirect(url_for('view_invoice', id=id))
@@ -3248,7 +3255,7 @@ def mark_paid(id):
         gift_card = None
         if method == 'Gift Card':
             code = request.form.get('gift_card_code', '').strip().upper()
-            gift_card = GiftCard.query.filter_by(code=code, status='Active').with_for_update().first() if code else None
+            gift_card = tenant_query(GiftCard).filter_by(code=code, status='Active').with_for_update().first() if code else None
             if not gift_card:
                 raise ValueError('Enter a valid active gift card code.')
             if gift_card.expires_at and gift_card.expires_at < date.today():
@@ -4377,7 +4384,7 @@ def gift_cards():
 @app.route('/gift-cards/redeem/<int:id>', methods=['POST'])
 @login_required
 def redeem_gift_card(id):
-    card=GiftCard.query.get_or_404(id)
+    card=tenant_query(GiftCard).filter_by(id=id).first_or_404()
     try:
         amount=round(float(request.form.get('amount',0)),2)
         if amount<=0 or amount>card.balance+0.01 or (card.expires_at and card.expires_at<date.today()): raise ValueError
