@@ -7,7 +7,7 @@ The application bootstrap runs only after migrations complete.
 """
 from sqlalchemy import inspect
 from flask_migrate import stamp, upgrade
-from app import app, db, init_db
+from app import app, db, init_db, UserStaffLink
 
 BASELINE = "0001_initial_schema"
 EXPECTED_TABLES = {
