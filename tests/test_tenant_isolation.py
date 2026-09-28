@@ -55,7 +55,7 @@ def setup_database():
             account_id=account2.id,
         )
         salon.db.session.add_all([customer1, customer2])
-        ids = (owner1.id, owner2.id, customer1.id, customer2.id)
+        ids = (owner1.id, owner2.id, account1.id, account2.id, customer1.id, customer2.id)
         salon.db.session.commit()
         return ids
 
@@ -71,10 +71,13 @@ def login(client, username, password):
 
 
 def test_customers_are_isolated_by_salon_account():
-    owner1_id, owner2_id, customer1_id, customer2_id = setup_database()
+    owner1_id, owner2_id, account1_id, account2_id, customer1_id, customer2_id = setup_database()
 
     with salon.app.test_client() as client1:
         login(client1, "owner1", "password-1")
+        with client1.session_transaction() as sess:
+            assert sess.get("user_id") == owner1_id
+            assert sess.get("account_id") == account1_id
 
         own = client1.get(f"/customers/{customer1_id}")
         assert own.status_code == 200
