@@ -2726,7 +2726,7 @@ def customer_detail(id):
                            appointments=customer_appointments, invoices=customer_invoices,
                            completed_visits=completed_visits, total_spend=total_spend,
                            pending_amount=pending_amount, last_visit=last_visit,
-                           crm=crm, customer_next_best_action=customer_next_best_action(customer, crm))
+                           crm=crm, customer_next_action=customer_next_best_action(customer, crm))
 
 
 # ==================== EXPENSES ====================
