@@ -83,6 +83,22 @@ def test_customers_are_isolated_by_salon_account():
             salon.session["user_id"] = owner1_id
             salon.session["account_id"] = account1_id
             salon.g.salon_account_id = account1_id
+            raw = salon.db.session.execute(
+                salon.db.text("SELECT id, account_id FROM customer WHERE id = :id"),
+                {"id": customer1_id},
+            ).first()
+            assert raw is not None, "raw customer row is missing"
+            assert int(raw.account_id) == int(account1_id), (
+                f"raw customer account mismatch: row={raw.account_id}, expected={account1_id}"
+            )
+
+            direct = salon.db.session.execute(
+                salon.db.select(salon.Customer)
+                .where(salon.Customer.id == customer1_id)
+                .where(salon.Customer.account_id == account1_id)
+            ).scalar_one_or_none()
+            assert direct is not None, "direct account_id predicate hid own customer"
+
             row = salon.db.session.execute(
                 salon.db.select(salon.Customer).where(salon.Customer.id == customer1_id)
             ).scalar_one_or_none()
