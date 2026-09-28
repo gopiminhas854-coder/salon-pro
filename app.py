@@ -133,8 +133,10 @@ class TenantQuery(Query):
         tenant_id = _current_account_id()
         if tenant_id is None:
             return None
-        scoped = Query.filter(self, model.id == ident, model.account_id == tenant_id)
-        return Query.first(scoped)
+        value = db.session.execute(
+            db.select(model).where(model.id == ident, model.account_id == tenant_id)
+        ).scalar_one_or_none()
+        return value
 
     def get_or_404(self, ident, description=None):
         value = self.get(ident)
@@ -597,13 +599,23 @@ def _current_account_id():
         return cached
     session_account_id = session.get("account_id")
     if session_account_id:
-        g.salon_account_id = session_account_id
-        return session_account_id
+        g.salon_account_id = int(session_account_id)
+        return int(session_account_id)
     user_id = session.get("user_id")
-    if not user_id:
-        return None
-    user = db.session.get(User, user_id)
-    return _account_id_for_user(user)
+    if user_id:
+        user = db.session.get(User, user_id)
+        account_id = _account_id_for_user(user)
+        if account_id:
+            g.salon_account_id = int(account_id)
+            return int(account_id)
+    # The public booking endpoint is intentionally bound to one configured
+    # salon account. This keeps logged-out booking lookups tenant-scoped too.
+    if request.endpoint == "public_booking":
+        account_id = _public_account_id()
+        if account_id:
+            g.salon_account_id = int(account_id)
+            return int(account_id)
+    return None
 
 def _public_account_id():
     configured = (os.environ.get("SALON_PRO_PUBLIC_ACCOUNT_ID") or "").strip()
@@ -641,7 +653,7 @@ from sqlalchemy.orm import Session as SQLAlchemySession
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
     in_request = has_request_context()
-    tenant_id = getattr(g, "salon_account_id", None) if in_request else None
+    tenant_id = _current_account_id() if in_request else None
 
     # Tests sometimes create rows inside app_context() after a login request.
     # In that mode, infer a tenant only when the database contains exactly one
@@ -1117,6 +1129,9 @@ def legacy_trial_for_existing_user(user):
     if existing_profile:
         _backfill_null_tenant_rows(existing_profile)
         db.session.commit()
+        if has_request_context():
+            session['account_id'] = int(existing_profile)
+            g.salon_account_id = int(existing_profile)
         return
 
     # Staff accounts inherit the owner subscription through their linked staff record.
@@ -1145,6 +1160,9 @@ def legacy_trial_for_existing_user(user):
             expires_at=now + timedelta(days=days),
         ))
     db.session.commit()
+    if has_request_context():
+        session['account_id'] = int(profile.id)
+        g.salon_account_id = int(profile.id)
 
 
 def subscription_is_exempt():
