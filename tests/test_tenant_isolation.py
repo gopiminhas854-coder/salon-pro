@@ -55,6 +55,7 @@ def setup_database():
             account_id=account2.id,
         )
         salon.db.session.add_all([customer1, customer2])
+        salon.db.session.flush()
         ids = (owner1.id, owner2.id, customer1.id, customer2.id)
         salon.db.session.commit()
         return ids
