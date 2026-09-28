@@ -592,9 +592,9 @@ def _account_id_for_user(user):
 def _current_account_id():
     if not has_request_context():
         return None
-    public_account_id = getattr(g, "salon_account_id", None)
-    if public_account_id:
-        return public_account_id
+    cached = getattr(g, "salon_account_id", None)
+    if cached:
+        return cached
     user_id = session.get("user_id")
     if not user_id:
         return None
@@ -631,13 +631,9 @@ from sqlalchemy.orm import Session as SQLAlchemySession
 
 @event.listens_for(SQLAlchemySession, "before_flush")
 def enforce_tenant_ownership(session_obj, flush_context, instances):
-    tenant_id = _current_account_id() if has_request_context() else None
-    if tenant_id is None and app.config.get("TESTING"):
-        profile_ids = db.session.execute(
-            db.select(AccountProfile.id).order_by(AccountProfile.id)
-        ).scalars().all()
-        if len(profile_ids) == 1:
-            tenant_id = profile_ids[0]
+    if not has_request_context():
+        return
+    tenant_id = getattr(g, "salon_account_id", None)
     if tenant_id is None:
         return
 
@@ -861,6 +857,10 @@ def ensure_tenant_bootstrap():
         if inspector.has_table("user") and inspector.has_table("account_profile"):
             if db.session.execute(db.select(AccountProfile.id).limit(1)).scalar_one_or_none() is None:
                 _ensure_legacy_owner_profile()
+            user_id = session.get("user_id")
+            if user_id:
+                user = db.session.get(User, user_id)
+                g.salon_account_id = _account_id_for_user(user)
     except Exception as exc:
         db.session.rollback()
         app.logger.exception("Tenant bootstrap failed: %s", exc)
