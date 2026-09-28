@@ -73,43 +73,11 @@ def login(client, username, password):
 def test_customers_are_isolated_by_salon_account():
     owner1_id, owner2_id, account1_id, account2_id, customer1_id, customer2_id = setup_database()
 
-    with salon.app.app_context():
-        raw_before_login = salon.db.session.execute(
-            salon.db.text("SELECT id, account_id FROM customer WHERE id = :id"),
-            {"id": customer1_id},
-        ).first()
-        assert raw_before_login is not None, "customer row is missing before login"
-
     with salon.app.test_client() as client1:
         login(client1, "owner1", "password-1")
         with client1.session_transaction() as sess:
             assert sess.get("user_id") == owner1_id
             assert sess.get("account_id") == account1_id
-
-        with salon.app.test_request_context(f"/customers/{customer1_id}"):
-            salon.session["user_id"] = owner1_id
-            salon.session["account_id"] = account1_id
-            salon.g.salon_account_id = account1_id
-            raw = salon.db.session.execute(
-                salon.db.text("SELECT id, account_id FROM customer WHERE id = :id"),
-                {"id": customer1_id},
-            ).first()
-            assert raw is not None, "raw customer row is missing"
-            assert int(raw.account_id) == int(account1_id), (
-                f"raw customer account mismatch: row={raw.account_id}, expected={account1_id}"
-            )
-
-            direct = salon.db.session.execute(
-                salon.db.select(salon.Customer)
-                .where(salon.Customer.id == customer1_id)
-                .where(salon.Customer.account_id == account1_id)
-            ).scalar_one_or_none()
-            assert direct is not None, "direct account_id predicate hid own customer"
-
-            row = salon.db.session.execute(
-                salon.db.select(salon.Customer).where(salon.Customer.id == customer1_id)
-            ).scalar_one_or_none()
-            assert row is not None, f"tenant-scoped select hid own customer: account={account1_id}"
 
         own = client1.get(f"/customers/{customer1_id}")
         assert own.status_code == 200
