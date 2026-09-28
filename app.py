@@ -1732,7 +1732,7 @@ def appointment_conflict(staff_id, appointment_date, appointment_time, duration_
     return None
 
 def smart_schedule_slots(service_id, target_date, preferred_staff_id=None, limit=8):
-    service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
+    service = tenant_query(Service).filter_by(id=service_id, is_active=True).first_or_404()
     staff_rows = []
     if preferred_staff_id:
         preferred = Staff.query.filter_by(id=preferred_staff_id, is_active=True).first()
@@ -1839,7 +1839,7 @@ def public_booking():
             if not name or not phone:
                 raise ValueError
             service = Service.query.filter_by(id=service_id, is_active=True).first_or_404()
-            staff = Staff.query.filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
+            staff = tenant_query(Staff).filter_by(id=staff_id, is_active=True).with_for_update().first_or_404()
             allowed, reason = booking_allowed(appointment_date, appointment_time, service.duration_minutes or 30)
             if not allowed:
                 flash(reason, 'danger')
@@ -1865,9 +1865,9 @@ def public_booking():
             return redirect(url_for('public_booking'))
         except (KeyError, ValueError, TypeError):
             flash('Please enter valid booking details.', 'danger')
-    customers = Customer.query.order_by(Customer.name).all()
-    services = Service.query.filter_by(is_active=True).order_by(Service.name).all()
-    staff_list = Staff.query.filter_by(is_active=True).order_by(Staff.name).all()
+    customers = tenant_query(Customer).order_by(Customer.name).all()
+    services = tenant_query(Service).filter_by(is_active=True).order_by(Service.name).all()
+    staff_list = tenant_query(Staff).filter_by(is_active=True).order_by(Staff.name).all()
     return render_template('booking.html', services=services, staff_list=staff_list, today_iso=date.today().isoformat())
 
 def _backup_json():
@@ -4373,13 +4373,13 @@ def gift_cards():
             if amount<=0 or not customer_id: raise ValueError
             expiry_raw=request.form.get('expires_at','').strip(); expiry=date.fromisoformat(expiry_raw) if expiry_raw else None
             code='SPGC-'+secrets.token_hex(4).upper()
-            while GiftCard.query.filter_by(code=code).first(): code='SPGC-'+secrets.token_hex(4).upper()
+            while tenant_query(GiftCard).filter_by(code=code).first(): code='SPGC-'+secrets.token_hex(4).upper()
             card=GiftCard(code=code,purchaser_customer_id=customer_id,recipient_name=request.form.get('recipient_name','').strip() or None,original_amount=amount,balance=amount,expires_at=expiry)
             db.session.add(card); db.session.flush(); db.session.add(GiftCardTransaction(gift_card_id=card.id,transaction_type='Issued',amount=amount,notes='Gift card created')); db.session.commit()
             flash(f'Gift card {code} created with ₹{amount:,.0f}.','success')
         except (ValueError,TypeError): db.session.rollback(); flash('Enter a valid customer, amount and expiry.','danger')
         return redirect(url_for('gift_cards'))
-    return render_template('gift_cards.html',cards=tenant_query(GiftCard).order_by(GiftCard.created_at.desc()).limit(200).all(),customers=Customer.query.order_by(Customer.name).all())
+    return render_template('gift_cards.html',cards=tenant_query(GiftCard).order_by(GiftCard.created_at.desc()).limit(200).all(),customers=tenant_query(Customer).order_by(Customer.name).all())
 
 @app.route('/gift-cards/redeem/<int:id>', methods=['POST'])
 @login_required
