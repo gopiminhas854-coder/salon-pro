@@ -384,14 +384,14 @@ def test_staff_availability_api_respects_false_boolean_values():
         login(client)
         response = client.post(
             "/api/staff/1/availability",
-            json={"day_of_week": 0, "start_time": "09:00", "end_time": "18:00", "is_working": False},
+            json={"day_of_week": 0, "start_time": "09:00", "end_time": "18:00", "is_working": "false"},
         )
         assert response.status_code == 200
         assert response.get_json()["is_working"] is False
 
         response = client.post(
             "/api/staff/1/breaks",
-            json={"day_of_week": 0, "start_time": "13:00", "end_time": "14:00", "is_active": False},
+            json={"day_of_week": 0, "start_time": "13:00", "end_time": "14:00", "is_active": "false"},
         )
         assert response.status_code == 200
 
