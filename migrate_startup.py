@@ -49,7 +49,15 @@ with app.app_context():
             if table.name in EXPECTED_TABLES
         }
         for table_name, current_columns in model_tables.items():
-            expected_columns = current_columns - baseline_excluded_columns.get(table_name, set())
+            excluded_columns = set(baseline_excluded_columns.get(table_name, set()))
+            # account_id belongs to the later multi-tenant migration (0010),
+            # not the 0001 baseline. Do not reject a valid pre-tenant database
+            # before Alembic has a chance to apply migration 0010.
+            if table_name in {
+                name for name in getattr(__import__('app'), 'TENANT_SCOPED_TABLES', set())
+            }:
+                excluded_columns.add("account_id")
+            expected_columns = current_columns - excluded_columns
             actual_columns = {column['name'] for column in inspector.get_columns(table_name)}
             missing_columns = expected_columns - actual_columns
             if missing_columns:
