@@ -7,7 +7,7 @@ The application bootstrap runs only after migrations complete.
 """
 from sqlalchemy import inspect
 from flask_migrate import stamp, upgrade
-from app import app, db, init_db, UserStaffLink
+from app import app, db, init_db, UserStaffLink, TENANT_SCOPED_TABLES
 
 BASELINE = "0001_initial_schema"
 EXPECTED_TABLES = {
@@ -53,9 +53,7 @@ with app.app_context():
             # account_id belongs to the later multi-tenant migration (0010),
             # not the 0001 baseline. Do not reject a valid pre-tenant database
             # before Alembic has a chance to apply migration 0010.
-            if table_name in {
-                name for name in getattr(__import__('app'), 'TENANT_SCOPED_TABLES', set())
-            }:
+            if table_name in TENANT_SCOPED_TABLES:
                 excluded_columns.add("account_id")
             expected_columns = current_columns - excluded_columns
             actual_columns = {column['name'] for column in inspector.get_columns(table_name)}
