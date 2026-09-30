@@ -204,3 +204,57 @@ html[data-theme="dark"] .modal-header,html[data-theme="dark"] .modal-footer{bord
 html[data-theme="dark"] .btn-close{filter:invert(1) grayscale(1)}
 html[data-theme="dark"] .sp-theme-toggle{background:#202226!important;border-color:#3a3d43!important;color:#f2f2f0!important}
 @media print{html[data-theme="dark"] body{background:#fff;color:#000}}
+
+
+/* ===== COMMAND CENTER ACCORDION ===== */
+.sp-command-accordion{display:grid;gap:12px}
+.sp-command-section{border:1px solid var(--sp-line);border-radius:18px;background:var(--sp-paper);box-shadow:0 5px 18px rgba(20,18,14,.045);overflow:hidden}
+.sp-command-summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:16px 18px;min-height:72px;user-select:none}
+.sp-command-summary::-webkit-details-marker{display:none}
+.sp-command-summary:focus-visible{outline:3px solid rgba(88,86,214,.22);outline-offset:-3px}
+.sp-command-title{display:flex;align-items:center;gap:12px;min-width:0}
+.sp-command-title>span:last-child{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sp-command-title strong{font-size:15px;line-height:1.25}
+.sp-command-title small{font-size:12px;color:var(--sp-muted);line-height:1.35}
+.sp-command-icon{width:40px;height:40px;flex:0 0 40px;display:grid;place-items:center;border-radius:13px;font-size:20px;box-shadow:inset 0 1px rgba(255,255,255,.55)}
+.sp-icon-blue{background:linear-gradient(135deg,#e5f3ff,#dfe4ff)}
+.sp-icon-purple{background:linear-gradient(135deg,#efe6ff,#e8ddff)}
+.sp-icon-indigo{background:linear-gradient(135deg,#e6e9ff,#dde9ff)}
+.sp-icon-pink{background:linear-gradient(135deg,#ffe6ee,#f5ddff)}
+.sp-icon-orange{background:linear-gradient(135deg,#fff0d8,#ffe5c7)}
+.sp-icon-green{background:linear-gradient(135deg,#e1f8e7,#def1ff)}
+.sp-command-chevron{width:34px;height:34px;flex:0 0 34px;display:grid;place-items:center;border:1px solid var(--sp-line);border-radius:11px;color:#77736c;font-size:28px;line-height:1;transition:transform .2s ease,background .2s ease,color .2s ease}
+.sp-command-section[open]>.sp-command-summary{background:linear-gradient(180deg,rgba(250,248,244,.95),rgba(255,255,255,.94))}
+.sp-command-section[open] .sp-command-chevron{transform:rotate(90deg);background:#f3eee5;color:var(--sp-ink)}
+.sp-command-panel{padding:0 18px 18px}
+.sp-command-panel>.card,.sp-command-panel>.row{margin-top:2px}
+.sp-command-section:not([open]) .sp-command-panel{display:none}
+.sp-command-accordion .btn{border-radius:12px}
+@media(max-width:767.98px){
+  .sp-command-accordion{gap:10px}
+  .sp-command-summary{padding:13px 12px;min-height:66px}
+  .sp-command-title{gap:10px}
+  .sp-command-title strong{font-size:14px}
+  .sp-command-title small{font-size:11px}
+  .sp-command-icon{width:37px;height:37px;flex-basis:37px;border-radius:12px;font-size:18px}
+  .sp-command-chevron{width:32px;height:32px;flex-basis:32px;font-size:26px}
+  .sp-command-panel{padding:0 12px 14px}
+  .sp-command-panel .table-responsive{margin-inline:-12px}
+}
+
+/* ===== IOS-INSPIRED MOBILE NAV POLISH ===== */
+.sp-mobile-nav{padding:5px 5px 4px!important;border-radius:20px!important}
+.sp-mobile-nav .sp-mobile-link{min-width:52px!important;gap:2px!important}
+.sp-mobile-nav .sp-mobile-symbol{width:29px!important;height:29px!important;flex-basis:29px!important}
+.sp-mobile-nav .sp-mobile-add-symbol{width:34px!important;height:34px!important;flex-basis:34px!important}
+.sp-mobile-nav .sp-mobile-link span:not(.sp-mobile-symbol){font-size:9px;line-height:1.05;font-weight:700}
+.sp-mobile-nav .sp-mobile-link.active{transform:translateY(-1px)}
+.sp-mobile-nav .sp-mobile-link.active .sp-mobile-symbol{filter:saturate(1.12) drop-shadow(0 3px 6px rgba(88,86,214,.18))}
+.sp-mobile-nav .sp-mobile-add-symbol{filter:drop-shadow(0 4px 8px rgba(255,45,85,.22))}
+@media(max-width:767.98px){
+  .sp-mobile-nav{height:66px!important}
+}
+html[data-theme="dark"] .sp-command-section{background:#181a1d;border-color:#2b2e33}
+html[data-theme="dark"] .sp-command-section[open]>.sp-command-summary{background:#1e2024}
+html[data-theme="dark"] .sp-command-chevron{background:#202226;border-color:#3a3d43;color:#d7d7d3}
+html[data-theme="dark"] .sp-command-section[open] .sp-command-chevron{background:#302a20;color:#f2f2f0}
