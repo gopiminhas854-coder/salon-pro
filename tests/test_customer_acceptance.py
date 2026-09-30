@@ -156,7 +156,7 @@ def test_customer_acceptance_flow_covers_auth_booking_billing_refund_inventory_a
 
         response = client.get("/")
         assert response.status_code == 302
-        assert response.headers["Location"].endswith("/login")
+        assert response.headers["Location"].startswith("/login")
 
         acceptance_login(client)
         assert client.get("/").status_code == 200
