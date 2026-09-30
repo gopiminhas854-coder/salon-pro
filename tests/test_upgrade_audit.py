@@ -82,7 +82,7 @@ def login(client):
         follow_redirects=True,
     )
     assert response.status_code == 200
-    assert b"Today at a glance" in response.data
+    assert b"Salon Command Center" in response.data
 
 
 def ids():
