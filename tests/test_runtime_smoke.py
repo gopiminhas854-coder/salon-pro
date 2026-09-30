@@ -54,7 +54,7 @@ def test_dashboard_requires_login_then_renders_after_login():
         )
         assert response.status_code == 200
         assert b"Overview" in response.data
-        assert b"Today at a glance" in response.data
+        assert b"Salon Command Center" in response.data
 
 
 def test_dashboard_does_not_recompute_crm_metrics_for_every_customer(monkeypatch):
@@ -88,7 +88,7 @@ def test_dashboard_does_not_recompute_crm_metrics_for_every_customer(monkeypatch
             follow_redirects=True,
         )
         assert response.status_code == 200
-        assert b"Today at a glance" in response.data
+        assert b"Salon Command Center" in response.data
 
 
 def test_health_reports_database_and_unknown_routes_are_not_blank():
