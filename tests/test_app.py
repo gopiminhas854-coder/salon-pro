@@ -63,6 +63,167 @@ def test_health_and_login(client):
     assert response.status_code == 200
     assert b"Overview" in response.data
 
+
+def test_new_signup_routes_to_199_subscription(client):
+    c, salon = client
+    response = c.post("/register", data={
+        "business_name": "New Salon",
+        "email": "owner@example.com",
+        "phone": "9876543210",
+        "password": "strong-password-123",
+        "confirm_password": "strong-password-123",
+    }, follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/subscription?reason=new")
+
+    page = c.get("/subscription")
+    assert page.status_code == 200
+    assert b"₹199/month" in page.data
+    assert b"Subscribe &amp; Pay ₹199" in page.data
+
+def test_subscription_order_uses_19900_paise_and_owner_data(client, monkeypatch):
+    c, salon = client
+    response = c.post("/register", data={
+        "business_name": "Paid Salon",
+        "email": "paid@example.com",
+        "phone": "9876543211",
+        "password": "strong-password-123",
+        "confirm_password": "strong-password-123",
+    }, follow_redirects=False)
+    assert response.status_code == 302
+
+    salon.app.config.update(
+        RAZORPAY_KEY_ID="rzp_test_key",
+        RAZORPAY_KEY_SECRET="rzp_test_secret",
+        SALON_PRO_MONTHLY_PRICE_INR=199,
+    )
+
+    captured = {}
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"id": "order_test_199"}
+
+    def fake_post(url, json, auth, timeout):
+        captured.update({"url": url, "json": json, "auth": auth, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(salon.requests, "post", fake_post)
+    order = c.post("/subscription/order")
+    assert order.status_code == 200
+    payload = order.get_json()
+    assert payload["ok"] is True
+    assert payload["amount"] == 19900
+    assert captured["json"]["amount"] == 19900
+    assert captured["json"]["currency"] == "INR"
+    assert captured["json"]["notes"]["plan"] == "monthly"
+
+    with salon.app.app_context():
+        sub = salon.Subscription.query.filter_by(razorpay_order_id="order_test_199").first()
+        assert sub is not None
+        assert sub.amount_paise == 19900
+
+def test_subscription_payment_verification_and_webhook_are_idempotent(client, monkeypatch):
+    c, salon = client
+    c.post("/register", data={
+        "business_name": "Verify Salon",
+        "email": "verify@example.com",
+        "phone": "9876543212",
+        "password": "strong-password-123",
+        "confirm_password": "strong-password-123",
+    }, follow_redirects=False)
+
+    salon.app.config.update(
+        RAZORPAY_KEY_ID="rzp_test_key",
+        RAZORPAY_KEY_SECRET="rzp_test_secret",
+        RAZORPAY_WEBHOOK_SECRET="webhook_secret",
+        SALON_PRO_MONTHLY_PRICE_INR=199,
+    )
+    with salon.app.app_context():
+        user = salon.current_user()
+        sub = salon.Subscription(
+            user_id=user.id,
+            plan_key="monthly",
+            status="pending",
+            amount_paise=19900,
+            currency="INR",
+            razorpay_order_id="order_verify_199",
+        )
+        salon.db.session.add(sub)
+        salon.db.session.commit()
+
+    payment_id = "pay_verify_199"
+    order_id = "order_verify_199"
+    signature = salon.hmac.new(
+        salon.app.config["RAZORPAY_KEY_SECRET"].encode(),
+        f"{order_id}|{payment_id}".encode(),
+        salon.hashlib.sha256,
+    ).hexdigest()
+
+    class PaymentResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {
+                "id": payment_id,
+                "order_id": order_id,
+                "amount": 19900,
+                "status": "captured",
+            }
+
+    monkeypatch.setattr(salon.requests, "get", lambda *args, **kwargs: PaymentResponse())
+    verified = c.post("/subscription/verify", json={
+        "razorpay_order_id": order_id,
+        "razorpay_payment_id": payment_id,
+        "razorpay_signature": signature,
+    })
+    assert verified.status_code == 200
+    assert verified.get_json()["ok"] is True
+
+    with salon.app.app_context():
+        sub = salon.Subscription.query.filter_by(razorpay_order_id=order_id).first()
+        assert sub.status == "active"
+        assert sub.expires_at is not None
+        assert sub.webhook_received is False
+
+    payload = salon.json.dumps({
+        "event": "payment.captured",
+        "payload": {"payment": {"entity": {
+            "order_id": order_id,
+            "id": payment_id,
+        }}},
+    }, separators=(",", ":"))
+    webhook_signature = salon.hmac.new(
+        salon.app.config["RAZORPAY_WEBHOOK_SECRET"].encode(),
+        payload.encode(),
+        salon.hashlib.sha256,
+    ).hexdigest()
+    webhook = c.post(
+        "/webhooks/razorpay",
+        data=payload,
+        content_type="application/json",
+        headers={"X-Razorpay-Signature": webhook_signature},
+    )
+    assert webhook.status_code == 200
+
+    with salon.app.app_context():
+        sub = salon.Subscription.query.filter_by(razorpay_order_id=order_id).first()
+        assert sub.status == "active"
+        assert sub.webhook_received is True
+        expires_at = sub.expires_at
+
+    duplicate = c.post(
+        "/webhooks/razorpay",
+        data=payload,
+        content_type="application/json",
+        headers={"X-Razorpay-Signature": webhook_signature},
+    )
+    assert duplicate.status_code == 200
+    with salon.app.app_context():
+        sub = salon.Subscription.query.filter_by(razorpay_order_id=order_id).first()
+        assert sub.expires_at == expires_at
+
 def test_device_remember_token_restores_session(client):
     c, salon = client
     login(c)
