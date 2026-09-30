@@ -109,11 +109,25 @@
     </div>
 </div>
 <nav class="sp-mobile-nav" aria-label="Primary navigation">
-    <a class="sp-mobile-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}" aria-label="Home" {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %}><span class="sp-mobile-symbol" aria-hidden="true">⌂</span><span>Home</span></a>
-    <a class="sp-mobile-link {% if 'appointment' in (request.endpoint or '') or request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('appointments') }}" aria-label="Bookings" {% if 'appointment' in (request.endpoint or '') or request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}><span class="sp-mobile-symbol" aria-hidden="true">▣</span><span>Bookings</span></a>
-    <a href="{{ url_for('add_appointment') }}" class="sp-mobile-add" aria-label="New appointment"><span class="sp-mobile-add-symbol" aria-hidden="true">＋</span></a>
-    <a class="sp-mobile-link {% if 'customer' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('customers') }}" aria-label="Clients" {% if 'customer' in (request.endpoint or '') %}aria-current="page"{% endif %}><span class="sp-mobile-symbol" aria-hidden="true">♙</span><span>Clients</span></a>
-    <a class="sp-mobile-link {% if request.endpoint == 'settings' %}active{% endif %}" href="{{ url_for('settings') }}" aria-label="More" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}><span class="sp-mobile-symbol" aria-hidden="true">⚙</span><span>More</span></a>
+    <a class="sp-mobile-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}" aria-label="Home" {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %}>
+        <svg class="sp-mobile-symbol" viewBox="0 0 28 28" aria-hidden="true" focusable="false"><defs><linearGradient id="spHomeGrad" x1="4" y1="3" x2="24" y2="25"><stop offset="0" stop-color="#5AC8FA"/><stop offset=".5" stop-color="#5856D6"/><stop offset="1" stop-color="#AF52DE"/></linearGradient></defs><path d="M5 12.2 14 5l9 7.2v9.1a1.7 1.7 0 0 1-1.7 1.7H6.7A1.7 1.7 0 0 1 5 21.3z" fill="url(#spHomeGrad)"/><path d="M10.2 22.6v-6.1c0-.9.7-1.6 1.6-1.6h4.4c.9 0 1.6.7 1.6 1.6v6.1" fill="#fff" fill-opacity=".9"/></svg>
+        <span>Home</span>
+    </a>
+    <a class="sp-mobile-link {% if 'appointment' in (request.endpoint or '') or request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('appointments') }}" aria-label="Bookings" {% if 'appointment' in (request.endpoint or '') or request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}>
+        <svg class="sp-mobile-symbol" viewBox="0 0 28 28" aria-hidden="true" focusable="false"><defs><linearGradient id="spBookGrad" x1="4" y1="4" x2="24" y2="24"><stop offset="0" stop-color="#34C759"/><stop offset=".52" stop-color="#30D158"/><stop offset="1" stop-color="#00A8E8"/></linearGradient></defs><rect x="4.5" y="6" width="19" height="18" rx="4.2" fill="url(#spBookGrad)"/><path d="M8.5 10.8h11M9 15h3.2M14.1 15h4.8M9 19h3.2" fill="none" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/><path d="M9 4.5v4M19 4.5v4" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+        <span>Bookings</span>
+    </a>
+    <a href="{{ url_for('add_appointment') }}" class="sp-mobile-add" aria-label="New appointment">
+        <svg class="sp-mobile-add-symbol" viewBox="0 0 30 30" aria-hidden="true" focusable="false"><defs><linearGradient id="spAddGrad" x1="5" y1="4" x2="25" y2="26"><stop offset="0" stop-color="#FF2D55"/><stop offset=".5" stop-color="#FF9500"/><stop offset="1" stop-color="#FFCC00"/></linearGradient></defs><circle cx="15" cy="15" r="13" fill="url(#spAddGrad)"/><path d="M15 9v12M9 15h12" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
+    </a>
+    <a class="sp-mobile-link {% if 'customer' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('customers') }}" aria-label="Clients" {% if 'customer' in (request.endpoint or '') %}aria-current="page"{% endif %}>
+        <svg class="sp-mobile-symbol" viewBox="0 0 28 28" aria-hidden="true" focusable="false"><defs><linearGradient id="spClientGrad" x1="5" y1="4" x2="23" y2="25"><stop offset="0" stop-color="#FF375F"/><stop offset=".55" stop-color="#AF52DE"/><stop offset="1" stop-color="#5856D6"/></linearGradient></defs><circle cx="14" cy="9.2" r="4.2" fill="url(#spClientGrad)"/><path d="M5.5 23c.8-5 3.6-7.5 8.5-7.5s7.7 2.5 8.5 7.5" fill="url(#spClientGrad)"/><circle cx="21.1" cy="10" r="2.3" fill="#fff" fill-opacity=".75"/></svg>
+        <span>Clients</span>
+    </a>
+    <a class="sp-mobile-link {% if request.endpoint == 'settings' %}active{% endif %}" href="{{ url_for('settings') }}" aria-label="More" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}>
+        <svg class="sp-mobile-symbol" viewBox="0 0 28 28" aria-hidden="true" focusable="false"><defs><linearGradient id="spMoreGrad" x1="4" y1="4" x2="24" y2="24"><stop offset="0" stop-color="#8E8E93"/><stop offset=".5" stop-color="#636366"/><stop offset="1" stop-color="#AEAEB2"/></linearGradient></defs><path d="M12.2 4.7h3.6l.7 3a8.8 8.8 0 0 1 2 1.2l2.9-1 1.8 3.1-2.2 2.2c.1.5.2 1.1.2 1.7s-.1 1.2-.2 1.7l2.2 2.2-1.8 3.1-2.9-1a8.8 8.8 0 0 1-2 1.2l-.7 3h-3.6l-.7-3a8.8 8.8 0 0 1-2-1.2l-2.9 1-1.8-3.1L7 14.9a8.5 8.5 0 0 1 0-3.4L4.8 9.8l1.8-3.1 2.9 1a8.8 8.8 0 0 1 2-1.2z" fill="url(#spMoreGrad)"/><circle cx="14" cy="14" r="3.4" fill="#fff"/></svg>
+        <span>More</span>
+    </a>
 </nav>
 {% endif %}
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
