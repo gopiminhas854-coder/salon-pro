@@ -565,3 +565,16 @@ def test_mobile_nav_uses_ios_color_gradients(client):
     assert 'id="spAddGrad"' in html
     assert 'id="spClientGrad"' in html
     assert 'id="spMoreGrad"' in html
+
+
+def test_mobile_main_menu_has_outside_tap_close_behavior(client):
+    c, _ = client
+    login(c)
+    response = c.get("/")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    assert 'class="sp-sidebar-backdrop" type="button" aria-label="Close navigation"' in html
+    assert 'aria-controls="spSidebar"' in html
+    assert "function closeSidebar()" in html
+    assert "event.target.closest('.sp-sidebar-backdrop')" in html
+    assert "document.body.classList.add('sp-menu-open')" in html
