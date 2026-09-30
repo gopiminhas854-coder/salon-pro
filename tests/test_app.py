@@ -63,6 +63,38 @@ def test_health_and_login(client):
     assert response.status_code == 200
     assert b"Overview" in response.data
 
+def test_device_remember_token_restores_session(client):
+    c, salon = client
+    login(c)
+
+    with salon.app.app_context():
+        user = salon.User.query.filter_by(username="admin").first()
+        token = salon.issue_remember_token(user)
+
+    with c.session_transaction() as sess:
+        sess.clear()
+
+    response = c.post(
+        "/auth/remember",
+        headers={"X-Salon-Pro-Remember-Token": token},
+    )
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+    assert payload["redirect"].endswith("/")
+    assert payload.get("remember_token")
+
+    with c.session_transaction() as sess:
+        assert sess.get("user_id") is not None
+
+def test_invalid_device_remember_token_does_not_login(client):
+    c, _ = client
+    response = c.post(
+        "/auth/remember",
+        headers={"X-Salon-Pro-Remember-Token": "not-a-real-token"},
+    )
+    assert response.status_code == 401
+
 def test_authenticated_session_survives_reopening_login_route(client):
     c, salon = client
     login(c)
