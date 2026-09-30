@@ -117,7 +117,7 @@ def test_logout_still_requires_login_after_persistent_session(client):
     login(c)
     response = c.get("/logout", follow_redirects=False)
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/login")
+    assert response.headers["Location"].startswith("/login")
 
     response = c.get("/login", follow_redirects=False)
     assert response.status_code == 200
