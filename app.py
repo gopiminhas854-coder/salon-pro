@@ -45,6 +45,12 @@ app.config['SESSION_COOKIE_SECURE'] = (
     os.environ.get('FLASK_ENV', '').lower() == 'production'
     or os.environ.get('SESSION_COOKIE_SECURE', '0') == '1'
 )
+# Keep authenticated sessions across browser/WebView/app restarts. Logout still
+# explicitly clears the session, so users are not forced to sign in again just
+# because the app was closed without logging out.
+app.config['SESSION_PERMANENT'] = True
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
 app.config['RAZORPAY_KEY_ID'] = os.environ.get('RAZORPAY_KEY_ID', '').strip()
 app.config['RAZORPAY_KEY_SECRET'] = os.environ.get('RAZORPAY_KEY_SECRET', '').strip()
@@ -1014,6 +1020,7 @@ def health():
 
 def establish_login_session(user):
     session.clear()
+    session.permanent = True
     session['user_id'] = user.id
     session['username'] = user.username
     session['role'] = user.role or 'staff'
@@ -1491,6 +1498,15 @@ def razorpay_webhook():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    # Reopening the web app/APK may request /login directly. If a valid
+    # persistent session already exists, do not show the login form again.
+    if request.method == 'GET':
+        user = current_user()
+        if user:
+            if app.config.get('SALON_PRO_BILLING_REQUIRED', True) and not active_subscription(user):
+                return redirect(url_for('subscription', reason='required'))
+            return redirect(url_for('dashboard'))
+
     if request.method == 'POST':
         identifier = (request.form.get('username') or '').strip()
         password = request.form.get('password') or ''
