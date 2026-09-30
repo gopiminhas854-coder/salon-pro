@@ -17,6 +17,7 @@ import hmac
 import requests
 from urllib.parse import quote
 from sqlalchemy import func, inspect, event, false
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from flask_migrate import Migrate
 
 def commit_or_rollback():
@@ -713,6 +714,57 @@ def enforce_tenant_ownership(session_obj, flush_context, instances):
 
 # ==================== AUTH ====================
 
+REMEMBER_TOKEN_MAX_AGE = 30 * 24 * 60 * 60
+_REMEMBER_TOKEN_SALT = "salon-pro-device-login-v1"
+
+def _remember_serializer():
+    return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt=_REMEMBER_TOKEN_SALT)
+
+def issue_remember_token(user):
+    """Create a signed device-login token without storing credentials locally."""
+    password_fingerprint = hashlib.sha256(
+        (user.password_hash or "").encode("utf-8")
+    ).hexdigest()[:24]
+    return _remember_serializer().dumps({
+        "user_id": int(user.id),
+        "password_fingerprint": password_fingerprint,
+    })
+
+def restore_remembered_session(token):
+    """Restore a valid Salon Pro login from the device token."""
+    if not token:
+        return None
+
+    try:
+        payload = _remember_serializer().loads(
+            token,
+            max_age=REMEMBER_TOKEN_MAX_AGE,
+        )
+    except (BadSignature, SignatureExpired, TypeError, ValueError):
+        return None
+
+    try:
+        user_id = int(payload.get("user_id"))
+    except (TypeError, ValueError):
+        return None
+
+    user = db.session.get(User, user_id)
+    if not user:
+        return None
+
+    expected_fingerprint = hashlib.sha256(
+        (user.password_hash or "").encode("utf-8")
+    ).hexdigest()[:24]
+    if payload.get("password_fingerprint") != expected_fingerprint:
+        return None
+
+    link = _staff_link_for_user(user.id)
+    if link and (not link.staff or not link.staff.is_active):
+        return None
+
+    establish_login_session(user)
+    return user
+
 def current_user():
     user_id = session.get('user_id')
     if not user_id:
@@ -915,7 +967,7 @@ def ensure_database():
 @app.before_request
 def csrf_guard():
     if request.method in {'POST','PUT','PATCH','DELETE'}:
-        if request.endpoint == 'razorpay_webhook':
+        if request.endpoint in {'razorpay_webhook', 'remember_login'}:
             return None
         if request.endpoint == 'google_auth' and request.form.get('credential'):
             return None
@@ -946,6 +998,14 @@ def enforce_roles():
         flash('This business information is restricted for your role.', 'danger')
         return redirect(url_for('dashboard'))
 
+@app.context_processor
+def salon_auth_context():
+    user = current_user() if has_request_context() else None
+    return {
+        "remember_token": issue_remember_token(user) if user else None,
+    }
+
+def login_required(f):
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -1496,6 +1556,30 @@ def razorpay_webhook():
     return '', 200
 
 
+@app.route('/auth/remember', methods=['POST'])
+def remember_login():
+    token = (
+        request.headers.get("X-Salon-Pro-Remember-Token")
+        or (request.get_json(silent=True) or {}).get("token")
+        or request.form.get("token")
+    )
+    user = restore_remembered_session((token or "").strip())
+    if not user:
+        return jsonify({"ok": False, "error": "remember_token_invalid"}), 401
+
+    if app.config.get("SALON_PRO_BILLING_REQUIRED", True) and not active_subscription(user):
+        return jsonify({
+            "ok": True,
+            "redirect": url_for("subscription", reason="required"),
+            "remember_token": issue_remember_token(user),
+        })
+
+    return jsonify({
+        "ok": True,
+        "redirect": url_for("dashboard"),
+        "remember_token": issue_remember_token(user),
+    })
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     # Reopening the web app/APK may request /login directly. If a valid
@@ -1678,7 +1762,7 @@ def phone_link_verify():
 def logout():
     session.clear()
     flash('Logged out successfully.', 'info')
-    return redirect(url_for('login'))
+    return redirect(url_for('login', logged_out='1'))
 
 
 def record_inventory_transaction(item, transaction_type, quantity, unit_cost=0, reference=None, notes=None):
