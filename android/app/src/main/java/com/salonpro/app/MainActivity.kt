@@ -18,8 +18,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/"
-private const val APP_VERSION = "1.0.6"
-private const val APP_VERSION_CODE = 7
+private const val APP_VERSION = "1.0.7"
+private const val APP_VERSION_CODE = 8
 private const val SESSION_PREFS = "salon_pro_auth"
 private const val SESSION_COOKIE_KEY = "session_cookie"
 
@@ -45,7 +45,9 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(Color.WHITE)
             ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
                 val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                // Draw edge-to-edge. The Salon Pro top bar owns the top safe-area
+                // inset so the status bar and app header form one continuous surface.
+                view.setPadding(bars.left, 0, bars.right, bars.bottom)
                 insets
             }
             settings.apply {
