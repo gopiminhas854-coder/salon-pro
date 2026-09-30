@@ -63,6 +63,34 @@ def test_health_and_login(client):
     assert response.status_code == 200
     assert b"Overview" in response.data
 
+def test_authenticated_session_survives_reopening_login_route(client):
+    c, salon = client
+    login(c)
+
+    with c.session_transaction() as sess:
+        assert sess.get("user_id") is not None
+        assert sess.permanent is True
+
+    # The Android WebView opens /login on startup. A valid session must route
+    # straight back to the authenticated app instead of showing login again.
+    response = c.get("/login", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/")
+
+    set_cookie = response.headers.get("Set-Cookie", "")
+    assert "session=" in set_cookie
+
+def test_logout_still_requires_login_after_persistent_session(client):
+    c, salon = client
+    login(c)
+    response = c.get("/logout", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/login")
+
+    response = c.get("/login", follow_redirects=False)
+    assert response.status_code == 200
+    assert b"Login" in response.data or b"Sign in" in response.data
+
 def test_logout_clears_session(client):
     c, salon = client
     login(c)
