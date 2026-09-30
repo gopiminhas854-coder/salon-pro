@@ -147,6 +147,15 @@
 })();
 </script>
 <script>
+(function(){
+  const token={{ remember_token|tojson }};
+  if(!token) return;
+  try {
+    localStorage.setItem('salon-pro-remember-token-v1', token);
+  } catch (_) {}
+})();
+</script>
+<script>
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}').catch(() => {});
 </script>
 <script>
