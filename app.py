@@ -58,7 +58,7 @@ app.config['RAZORPAY_KEY_SECRET'] = os.environ.get('RAZORPAY_KEY_SECRET', '').st
 app.config['RAZORPAY_WEBHOOK_SECRET'] = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '').strip()
 app.config['SALON_PRO_MONTHLY_PRICE_INR'] = max(
     1,
-    int(float(os.environ.get('SALON_PRO_MONTHLY_PRICE_INR', '499') or '499'))
+    int(float(os.environ.get('SALON_PRO_MONTHLY_PRICE_INR', '199') or '199'))
 )
 app.config['SALON_PRO_BILLING_REQUIRED'] = os.environ.get('SALON_PRO_BILLING_REQUIRED', '1').strip().lower() in {'1', 'true', 'yes', 'on'}
 app.config['SALON_PRO_LEGACY_TRIAL_DAYS'] = max(
@@ -1445,6 +1445,10 @@ def activate_paid_subscription(sub, payment_id, signature=None, webhook_received
     if not sub:
         return False
     if sub.status == 'active' and sub.razorpay_payment_id == payment_id:
+        if webhook_received and not sub.webhook_received:
+            sub.webhook_received = True
+            db.session.add(sub)
+            commit_or_rollback()
         return True
     now = utc_now()
     current = active_subscription(sub.user)
