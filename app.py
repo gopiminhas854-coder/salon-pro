@@ -1006,7 +1006,6 @@ def salon_auth_context():
     }
 
 def login_required(f):
-def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
         if not current_user():
