@@ -258,3 +258,15 @@ html[data-theme="dark"] .sp-command-section{background:#181a1d;border-color:#2b2
 html[data-theme="dark"] .sp-command-section[open]>.sp-command-summary{background:#1e2024}
 html[data-theme="dark"] .sp-command-chevron{background:#202226;border-color:#3a3d43;color:#d7d7d3}
 html[data-theme="dark"] .sp-command-section[open] .sp-command-chevron{background:#302a20;color:#f2f2f0}
+
+
+/* ===== MOBILE MAIN MENU DRAWER CLOSE AREA ===== */
+.sp-sidebar-backdrop{display:none}
+@media(max-width:991.98px){
+  body.sp-menu-open{overflow:hidden}
+  .sp-sidebar-backdrop{display:block;position:fixed;inset:0;background:rgba(15,17,22,.34);backdrop-filter:blur(1.5px);border:0;padding:0;margin:0;opacity:0;visibility:hidden;pointer-events:none;z-index:1039;transition:opacity .22s ease,visibility .22s ease}
+  .sp-sidebar-backdrop.open{opacity:1;visibility:visible;pointer-events:auto}
+  .sp-sidebar{z-index:1040}
+  .sp-sidebar.open + .sp-sidebar-backdrop{opacity:1;visibility:visible;pointer-events:auto}
+  .sp-mobile-menu{position:relative;z-index:1042}
+}
