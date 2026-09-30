@@ -109,11 +109,11 @@
     </div>
 </div>
 <nav class="sp-mobile-nav" aria-label="Primary navigation">
-    <a class="sp-mobile-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}" aria-label="Home" {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %}><i class="bi bi-grid-1x2-fill" aria-hidden="true"></i><span>Home</span></a>
-    <a class="sp-mobile-link {% if 'appointment' in (request.endpoint or '') or request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('appointments') }}" aria-label="Bookings" {% if 'appointment' in (request.endpoint or '') or request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}><i class="bi bi-calendar2-check" aria-hidden="true"></i><span>Bookings</span></a>
-    <a href="{{ url_for('add_appointment') }}" class="sp-mobile-add" aria-label="New appointment"><i class="bi bi-plus-lg" aria-hidden="true"></i></a>
-    <a class="sp-mobile-link {% if 'customer' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('customers') }}" aria-label="Clients" {% if 'customer' in (request.endpoint or '') %}aria-current="page"{% endif %}><i class="bi bi-people" aria-hidden="true"></i><span>Clients</span></a>
-    <a class="sp-mobile-link {% if request.endpoint == 'settings' %}active{% endif %}" href="{{ url_for('settings') }}" aria-label="More" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}><i class="bi bi-gear" aria-hidden="true"></i><span>More</span></a>
+    <a class="sp-mobile-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}" aria-label="Home" {% if request.endpoint == 'dashboard' %}aria-current="page"{% endif %}><span class="sp-mobile-symbol" aria-hidden="true">⌂</span><span>Home</span></a>
+    <a class="sp-mobile-link {% if 'appointment' in (request.endpoint or '') or request.endpoint == 'calendar_view' %}active{% endif %}" href="{{ url_for('appointments') }}" aria-label="Bookings" {% if 'appointment' in (request.endpoint or '') or request.endpoint == 'calendar_view' %}aria-current="page"{% endif %}><span class="sp-mobile-symbol" aria-hidden="true">▣</span><span>Bookings</span></a>
+    <a href="{{ url_for('add_appointment') }}" class="sp-mobile-add" aria-label="New appointment"><span class="sp-mobile-add-symbol" aria-hidden="true">＋</span></a>
+    <a class="sp-mobile-link {% if 'customer' in (request.endpoint or '') %}active{% endif %}" href="{{ url_for('customers') }}" aria-label="Clients" {% if 'customer' in (request.endpoint or '') %}aria-current="page"{% endif %}><span class="sp-mobile-symbol" aria-hidden="true">♙</span><span>Clients</span></a>
+    <a class="sp-mobile-link {% if request.endpoint == 'settings' %}active{% endif %}" href="{{ url_for('settings') }}" aria-label="More" {% if request.endpoint == 'settings' %}aria-current="page"{% endif %}><span class="sp-mobile-symbol" aria-hidden="true">⚙</span><span>More</span></a>
 </nav>
 {% endif %}
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
