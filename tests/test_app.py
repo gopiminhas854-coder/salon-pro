@@ -87,6 +87,15 @@ def test_device_remember_token_restores_session(client):
     with c.session_transaction() as sess:
         assert sess.get("user_id") is not None
 
+def test_login_page_has_valid_single_native_google_script(client):
+    c, _ = client
+    response = c.get("/login")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    assert html.count("const nativeButton =") == 1
+    assert "const nativeButton = document.getElementById('native-google-login');\n    <script>" not in html
+
+
 def test_invalid_device_remember_token_does_not_login(client):
     c, _ = client
     response = c.post(
