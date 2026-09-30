@@ -152,7 +152,7 @@ def test_customer_acceptance_flow_covers_auth_booking_billing_refund_inventory_a
         # Logout must clear the session, and login must work again cleanly.
         response = client.get("/logout", follow_redirects=False)
         assert response.status_code == 302
-        assert response.headers["Location"].endswith("/login")
+        assert response.headers["Location"].startswith("/login")
 
         response = client.get("/")
         assert response.status_code == 302
