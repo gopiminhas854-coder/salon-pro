@@ -3,6 +3,7 @@ package com.salonpro.app
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.os.Bundle
+import android.content.Context
 import android.graphics.Color
 import android.webkit.CookieManager
 import android.webkit.WebChromeClient
@@ -17,7 +18,10 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/"
-private const val APP_VERSION = "1.0.5"
+private const val APP_VERSION = "1.0.6"
+private const val APP_VERSION_CODE = 7
+private const val SESSION_PREFS = "salon_pro_auth"
+private const val SESSION_COOKIE_KEY = "session_cookie"
 
 class MainActivity : AppCompatActivity() {
     private lateinit var webView: WebView
@@ -36,6 +40,8 @@ class MainActivity : AppCompatActivity() {
             isAppearanceLightStatusBars = true
             isAppearanceLightNavigationBars = true
         }
+
+        restoreSavedSessionCookie()
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.WHITE)
@@ -73,6 +79,21 @@ class MainActivity : AppCompatActivity() {
             webViewClient = object : WebViewClient() {
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     super.onPageStarted(view, url, favicon)
+                }
+
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    super.onPageFinished(view, url)
+                    val currentUrl = url.orEmpty()
+                    if (currentUrl.startsWith(SALON_PRO_URL.removeSuffix("/"))) {
+                        saveCurrentSessionCookie()
+                    }
+
+                    // A real logout or an expired/invalid session eventually
+                    // lands on the login page. Remove the device-side backup so
+                    // an old cookie can never silently log the user back in.
+                    if (currentUrl.contains("/login")) {
+                        clearSavedSessionCookie()
+                    }
                 }
 
                 // Only treat actual network-level failures as connection failures.
@@ -127,8 +148,40 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         // Persist WebView cookies before the Android activity is suspended.
+        saveCurrentSessionCookie()
         CookieManager.getInstance().flush()
         super.onPause()
+    }
+
+    private fun sessionPrefs() =
+        getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+
+    private fun saveCurrentSessionCookie() {
+        val cookie = CookieManager.getInstance().getCookie(SALON_PRO_URL).orEmpty()
+        val sessionCookie = cookie.split(";")
+            .map { it.trim() }
+            .firstOrNull { it.startsWith("session=") }
+
+        if (!sessionCookie.isNullOrBlank()) {
+            sessionPrefs().edit().putString(SESSION_COOKIE_KEY, sessionCookie).apply()
+        }
+    }
+
+    private fun restoreSavedSessionCookie() {
+        val savedCookie = sessionPrefs().getString(SESSION_COOKIE_KEY, null)
+            ?: return
+
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setCookie(
+            SALON_PRO_URL,
+            savedCookie
+        ) {
+            CookieManager.getInstance().flush()
+        }
+    }
+
+    private fun clearSavedSessionCookie() {
+        sessionPrefs().edit().remove(SESSION_COOKIE_KEY).apply()
     }
 
     @Suppress("DEPRECATION")
