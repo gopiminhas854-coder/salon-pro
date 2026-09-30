@@ -89,15 +89,19 @@ def test_device_remember_token_restores_session(client):
 
 def test_mobile_bottom_nav_keeps_all_icons_and_active_state(client):
     c, _ = client
+    login(c)
     response = c.get("/")
     assert response.status_code == 200
     html = response.data.decode("utf-8")
     assert 'class="sp-mobile-nav" aria-label="Primary navigation"' in html
     assert 'class="sp-mobile-link active"' in html
-    assert 'bi bi-grid-1x2-fill' in html
-    assert 'bi bi-calendar2-check' in html
-    assert 'bi bi-people' in html
-    assert 'bi bi-gear' in html
+    assert html.count('class="sp-mobile-symbol"') == 4
+    assert 'class="sp-mobile-add-symbol"' in html
+    assert 'aria-label="Home"' in html
+    assert 'aria-label="Bookings"' in html
+    assert 'aria-label="Clients"' in html
+    assert 'aria-label="More"' in html
+
 
 
 def test_login_page_has_valid_single_native_google_script(client):
