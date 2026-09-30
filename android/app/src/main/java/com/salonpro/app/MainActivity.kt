@@ -18,8 +18,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/"
-private const val APP_VERSION = "1.0.7"
-private const val APP_VERSION_CODE = 8
+private const val APP_VERSION = "1.0.8"
+private const val APP_VERSION_CODE = 9
 private const val SESSION_PREFS = "salon_pro_auth"
 private const val SESSION_COOKIE_KEY = "session_cookie"
 
@@ -196,10 +196,25 @@ class MainActivity : AppCompatActivity() {
 
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
-        if (webView.canGoBack()) {
-            webView.goBack()
-        } else {
-            super.onBackPressed()
+        // Match the expected mobile-drawer behavior: the first Android Back
+        // closes the open Salon Pro navigation drawer; only a second Back
+        // navigates the WebView history or exits the app.
+        webView.evaluateJavascript(
+            "(function(){return !!(window.SalonProSidebar && window.SalonProSidebar.isOpen && window.SalonProSidebar.isOpen());})()"
+        ) { result ->
+            if (result == "true") {
+                webView.evaluateJavascript(
+                    "(function(){if(window.SalonProSidebar && window.SalonProSidebar.close){window.SalonProSidebar.close();} return true;})()",
+                    null
+                )
+                return@evaluateJavascript
+            }
+
+            if (webView.canGoBack()) {
+                webView.goBack()
+            } else {
+                super.onBackPressed()
+            }
         }
     }
 }
