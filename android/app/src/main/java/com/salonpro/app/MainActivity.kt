@@ -41,8 +41,6 @@ class MainActivity : AppCompatActivity() {
             isAppearanceLightNavigationBars = true
         }
 
-        restoreSavedSessionCookie()
-
         webView = WebView(this).apply {
             setBackgroundColor(Color.WHITE)
             ViewCompat.setOnApplyWindowInsetsListener(this) { view, insets ->
@@ -116,10 +114,15 @@ class MainActivity : AppCompatActivity() {
             // Authentication cookies must survive an app restart.
             clearCache(true)
             clearHistory()
-            loadUrl(SALON_PRO_URL)
         }
 
         setContentView(webView)
+
+        // Restore the saved device session first. Only then load Salon Pro so
+        // the first request carries the existing authentication cookie.
+        restoreSavedSessionCookie {
+            webView.loadUrl(SALON_PRO_URL)
+        }
     }
 
     private fun showLoadError() {
@@ -167,16 +170,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun restoreSavedSessionCookie() {
+    private fun restoreSavedSessionCookie(onComplete: () -> Unit) {
         val savedCookie = sessionPrefs().getString(SESSION_COOKIE_KEY, null)
-            ?: return
-
         CookieManager.getInstance().setAcceptCookie(true)
+
+        if (savedCookie.isNullOrBlank()) {
+            onComplete()
+            return
+        }
+
         CookieManager.getInstance().setCookie(
             SALON_PRO_URL,
             savedCookie
         ) {
             CookieManager.getInstance().flush()
+            onComplete()
         }
     }
 
