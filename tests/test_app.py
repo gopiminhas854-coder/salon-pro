@@ -131,7 +131,7 @@ def test_logout_clears_session(client):
 
     response = c.get("/logout", follow_redirects=False)
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/login")
+    assert response.headers["Location"].startswith("/login")
 
     with c.session_transaction() as sess:
         assert "user_id" not in sess
