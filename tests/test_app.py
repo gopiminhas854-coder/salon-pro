@@ -539,3 +539,29 @@ def test_dashboard_owner_metrics_and_backup(client):
     payload = json.loads(gzip.decompress(backup.data).decode("utf-8"))
     assert payload["format"] == "salon-pro-backup"
     assert "customer" in payload["tables"]
+
+
+def test_command_center_accordion_navigation(client):
+    c, _ = client
+    login(c)
+    response = c.get("/")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    assert 'data-command-accordion' in html
+    assert html.count('class="sp-command-section"') == 6
+    assert html.count('class="sp-command-summary"') == 6
+    assert html.count('sp-command-chevron') == 6
+    assert 'Tap a section to open it.' in html
+
+
+def test_mobile_nav_uses_ios_color_gradients(client):
+    c, _ = client
+    login(c)
+    response = c.get("/")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    assert 'id="spHomeGrad"' in html
+    assert 'id="spBookGrad"' in html
+    assert 'id="spAddGrad"' in html
+    assert 'id="spClientGrad"' in html
+    assert 'id="spMoreGrad"' in html
