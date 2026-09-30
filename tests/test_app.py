@@ -87,6 +87,19 @@ def test_device_remember_token_restores_session(client):
     with c.session_transaction() as sess:
         assert sess.get("user_id") is not None
 
+def test_mobile_bottom_nav_keeps_all_icons_and_active_state(client):
+    c, _ = client
+    response = c.get("/")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    assert 'class="sp-mobile-nav" aria-label="Primary navigation"' in html
+    assert 'class="sp-mobile-link active"' in html
+    assert 'bi bi-grid-1x2-fill' in html
+    assert 'bi bi-calendar2-check' in html
+    assert 'bi bi-people' in html
+    assert 'bi bi-gear' in html
+
+
 def test_login_page_has_valid_single_native_google_script(client):
     c, _ = client
     response = c.get("/login")
