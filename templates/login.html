@@ -165,6 +165,43 @@
     {% endif %}
     <script>
         (function(){
+            const storageKey = 'salon-pro-remember-token-v1';
+            const params = new URLSearchParams(window.location.search);
+
+            if (params.get('logged_out') === '1') {
+                localStorage.removeItem(storageKey);
+                return;
+            }
+
+            const token = localStorage.getItem(storageKey);
+            if (!token) return;
+
+            fetch('{{ url_for("remember_login") }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Salon-Pro-Remember-Token': token
+                },
+                body: '{}',
+                credentials: 'same-origin'
+            }).then(function(response){
+                if (!response.ok) throw new Error('remember login failed');
+                return response.json();
+            }).then(function(data){
+                if (!data || !data.ok) throw new Error('remember login rejected');
+                if (data.remember_token) localStorage.setItem(storageKey, data.remember_token);
+                window.location.replace(data.redirect || '/');
+            }).catch(function(){
+                localStorage.removeItem(storageKey);
+            });
+        })();
+    </script>
+
+    <script>
+        (function(){
+            const nativeButton = document.getElementById('native-google-login');
+    <script>
+        (function(){
             const nativeButton = document.getElementById('native-google-login');
             const gsi = document.querySelector('#google-login-container .g_id_signin');
             if (nativeButton && window.SalonProAndroid) {
