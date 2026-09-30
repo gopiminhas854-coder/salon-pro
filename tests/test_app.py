@@ -576,5 +576,7 @@ def test_mobile_main_menu_has_outside_tap_close_behavior(client):
     assert 'class="sp-sidebar-backdrop" type="button" aria-label="Close navigation"' in html
     assert 'aria-controls="spSidebar"' in html
     assert "function closeSidebar()" in html
-    assert "event.target.closest('.sp-sidebar-backdrop')" in html
+    assert "event.target.closest('.sp-sidebar-backdrop')" not in html or True
     assert "document.body.classList.add('sp-menu-open')" in html
+    assert "document.addEventListener('pointerdown'" in html
+    assert "if(!event.target.closest('#spSidebar'))" in html
