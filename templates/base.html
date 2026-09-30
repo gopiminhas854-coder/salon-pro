@@ -170,16 +170,21 @@
     if(backdrop) backdrop.classList.add('open');
     document.body.classList.add('sp-menu-open');
   }
+  document.addEventListener('pointerdown', function(event){
+    const sidebar=document.getElementById('spSidebar');
+    if(!sidebar || !sidebar.classList.contains('open')) return;
+    const menu=event.target.closest('.sp-mobile-menu');
+    if(menu) return;
+    if(!event.target.closest('#spSidebar')){
+      closeSidebar();
+    }
+  }, true);
   document.addEventListener('click', function(event){
     const menu=event.target.closest('.sp-mobile-menu');
     if(menu){
       const sidebar=document.getElementById('spSidebar');
       const isOpen=sidebar && sidebar.classList.contains('open');
       if(isOpen) closeSidebar(); else openSidebar();
-      return;
-    }
-    if(event.target.closest('.sp-sidebar-backdrop')){
-      closeSidebar();
       return;
     }
     const link=event.target.closest('.sp-nav a, .sp-mobile-nav a');
