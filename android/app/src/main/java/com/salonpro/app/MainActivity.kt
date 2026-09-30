@@ -16,7 +16,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
-private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/login"
+private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/"
 private const val APP_VERSION = "1.0.5"
 
 class MainActivity : AppCompatActivity() {
@@ -91,6 +91,8 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            // Keep cached page data conservative, but never clear cookies here.
+            // Authentication cookies must survive an app restart.
             clearCache(true)
             clearHistory()
             loadUrl(SALON_PRO_URL)
@@ -121,6 +123,12 @@ class MainActivity : AppCompatActivity() {
                 null
             )
         }
+    }
+
+    override fun onPause() {
+        // Persist WebView cookies before the Android activity is suspended.
+        CookieManager.getInstance().flush()
+        super.onPause()
     }
 
     @Suppress("DEPRECATION")
