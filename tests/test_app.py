@@ -574,9 +574,22 @@ def test_mobile_main_menu_has_outside_tap_close_behavior(client):
     assert response.status_code == 200
     html = response.data.decode("utf-8")
     assert 'class="sp-sidebar-backdrop" type="button" aria-label="Close navigation"' in html
+    assert 'class="sp-sidebar-close" type="button" aria-label="Close navigation"' in html
     assert 'aria-controls="spSidebar"' in html
     assert "function closeSidebar()" in html
-    assert "event.target.closest('.sp-sidebar-backdrop')" not in html or True
+    assert "window.SalonProSidebar" in html
     assert "document.body.classList.add('sp-menu-open')" in html
     assert "document.addEventListener('pointerdown'" in html
-    assert "if(!event.target.closest('#spSidebar'))" in html
+    assert "document.addEventListener('touchstart'" in html
+    assert "event.target.closest('.sp-sidebar-close')" in html
+    assert "event.target.closest('.sp-sidebar-backdrop')" in html
+    assert "if(isInsideSidebar(event.target)) return;" in html
+
+
+def test_android_back_closes_drawer_before_exiting():
+    from pathlib import Path
+    path = Path("android/app/src/main/java/com/salonpro/app/MainActivity.kt")
+    content = path.read_text(encoding="utf-8")
+    assert "SalonProSidebar" in content
+    assert "window.SalonProSidebar && window.SalonProSidebar.isOpen" in content
+    assert "window.SalonProSidebar && window.SalonProSidebar.close" in content
