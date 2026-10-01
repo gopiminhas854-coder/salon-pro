@@ -30,7 +30,7 @@
           <span class="cl-soft-pill"><i class="bi bi-shield-check"></i> Private to this salon</span>
         </div>
 
-        <form method="post" action="{{ url_for('colour_lab_create_case') }}" id="colourCaseForm">
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('colour_lab_create_case') }}" id="colourCaseForm">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="formula_json" id="formulaJson">
           <input type="hidden" name="before_photo_data" id="beforePhotoData">
@@ -89,7 +89,7 @@
           <div class="cl-photo-grid mt-4">
             <div class="cl-photo-card">
               <div class="cl-photo-copy"><span>01</span><strong>Before photo</strong><small>Use a clear photo in consistent light.</small></div>
-              <label class="cl-photo-input"><i class="bi bi-camera"></i><span>Take / choose photo</span><input type="file" id="beforePhoto" accept="image/*" capture="environment"></label><small id="beforePhotoStatus" class="d-block mt-2 text-secondary"></small>
+              <label class="cl-photo-input"><i class="bi bi-camera"></i><span>Take / choose photo</span><input type="file" id="beforePhoto" name="before_photo" accept="image/jpeg,image/png,image/webp" capture="environment"></label><small id="beforePhotoStatus" class="d-block mt-2 text-secondary"></small>
               <img id="beforePreview" class="cl-photo-preview d-none" alt="Before preview">
             </div>
             <div class="cl-photo-card cl-photo-empty">
