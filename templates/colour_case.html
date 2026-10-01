@@ -51,6 +51,7 @@
       <section class="cl-card mt-4">
         <div class="cl-card-head"><div><span class="cl-kicker">COMPLETE RESULT</span><h2>Save the learning</h2></div></div>
         <form method="post" action="{{ url_for('colour_lab_complete_case', id=case.id) }}" id="completeCaseForm">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="after_photo_data" id="afterPhotoData">
           <label class="form-label">Result rating</label>
           <select class="form-select mb-3" name="result_rating"><option value="">Choose</option>{% for r in ['Excellent match','Good match','Slightly warmer','Slightly cooler','Too dark','Too light','Uneven / correction needed'] %}<option {% if case.result_rating==r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select>
