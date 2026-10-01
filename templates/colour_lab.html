@@ -187,6 +187,7 @@
 {% block scripts %}
 <script>
 (function(){
+  const form = document.getElementById('colourCaseForm');
   const formRows = document.getElementById('formulaRows');
   const formulaJson = document.getElementById('formulaJson');
   const inventory = {{ inventory_catalog|tojson }};
