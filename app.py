@@ -76,7 +76,7 @@ TENANT_SCOPED_TABLES = {
     "inventory_purchase", "invoice_item", "inventory_sale_line", "loyalty_transaction",
     "salon_hours", "salon_closure", "salon_setting", "invoice_refund", "invoice_payment",
     "staff_schedule", "staff_break", "salon_package", "customer_package",
-    "whatsapp_template", "gift_card", "gift_card_transaction", "audit_log",
+    "whatsapp_template", "gift_card", "gift_card_transaction", "audit_log", "colour_case", "colour_formula_item",
 }
 
 class TenantScopedMixin:
@@ -3008,13 +3008,22 @@ def colour_lab_create_case():
         if not title: raise ValueError('Give the colour case a title.')
         customer_id=request.form.get('customer_id') or None
         staff_id=request.form.get('staff_id') or None
-        if customer_id: customer_id=Customer.query.get(int(customer_id)).id
-        if staff_id: staff_id=Staff.query.get(int(staff_id)).id
+        if customer_id:
+            customer = Customer.query.get(int(customer_id))
+            if not customer: raise ValueError('The selected customer is no longer available. Please select the customer again.')
+            customer_id = customer.id
+        if staff_id:
+            staff = Staff.query.get(int(staff_id))
+            if not staff: raise ValueError('The selected stylist is no longer available. Please select the stylist again.')
+            staff_id = staff.id
         processing_raw=request.form.get('processing_minutes') or ''
         processing_minutes=int(processing_raw) if processing_raw else None
         if processing_minutes is not None and not 0<=processing_minutes<=240: raise ValueError('Processing time must be between 0 and 240 minutes.')
+        account_id = _current_account_id()
+        if not account_id:
+            raise ValueError('Your salon account could not be identified. Please sign in again.')
         case=ColourCase(
-            customer_id=customer_id,staff_id=staff_id,title=title,
+            account_id=account_id,customer_id=customer_id,staff_id=staff_id,title=title,
             current_hair_type=request.form.get('current_hair_type'),
             current_level=request.form.get('current_level') or None,
             current_tone=(request.form.get('current_tone') or '').strip(),
@@ -3045,7 +3054,7 @@ def colour_lab_create_case():
             grams=float(row.get('quantity_grams') or 0)
             if grams<0 or grams>5000: raise ValueError('Formula quantity must be between 0 and 5000 g.')
             db.session.add(ColourFormulaItem(
-                colour_case_id=case.id,inventory_item_id=inv.id if inv else None,
+                account_id=account_id,colour_case_id=case.id,inventory_item_id=inv.id if inv else None,
                 product_name=product or shade,brand=(row.get('brand') or '').strip() or None,
                 shade_code=shade or None,quantity_grams=grams,
                 developer=(row.get('developer') or '').strip() or None))
