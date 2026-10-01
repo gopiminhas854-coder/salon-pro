@@ -31,6 +31,7 @@
         </div>
 
         <form method="post" action="{{ url_for('colour_lab_create_case') }}" id="colourCaseForm">
+          <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="formula_json" id="formulaJson">
           <input type="hidden" name="before_photo_data" id="beforePhotoData">
 

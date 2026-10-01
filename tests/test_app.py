@@ -328,6 +328,48 @@ def test_logout_clears_session(client):
         assert "role" not in sess
 
 
+def test_colour_lab_form_has_csrf_and_case_can_be_saved(client):
+    c, salon = client
+    login(c)
+    page = c.get("/colour-lab")
+    assert page.status_code == 200
+    html = page.data.decode("utf-8")
+    marker = '<input type="hidden" name="_csrf_token" value="'
+    assert marker in html
+
+    with c.session_transaction() as sess:
+        csrf = sess.get("_csrf_token")
+    assert csrf
+
+    response = c.post("/colour-lab/cases", data={
+        "_csrf_token": csrf,
+        "title": "CSRF Regression Case",
+        "customer_id": "",
+        "staff_id": "",
+        "current_hair_type": "Virgin",
+        "current_level": "6",
+        "current_tone": "Golden",
+        "hair_condition": "Good",
+        "target_level": "7",
+        "target_tone": "Honey caramel",
+        "technique": "Global colour",
+        "brand": "Test Brand",
+        "developer": "Test Developer",
+        "developer_strength": "20 vol",
+        "mixing_ratio": "1:1",
+        "processing_minutes": "30",
+        "application_notes": "Regression test",
+        "formula_json": "[]",
+        "before_photo_data": "",
+    }, follow_redirects=False)
+    assert response.status_code == 302
+    assert "/colour-lab/cases/" in response.headers["Location"]
+
+    with salon.app.app_context():
+        case = salon.ColourCase.query.filter_by(title="CSRF Regression Case").first()
+        assert case is not None
+
+
 def test_core_pages_load(client):
     c, _ = client
     login(c)
