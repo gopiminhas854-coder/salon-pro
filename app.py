@@ -3004,6 +3004,43 @@ def _normalise_colour_photo(value):
     if len(raw)>2100000: raise ValueError('Colour photos must be compressed below 2 MB.')
     return value
 
+def _normalise_uploaded_colour_photo(upload):
+    """Convert a real multipart image upload into a safe, compact JPEG data URL."""
+    if not upload or not getattr(upload, 'filename', ''):
+        return None
+    raw=upload.read()
+    if not raw:
+        return None
+    if len(raw)>8*1024*1024:
+        raise ValueError('Colour photos must be 8 MB or smaller.')
+    try:
+        from PIL import Image, ImageOps
+        image=Image.open(io.BytesIO(raw))
+        image=ImageOps.exif_transpose(image)
+        if image.format not in {'JPEG','PNG','WEBP'}:
+            raise ValueError('Colour photos must be JPEG, PNG or WebP.')
+        image=image.convert('RGB')
+    except ValueError:
+        raise
+    except Exception as exc:
+        raise ValueError('The selected photo could not be read. Please choose a JPG or PNG image.') from exc
+
+    max_bytes=1800*1024
+    max_dimension=1400
+    scale=min(1.0, max_dimension/max(image.width,image.height))
+    for _ in range(7):
+        width=max(1, int(round(image.width*scale)))
+        height=max(1, int(round(image.height*scale)))
+        resized=image.resize((width,height), Image.Resampling.LANCZOS)
+        for quality in (82,76,70,64,58,52):
+            out=io.BytesIO()
+            resized.save(out, format='JPEG', quality=quality, optimize=True)
+            encoded=out.getvalue()
+            if len(encoded)<=max_bytes:
+                return 'data:image/jpeg;base64,' + base64.b64encode(encoded).decode('ascii')
+        scale*=0.82
+    raise ValueError('The selected photo could not be compressed small enough.')
+
 def _colour_lab_inventory_catalog():
     return [{'id':i.id,'name':i.name} for i in InventoryItem.query.filter_by(is_active=True).order_by(InventoryItem.name).limit(200).all()]
 
@@ -3063,7 +3100,10 @@ def colour_lab_create_case():
             mixing_ratio=(request.form.get('mixing_ratio') or '').strip(),
             processing_minutes=processing_minutes,
             application_notes=(request.form.get('application_notes') or '').strip(),
-            before_photo_data=_normalise_colour_photo(request.form.get('before_photo_data')),
+            before_photo_data=(
+                _normalise_uploaded_colour_photo(request.files.get('before_photo'))
+                or _normalise_colour_photo(request.form.get('before_photo_data'))
+            ),
         )
         db.session.add(case); db.session.flush()
         try: formula_rows=json.loads(request.form.get('formula_json') or '[]')
@@ -3102,7 +3142,10 @@ def colour_lab_case(id):
 def colour_lab_complete_case(id):
     case=ColourCase.query.get_or_404(id)
     try:
-        photo=_normalise_colour_photo(request.form.get('after_photo_data'))
+        photo=(
+            _normalise_uploaded_colour_photo(request.files.get('after_photo'))
+            or _normalise_colour_photo(request.form.get('after_photo_data'))
+        )
         if photo: case.after_photo_data=photo
         case.result_rating=(request.form.get('result_rating') or '').strip() or None
         case.next_time_notes=(request.form.get('next_time_notes') or '').strip() or None
