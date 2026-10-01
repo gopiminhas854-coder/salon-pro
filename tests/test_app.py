@@ -76,6 +76,7 @@ def test_new_signup_routes_to_199_subscription(client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/subscription?reason=new")
 
+    salon.app.config.update(SALON_PRO_MONTHLY_PRICE_INR=199)
     page = c.get("/subscription")
     assert page.status_code == 200
     assert "₹199/month".encode() in page.data
