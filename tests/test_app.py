@@ -78,8 +78,8 @@ def test_new_signup_routes_to_199_subscription(client):
 
     page = c.get("/subscription")
     assert page.status_code == 200
-    assert b"₹199/month" in page.data
-    assert b"Subscribe &amp; Pay ₹199" in page.data
+    assert "₹199/month".encode() in page.data
+    assert "Subscribe &amp; Pay ₹199".encode() in page.data
 
 def test_subscription_order_uses_19900_paise_and_owner_data(client, monkeypatch):
     c, salon = client
