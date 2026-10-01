@@ -226,75 +226,29 @@
   document.getElementById('addFormulaRow').addEventListener('click',()=>addRow());
   document.getElementById('addNoteRow').addEventListener('click',()=>addRow({product_name:'Note / additive'}));
 
-  let photoJob=Promise.resolve();
-  let photoToken=0;
-  let submitting=false;
-
-  function dataUrlByteLength(data){
-    const comma=data.indexOf(',');
-    if(comma<0) return 0;
-    return Math.floor((data.length-comma-1)*3/4);
-  }
-
-  function compress(file){
-    return new Promise((resolve,reject)=>{
-      if(!file) return resolve('');
-      if(!file.type || !file.type.startsWith('image/')) return reject(new Error('Please choose an image file.'));
-      const objectUrl=URL.createObjectURL(file);
-      const img=new Image();
-      img.onload=function(){
-        try{
-          const maxBytes=1800*1024;
-          const maxDimension=1400;
-          let scale=Math.min(1,maxDimension/Math.max(img.naturalWidth,img.naturalHeight));
-          let data='';
-          for(let pass=0;pass<5;pass++){
-            const canvas=document.createElement('canvas');
-            canvas.width=Math.max(1,Math.round(img.naturalWidth*scale));
-            canvas.height=Math.max(1,Math.round(img.naturalHeight*scale));
-            const ctx=canvas.getContext('2d',{alpha:false});
-            if(!ctx) throw new Error('Your device could not prepare the photo.');
-            ctx.drawImage(img,0,0,canvas.width,canvas.height);
-            for(const quality of [0.74,0.66,0.58,0.50]){
-              data=canvas.toDataURL('image/jpeg',quality);
-              if(dataUrlByteLength(data)<=maxBytes) return resolve(data);
-            }
-            scale*=0.82;
-          }
-          reject(new Error('The selected photo is too large. Please choose another photo.'));
-        }catch(err){ reject(err); }
-        finally{ URL.revokeObjectURL(objectUrl); }
-      };
-      img.onerror=function(){ URL.revokeObjectURL(objectUrl); reject(new Error('This photo format could not be read on this device. Please choose a JPG or PNG photo.')); };
-      img.src=objectUrl;
-    });
-  }
+  let previewUrl='';
 
   beforeInput.addEventListener('change',function(){
+    if(previewUrl) URL.revokeObjectURL(previewUrl);
     const file=this.files && this.files[0];
-    const token=++photoToken;
     beforeData.value='';
     beforePreview.removeAttribute('src');
     beforePreview.classList.add('d-none');
     const status=document.getElementById('beforePhotoStatus');
     if(!file){ if(status) status.textContent=''; return; }
-    if(status) status.textContent='Preparing photo…';
-    photoJob=compress(file).then(data=>{
-      if(token!==photoToken) return;
-      beforeData.value=data;
-      beforePreview.src=data;
-      beforePreview.classList.remove('d-none');
-      if(status) status.textContent='Photo ready ✓';
-    }).catch(err=>{
-      if(token!==photoToken) return;
+    if(!file.type || !file.type.startsWith('image/')){
       this.value='';
-      beforeData.value='';
       if(status) status.textContent='';
-      alert(err && err.message ? err.message : 'The photo could not be prepared.');
-    });
+      alert('Please choose a JPG, PNG or WebP image.');
+      return;
+    }
+    previewUrl=URL.createObjectURL(file);
+    beforePreview.src=previewUrl;
+    beforePreview.classList.remove('d-none');
+    if(status) status.textContent='Photo selected ✓';
   });
 
-  function buildFormulaJson(){
+  form.addEventListener('submit', function(){
     const rows=[...formRows.querySelectorAll('tr')].map(r=>({
       inventory_item_id:r.querySelector('.formula-inventory').value||null,
       product_name:r.querySelector('.formula-product').value.trim(),
@@ -304,22 +258,6 @@
       developer:r.querySelector('.formula-dev').value.trim()
     })).filter(x=>x.product_name || x.shade_code);
     formulaJson.value=JSON.stringify(rows);
-  }
-
-  form.addEventListener('submit',async function(e){
-    if(submitting) return;
-    const file=beforeInput.files && beforeInput.files[0];
-    if(file && !beforeData.value){
-      e.preventDefault();
-      const token=photoToken;
-      try{ await photoJob; }catch(_err){ return; }
-      if(token!==photoToken || !beforeData.value) return;
-      buildFormulaJson();
-      submitting=true;
-      form.requestSubmit();
-      return;
-    }
-    buildFormulaJson();
   });
 })();
 </script>
