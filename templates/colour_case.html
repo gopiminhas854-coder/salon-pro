@@ -50,13 +50,13 @@
 
       <section class="cl-card mt-4">
         <div class="cl-card-head"><div><span class="cl-kicker">COMPLETE RESULT</span><h2>Save the learning</h2></div></div>
-        <form method="post" action="{{ url_for('colour_lab_complete_case', id=case.id) }}" id="completeCaseForm">
+        <form method="post" enctype="multipart/form-data" action="{{ url_for('colour_lab_complete_case', id=case.id) }}" id="completeCaseForm">
           <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="after_photo_data" id="afterPhotoData">
           <label class="form-label">Result rating</label>
           <select class="form-select mb-3" name="result_rating"><option value="">Choose</option>{% for r in ['Excellent match','Good match','Slightly warmer','Slightly cooler','Too dark','Too light','Uneven / correction needed'] %}<option {% if case.result_rating==r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select>
           <label class="form-label">After photo</label>
-          <label class="cl-photo-input mb-3"><i class="bi bi-camera"></i><span>Take / choose after photo</span><input type="file" id="afterPhoto" accept="image/*" capture="environment"></label>
+          <label class="cl-photo-input mb-3"><i class="bi bi-camera"></i><span>Take / choose after photo</span><input type="file" id="afterPhoto" name="after_photo" accept="image/jpeg,image/png,image/webp" capture="environment"></label>
           <img id="afterPreview" class="cl-photo-preview d-none mb-3" alt="After preview">
           <label class="form-label">What would you keep/change next time?</label>
           <textarea class="form-control mb-3" name="next_time_notes" rows="3" placeholder="Useful lesson for the next similar client…">{{ case.next_time_notes or '' }}</textarea>
