@@ -328,6 +328,36 @@ def test_logout_clears_session(client):
         assert "role" not in sess
 
 
+def test_colour_lab_android_webview_accepts_same_origin_form_without_fresh_token(client):
+    c, salon = client
+    login(c)
+
+    # Simulate a cached Android WebView form carrying a stale token. The
+    # request is still same-origin/authenticated, so a deployment must not
+    # destroy the user's completed form.
+    response = c.post(
+        "/colour-lab/cases",
+        data={
+            "_csrf_token": "stale-token-from-cached-form",
+            "title": "Android WebView CSRF Regression",
+            "current_hair_type": "Virgin",
+            "target_tone": "Honey caramel",
+            "formula_json": "[]",
+        },
+        headers={
+            "Sec-Fetch-Site": "same-origin",
+            "User-Agent": "Mozilla/5.0 SalonProAndroid/1.0.4",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert "/colour-lab/cases/" in response.headers["Location"]
+
+    with salon.app.app_context():
+        case = salon.ColourCase.query.filter_by(title="Android WebView CSRF Regression").first()
+        assert case is not None
+
+
 def test_colour_lab_form_has_csrf_and_case_can_be_saved(client):
     c, salon = client
     login(c)

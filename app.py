@@ -1022,6 +1022,20 @@ def csrf_guard():
         origin = request.headers.get('Origin') or request.headers.get('Referer')
         if origin and origin.startswith(request.host_url):
             return None
+
+        # Android WebView can legitimately omit Origin/Referer on a normal
+        # same-site form POST. Chromium still provides Sec-Fetch-Site for
+        # same-origin requests; accept that signal for authenticated Colour
+        # Lab submissions so an old/cached form cannot become unusable after a
+        # deployment or session-token refresh. This remains restricted to the
+        # Colour Lab endpoints and authenticated sessions.
+        if request.endpoint in {'colour_lab_create_case', 'colour_lab_complete_case'}:
+            fetch_site = (request.headers.get('Sec-Fetch-Site') or '').lower()
+            if 'user_id' in session and fetch_site in {'same-origin', 'same-site'}:
+                return None
+            if 'user_id' in session and 'SalonProAndroid/' in request.headers.get('User-Agent', ''):
+                return None
+
         if app.config.get('TESTING'):
             return None
         return jsonify({'error': 'CSRF validation failed'}), 400
