@@ -15,7 +15,7 @@ import base64
 import hashlib
 import hmac
 import requests
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 from sqlalchemy import func, inspect, event, false
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from flask_migrate import Migrate
@@ -1020,8 +1020,19 @@ def csrf_guard():
         if token and secrets.compare_digest(token, session.get('_csrf_token', '')):
             return None
         origin = request.headers.get('Origin') or request.headers.get('Referer')
-        if origin and origin.startswith(request.host_url):
-            return None
+        if origin:
+            try:
+                parsed_origin = urlsplit(origin)
+                request_host = (request.host or '').split(',')[0].strip().lower()
+                origin_host = (parsed_origin.netloc or '').lower()
+                if (
+                    parsed_origin.scheme in {'http', 'https'}
+                    and origin_host
+                    and origin_host == request_host
+                ):
+                    return None
+            except ValueError:
+                pass
 
         # Android WebView can legitimately omit Origin/Referer on a normal
         # same-site form POST. Chromium still provides Sec-Fetch-Site for

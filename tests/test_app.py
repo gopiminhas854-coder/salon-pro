@@ -358,6 +358,31 @@ def test_colour_lab_android_webview_accepts_same_origin_form_without_fresh_token
         assert case is not None
 
 
+def test_colour_lab_csrf_accepts_same_host_https_referer_behind_proxy(client):
+    c, salon = client
+    login(c)
+    with c.session_transaction() as sess:
+        sess['_csrf_token'] = 'server-token'
+    response = c.post(
+        '/colour-lab/cases',
+        data={
+            '_csrf_token': 'stale-token',
+            'title': 'Proxy-safe colour case',
+            'customer_id': '',
+            'staff_id': '',
+            'current_hair_type': 'Virgin',
+            'current_level': '5',
+            'target_level': '7',
+            'technique': 'Global colour',
+            'formula_json': '[]',
+        },
+        headers={'Referer': 'https://localhost/colour-lab'},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert '/colour-lab/cases/' in response.headers['Location']
+
+
 def test_colour_lab_form_has_csrf_and_case_can_be_saved(client):
     c, salon = client
     login(c)
