@@ -89,7 +89,7 @@
           <div class="cl-photo-grid mt-4">
             <div class="cl-photo-card">
               <div class="cl-photo-copy"><span>01</span><strong>Before photo</strong><small>Use a clear photo in consistent light.</small></div>
-              <div class="cl-photo-input"><i class="bi bi-camera"></i><span>Choose / take before photo</span></div><input class="cl-native-file" type="file" id="beforePhoto" name="before_photo" accept="image/*" capture="environment"><small id="beforePhotoStatus" class="d-block mt-2 text-secondary">Use your phone's normal camera or gallery picker.</small>
+              <button type="button" class="cl-photo-input" id="beforePhotoPicker"><i class="bi bi-camera"></i><span>Choose / take before photo</span></button><input class="cl-native-file" type="file" id="beforePhoto" name="before_photo" accept="image/*"><small id="beforePhotoStatus" class="d-block mt-2 text-secondary">Use your phone's normal camera or gallery picker.</small>
               <img id="beforePreview" class="cl-photo-preview d-none" alt="Before preview">
             </div>
             <div class="cl-photo-card cl-photo-empty">
@@ -195,6 +195,7 @@
   const beforeInput = document.getElementById('beforePhoto');
   const beforeData = document.getElementById('beforePhotoData');
   const beforePreview = document.getElementById('beforePreview');
+  const beforePicker = document.getElementById('beforePhotoPicker');
 
   function addRow(seed){
     const row=document.createElement('tr');
@@ -227,6 +228,13 @@
   document.getElementById('addNoteRow').addEventListener('click',()=>addRow({product_name:'Note / additive'}));
 
   let previewUrl='';
+
+  if(beforePicker && beforeInput){
+    beforePicker.addEventListener('click',()=>beforeInput.click());
+    beforePicker.addEventListener('keydown',e=>{
+      if(e.key==='Enter' || e.key===' '){e.preventDefault();beforeInput.click();}
+    });
+  }
 
   beforeInput.addEventListener('change',function(){
     if(previewUrl) URL.revokeObjectURL(previewUrl);
