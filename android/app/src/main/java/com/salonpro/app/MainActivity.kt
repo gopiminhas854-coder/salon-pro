@@ -2,6 +2,7 @@ package com.salonpro.app
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -30,8 +31,8 @@ import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/"
-private const val APP_VERSION = "1.0.8"
-private const val APP_VERSION_CODE = 9
+private const val APP_VERSION = "1.0.10"
+private const val APP_VERSION_CODE = 11
 private const val SESSION_PREFS = "salon_pro_auth"
 private const val SESSION_COOKIE_KEY = "session_cookie"
 private const val FILE_CHOOSER_REQUEST_CODE = 4201
@@ -184,13 +185,39 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun galleryIntent(): Intent =
+        Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "image/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+
     private fun launchPhotoChooser() {
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(
-                this,
-                arrayOf(android.Manifest.permission.CAMERA),
-                CAMERA_PERMISSION_REQUEST_CODE
-            )
+        // Gallery must always remain available. Camera permission is requested
+        // only when the user explicitly chooses Camera.
+        val gallery = galleryIntent()
+        val cameraAllowed =
+            ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED
+
+        if (!cameraAllowed) {
+            AlertDialog.Builder(this)
+                .setTitle("Add salon photo")
+                .setItems(arrayOf("Take photo", "Choose from gallery")) { _, which ->
+                    if (which == 0) {
+                        ActivityCompat.requestPermissions(
+                            this,
+                            arrayOf(android.Manifest.permission.CAMERA),
+                            CAMERA_PERMISSION_REQUEST_CODE
+                        )
+                    } else {
+                        startActivityForResult(gallery, FILE_CHOOSER_REQUEST_CODE)
+                    }
+                }
+                .setOnCancelListener {
+                    filePathCallback?.onReceiveValue(null)
+                    filePathCallback = null
+                }
+                .show()
             return
         }
 
@@ -198,22 +225,20 @@ class MainActivity : AppCompatActivity() {
             pendingCameraFile = File.createTempFile("salon_pro_camera_", ".jpg", cacheDir)
             pendingCameraUri = FileProvider.getUriForFile(
                 this,
-                "${BuildConfig.APPLICATION_ID}.fileprovider",
+                "com.salonpro.mobile.fileprovider",
                 pendingCameraFile!!
             )
 
             val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
                 putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraUri)
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                clipData = android.content.ClipData.newRawUri("Salon Pro camera photo", pendingCameraUri)
+                clipData = android.content.ClipData.newRawUri(
+                    "Salon Pro camera photo",
+                    pendingCameraUri
+                )
             }
 
-            val galleryIntent = Intent(Intent.ACTION_GET_CONTENT).apply {
-                type = "image/*"
-                addCategory(Intent.CATEGORY_OPENABLE)
-            }
-
-            val chooser = Intent.createChooser(galleryIntent, "Choose salon photo").apply {
+            val chooser = Intent.createChooser(gallery, "Add salon photo").apply {
                 putExtra(Intent.EXTRA_INITIAL_INTENTS, arrayOf(cameraIntent))
             }
 
@@ -222,6 +247,7 @@ class MainActivity : AppCompatActivity() {
             filePathCallback?.onReceiveValue(null)
             filePathCallback = null
             pendingCameraUri = null
+            pendingCameraFile?.delete()
             pendingCameraFile = null
         }
     }
@@ -235,11 +261,41 @@ class MainActivity : AppCompatActivity() {
 
         if (requestCode == CAMERA_PERMISSION_REQUEST_CODE) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                launchPhotoChooser()
+                launchCameraCapture()
             } else {
+                // Permission denial should not break the upload field entirely.
+                // The user can retry and choose Gallery instead.
                 filePathCallback?.onReceiveValue(null)
                 filePathCallback = null
             }
+        }
+    }
+
+    private fun launchCameraCapture() {
+        try {
+            pendingCameraFile = File.createTempFile("salon_pro_camera_", ".jpg", cacheDir)
+            pendingCameraUri = FileProvider.getUriForFile(
+                this,
+                "com.salonpro.mobile.fileprovider",
+                pendingCameraFile!!
+            )
+
+            val cameraIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                putExtra(MediaStore.EXTRA_OUTPUT, pendingCameraUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                clipData = android.content.ClipData.newRawUri(
+                    "Salon Pro camera photo",
+                    pendingCameraUri
+                )
+            }
+
+            startActivityForResult(cameraIntent, FILE_CHOOSER_REQUEST_CODE)
+        } catch (e: Exception) {
+            filePathCallback?.onReceiveValue(null)
+            filePathCallback = null
+            pendingCameraUri = null
+            pendingCameraFile?.delete()
+            pendingCameraFile = null
         }
     }
 
