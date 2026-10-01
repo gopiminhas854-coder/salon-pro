@@ -568,6 +568,51 @@ class AuditLog(TenantScopedMixin, db.Model):
     user = db.relationship('User')
 
 
+class ColourCase(TenantScopedMixin, db.Model):
+    """Reusable colour diagnosis, formulation and before/after record."""
+    id = db.Column(db.Integer, primary_key=True)
+    customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), index=True)
+    staff_id = db.Column(db.Integer, db.ForeignKey('staff.id'), index=True)
+    title = db.Column(db.String(160), nullable=False)
+    current_hair_type = db.Column(db.String(40))
+    current_level = db.Column(db.String(20))
+    current_tone = db.Column(db.String(80))
+    hair_history = db.Column(db.Text)
+    hair_condition = db.Column(db.String(80))
+    target_level = db.Column(db.String(20))
+    target_tone = db.Column(db.String(100))
+    technique = db.Column(db.String(80))
+    brand = db.Column(db.String(100))
+    developer = db.Column(db.String(60))
+    developer_strength = db.Column(db.String(40))
+    mixing_ratio = db.Column(db.String(60))
+    processing_minutes = db.Column(db.Integer)
+    application_notes = db.Column(db.Text)
+    result_rating = db.Column(db.String(40))
+    result_notes = db.Column(db.Text)
+    next_time_notes = db.Column(db.Text)
+    before_photo_data = db.Column(db.Text)
+    after_photo_data = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    customer = db.relationship('Customer', backref='colour_cases')
+    staff = db.relationship('Staff')
+
+class ColourFormulaItem(TenantScopedMixin, db.Model):
+    """One product/tube line from a recorded colour formula."""
+    id = db.Column(db.Integer, primary_key=True)
+    colour_case_id = db.Column(db.Integer, db.ForeignKey('colour_case.id', ondelete='CASCADE'), nullable=False, index=True)
+    inventory_item_id = db.Column(db.Integer, db.ForeignKey('inventory_item.id'), index=True)
+    product_name = db.Column(db.String(150), nullable=False)
+    brand = db.Column(db.String(100))
+    shade_code = db.Column(db.String(60))
+    quantity_grams = db.Column(db.Float, default=0)
+    developer = db.Column(db.String(60))
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    colour_case = db.relationship('ColourCase', backref=db.backref('formula_items', lazy=True, cascade='all, delete-orphan'))
+    inventory_item = db.relationship('InventoryItem')
+
 # ---------------------------------------------------------------------------
 # Tenant context and automatic ownership enforcement
 # ---------------------------------------------------------------------------
@@ -2906,6 +2951,135 @@ def delete_expense(id):
     db.session.commit()
     flash('Expense deleted.', 'info')
     return redirect(url_for('expenses'))
+
+
+# ==================== COLOUR LAB ====================
+
+COLOUR_LEVEL_REFERENCE = [
+    {'level':'1','name':'Black','undertone':'Deep red family','swatch':'#171717'},
+    {'level':'2','name':'Very dark brown','undertone':'Red','swatch':'#241916'},
+    {'level':'3','name':'Dark brown','undertone':'Red / red-orange','swatch':'#35211b'},
+    {'level':'4','name':'Medium brown','undertone':'Red-orange','swatch':'#4b2d20'},
+    {'level':'5','name':'Light brown','undertone':'Orange-red','swatch':'#6b4026'},
+    {'level':'6','name':'Dark blonde','undertone':'Orange','swatch':'#8a592d'},
+    {'level':'7','name':'Medium blonde','undertone':'Orange / gold','swatch':'#a8753a'},
+    {'level':'8','name':'Light blonde','undertone':'Gold','swatch':'#c29b57'},
+    {'level':'9','name':'Very light blonde','undertone':'Yellow-gold','swatch':'#d8bd78'},
+    {'level':'10','name':'Lightest blonde','undertone':'Pale yellow','swatch':'#eadca0'},
+]
+
+def _normalise_colour_photo(value):
+    value=(value or '').strip()
+    if not value: return None
+    allowed=('data:image/jpeg;base64,','data:image/png;base64,','data:image/webp;base64,')
+    if not value.startswith(allowed): raise ValueError('Colour photos must be JPEG, PNG or WebP.')
+    if len(value)>2800000: raise ValueError('Colour photos must be compressed below the salon limit.')
+    try: raw=base64.b64decode(value.split(',',1)[1],validate=True)
+    except Exception as exc: raise ValueError('The selected photo could not be read.') from exc
+    if len(raw)>2100000: raise ValueError('Colour photos must be compressed below 2 MB.')
+    return value
+
+def _colour_lab_inventory_catalog():
+    return [{'id':i.id,'name':i.name} for i in InventoryItem.query.filter_by(is_active=True).order_by(InventoryItem.name).limit(200).all()]
+
+@app.route('/colour-lab')
+@login_required
+def colour_lab():
+    q=(request.args.get('q') or '').strip().lower()
+    all_cases=ColourCase.query.order_by(ColourCase.created_at.desc()).limit(200).all()
+    cases=all_cases if not q else [x for x in all_cases if q in (x.title or '').lower() or q in (x.current_tone or '').lower() or q in (x.target_tone or '').lower() or q in (x.brand or '').lower() or (x.customer and q in (x.customer.name or '').lower())]
+    stats={
+        'total_cases':ColourCase.query.count(),
+        'completed_cases':ColourCase.query.filter(ColourCase.before_photo_data.is_not(None),ColourCase.after_photo_data.is_not(None)).count(),
+        'formula_count':ColourFormulaItem.query.count(),
+        'repeat_ready':ColourCase.query.filter(ColourCase.next_time_notes.is_not(None)).count(),
+    }
+    return render_template('colour_lab.html',cases=cases[:40],q=q,
+        customers=Customer.query.order_by(Customer.name).all(),
+        staff_list=Staff.query.filter_by(is_active=True).order_by(Staff.name).all(),
+        inventory_items=InventoryItem.query.filter_by(is_active=True).order_by(InventoryItem.name).limit(8).all(),
+        inventory_catalog=_colour_lab_inventory_catalog(),stats=stats,level_reference=COLOUR_LEVEL_REFERENCE)
+
+@app.route('/colour-lab/cases',methods=['POST'])
+@login_required
+def colour_lab_create_case():
+    try:
+        title=(request.form.get('title') or '').strip()
+        if not title: raise ValueError('Give the colour case a title.')
+        customer_id=request.form.get('customer_id') or None
+        staff_id=request.form.get('staff_id') or None
+        if customer_id: customer_id=Customer.query.get(int(customer_id)).id
+        if staff_id: staff_id=Staff.query.get(int(staff_id)).id
+        processing_raw=request.form.get('processing_minutes') or ''
+        processing_minutes=int(processing_raw) if processing_raw else None
+        if processing_minutes is not None and not 0<=processing_minutes<=240: raise ValueError('Processing time must be between 0 and 240 minutes.')
+        case=ColourCase(
+            customer_id=customer_id,staff_id=staff_id,title=title,
+            current_hair_type=request.form.get('current_hair_type'),
+            current_level=request.form.get('current_level') or None,
+            current_tone=(request.form.get('current_tone') or '').strip(),
+            hair_history=(request.form.get('hair_history') or '').strip(),
+            hair_condition=request.form.get('hair_condition'),
+            target_level=request.form.get('target_level') or None,
+            target_tone=(request.form.get('target_tone') or '').strip(),
+            technique=request.form.get('technique'),
+            brand=(request.form.get('brand') or '').strip(),
+            developer=(request.form.get('developer') or '').strip(),
+            developer_strength=(request.form.get('developer_strength') or '').strip(),
+            mixing_ratio=(request.form.get('mixing_ratio') or '').strip(),
+            processing_minutes=processing_minutes,
+            application_notes=(request.form.get('application_notes') or '').strip(),
+            before_photo_data=_normalise_colour_photo(request.form.get('before_photo_data')),
+        )
+        db.session.add(case); db.session.flush()
+        try: formula_rows=json.loads(request.form.get('formula_json') or '[]')
+        except Exception as exc: raise ValueError('The formula rows could not be read.') from exc
+        if not isinstance(formula_rows,list) or len(formula_rows)>20: raise ValueError('A formula can contain up to 20 product lines.')
+        for row in formula_rows:
+            if not isinstance(row,dict): continue
+            inv=None
+            if row.get('inventory_item_id'): inv=InventoryItem.query.get(int(row['inventory_item_id']))
+            product=(row.get('product_name') or '').strip() or (inv.name if inv else '')
+            shade=(row.get('shade_code') or '').strip()
+            if not product and not shade: continue
+            grams=float(row.get('quantity_grams') or 0)
+            if grams<0 or grams>5000: raise ValueError('Formula quantity must be between 0 and 5000 g.')
+            db.session.add(ColourFormulaItem(
+                colour_case_id=case.id,inventory_item_id=inv.id if inv else None,
+                product_name=product or shade,brand=(row.get('brand') or '').strip() or None,
+                shade_code=shade or None,quantity_grams=grams,
+                developer=(row.get('developer') or '').strip() or None))
+        db.session.commit()
+        flash('Colour case saved. Complete it later with the final after photo.','success')
+        return redirect(url_for('colour_lab_case',id=case.id))
+    except (ValueError,TypeError,KeyError) as exc:
+        db.session.rollback(); flash(str(exc) or 'Please check the colour case details.','danger')
+    except Exception:
+        db.session.rollback(); flash('The colour case could not be saved. No changes were made.','danger')
+    return redirect(url_for('colour_lab'))
+
+@app.route('/colour-lab/cases/<int:id>')
+@login_required
+def colour_lab_case(id):
+    return render_template('colour_case.html',case=ColourCase.query.get_or_404(id))
+
+@app.route('/colour-lab/cases/<int:id>/complete',methods=['POST'])
+@login_required
+def colour_lab_complete_case(id):
+    case=ColourCase.query.get_or_404(id)
+    try:
+        photo=_normalise_colour_photo(request.form.get('after_photo_data'))
+        if photo: case.after_photo_data=photo
+        case.result_rating=(request.form.get('result_rating') or '').strip() or None
+        case.next_time_notes=(request.form.get('next_time_notes') or '').strip() or None
+        case.result_notes=(request.form.get('result_notes') or '').strip() or None
+        case.updated_at=datetime.utcnow()
+        db.session.commit(); flash('Final colour result saved to the case history.','success')
+    except ValueError as exc:
+        db.session.rollback(); flash(str(exc),'danger')
+    except Exception:
+        db.session.rollback(); flash('The final result could not be saved. No changes were made.','danger')
+    return redirect(url_for('colour_lab_case',id=case.id))
 
 
 # ==================== SERVICES ====================

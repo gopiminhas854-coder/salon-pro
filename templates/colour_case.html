@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Colour Case{% endblock %}
+{% block page_kicker %}Colour Lab · Case{% endblock %}
+{% block content %}
+<div class="cl-wrap cl-case-detail">
+  <div class="cl-detail-head">
+    <div>
+      <a href="{{ url_for('colour_lab') }}" class="cl-back"><i class="bi bi-arrow-left"></i> Colour Lab</a>
+      <h1>{{ case.title }}</h1>
+      <p>{{ case.customer.name if case.customer else 'Unlinked client' }} · {{ case.created_at.strftime('%d %b %Y · %I:%M %p') }}</p>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">{% if case.result_rating %}<span class="cl-badge success">{{ case.result_rating }}</span>{% endif %}{% if case.target_tone %}<span class="cl-badge">{{ case.target_tone }}</span>{% endif %}</div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-12 col-xl-7">
+      <section class="cl-card">
+        <div class="cl-card-head"><div><span class="cl-kicker">BEFORE → AFTER</span><h2>Visual result</h2></div></div>
+        <div class="cl-compare">
+          <div class="cl-compare-pane"><span>BEFORE</span>{% if case.before_photo_data %}<img src="{{ case.before_photo_data }}" alt="Before hair colour">{% else %}<div class="cl-no-photo"><i class="bi bi-camera"></i><p>No before photo</p></div>{% endif %}</div>
+          <div class="cl-compare-pane"><span>AFTER</span>{% if case.after_photo_data %}<img src="{{ case.after_photo_data }}" alt="After hair colour">{% else %}<div class="cl-no-photo"><i class="bi bi-camera"></i><p>Complete the case to add the after photo.</p></div>{% endif %}</div>
+        </div>
+      </section>
+
+      <section class="cl-card mt-4">
+        <div class="cl-card-head"><div><span class="cl-kicker">FORMULA</span><h2>What was recorded</h2></div></div>
+        {% if case.formula_items %}
+        <div class="table-responsive"><table class="table cl-formula-table align-middle mb-0"><thead><tr><th>Product</th><th>Brand</th><th>Shade</th><th>g</th><th>Developer</th></tr></thead><tbody>
+          {% for item in case.formula_items %}<tr><td>{{ item.product_name }}</td><td>{{ item.brand or '—' }}</td><td><strong>{{ item.shade_code or '—' }}</strong></td><td>{{ item.quantity_grams or '—' }}</td><td>{{ item.developer or '—' }}</td></tr>{% endfor %}
+        </tbody></table></div>
+        {% else %}<div class="cl-empty small"><i class="bi bi-beaker"></i><p>No formula lines recorded.</p></div>{% endif %}
+        <div class="cl-formula-summary"><span>{{ case.brand or 'Brand not recorded' }}</span><span>Developer: {{ case.developer_strength or case.developer or '—' }}</span><span>Mix: {{ case.mixing_ratio or '—' }}</span><span>Time: {{ case.processing_minutes or '—' }} min</span></div>
+      </section>
+    </div>
+
+    <div class="col-12 col-xl-5">
+      <section class="cl-card">
+        <div class="cl-card-head"><div><span class="cl-kicker">DIAGNOSIS</span><h2>Starting canvas</h2></div></div>
+        <div class="cl-diagnosis-grid">
+          <div><span>Hair type</span><strong>{{ case.current_hair_type or '—' }}</strong></div>
+          <div><span>Starting level</span><strong>{{ case.current_level or '—' }}</strong></div>
+          <div><span>Current tone</span><strong>{{ case.current_tone or '—' }}</strong></div>
+          <div><span>Condition</span><strong>{{ case.hair_condition or '—' }}</strong></div>
+          <div><span>Target level</span><strong>{{ case.target_level or '—' }}</strong></div>
+          <div><span>Technique</span><strong>{{ case.technique or '—' }}</strong></div>
+        </div>
+        {% if case.hair_history %}<div class="cl-history"><span>Colour history</span><p>{{ case.hair_history }}</p></div>{% endif %}
+        {% if case.application_notes %}<div class="cl-history"><span>Application notes</span><p>{{ case.application_notes }}</p></div>{% endif %}
+      </section>
+
+      <section class="cl-card mt-4">
+        <div class="cl-card-head"><div><span class="cl-kicker">COMPLETE RESULT</span><h2>Save the learning</h2></div></div>
+        <form method="post" action="{{ url_for('colour_lab_complete_case', id=case.id) }}" id="completeCaseForm">
+          <input type="hidden" name="after_photo_data" id="afterPhotoData">
+          <label class="form-label">Result rating</label>
+          <select class="form-select mb-3" name="result_rating"><option value="">Choose</option>{% for r in ['Excellent match','Good match','Slightly warmer','Slightly cooler','Too dark','Too light','Uneven / correction needed'] %}<option {% if case.result_rating==r %}selected{% endif %}>{{ r }}</option>{% endfor %}</select>
+          <label class="form-label">After photo</label>
+          <label class="cl-photo-input mb-3"><i class="bi bi-camera"></i><span>Take / choose after photo</span><input type="file" id="afterPhoto" accept="image/*" capture="environment"></label>
+          <img id="afterPreview" class="cl-photo-preview d-none mb-3" alt="After preview">
+          <label class="form-label">What would you keep/change next time?</label>
+          <textarea class="form-control mb-3" name="next_time_notes" rows="3" placeholder="Useful lesson for the next similar client…">{{ case.next_time_notes or '' }}</textarea>
+          <label class="form-label">Result notes</label>
+          <textarea class="form-control" name="result_notes" rows="3" placeholder="Final tone, shine, lift, blend, client feedback…">{{ case.result_notes or '' }}</textarea>
+          <button class="btn cl-primary-btn w-100 mt-3" type="submit"><i class="bi bi-check2-circle me-2"></i>Save final result</button>
+        </form>
+      </section>
+
+      <section class="cl-learning-note mt-4"><i class="bi bi-lightbulb"></i><div><strong>Professional note</strong><p>Keep photos consistent and treat the saved formula as a record of what was actually tested. Always follow the selected manufacturer's instructions and perform the salon's normal allergy/strand assessment procedures.</p></div></section>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  const input=document.getElementById('afterPhoto'), hidden=document.getElementById('afterPhotoData'), preview=document.getElementById('afterPreview');
+  async function compress(file){
+    if(!file) return '';
+    const bitmap=await createImageBitmap(file), max=1600, scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
+    const c=document.createElement('canvas'); c.width=Math.round(bitmap.width*scale); c.height=Math.round(bitmap.height*scale);
+    c.getContext('2d').drawImage(bitmap,0,0,c.width,c.height); return c.toDataURL('image/jpeg',0.78);
+  }
+  input.addEventListener('change',async function(){const data=await compress(this.files[0]);if(!data)return;if(data.length>2600000){alert('Please choose a smaller photo.');this.value='';return;}hidden.value=data;preview.src=data;preview.classList.remove('d-none');});
+})();
+</script>
+{% endblock %}

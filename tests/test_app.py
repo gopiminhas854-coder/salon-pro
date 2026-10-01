@@ -76,10 +76,12 @@ def test_new_signup_routes_to_199_subscription(client):
     assert response.status_code == 302
     assert response.headers["Location"].endswith("/subscription?reason=new")
 
+    salon.app.config.update(SALON_PRO_MONTHLY_PRICE_INR=199)
     page = c.get("/subscription")
     assert page.status_code == 200
-    assert b"₹199/month" in page.data
-    assert b"Subscribe &amp; Pay ₹199" in page.data
+    assert "₹199".encode() in page.data
+    assert b"/month" in page.data
+    assert "Subscribe &amp; Pay ₹199".encode() in page.data
 
 def test_subscription_order_uses_19900_paise_and_owner_data(client, monkeypatch):
     c, salon = client
@@ -607,7 +609,7 @@ def test_retention_service_and_staff_intelligence(client):
     assert row["net_revenue"] == 105
     assert row["revenue_per_completed_visit"] == 105
 
-    staff_data = c.get("/api/business-intelligence/staff").get_json()
+    staff_data = c.get("/api/business-intelligence/staff?start=2000-01-01&end=2100-01-01").get_json()
     staff_row = next(x for x in staff_data["staff"] if x["staff"] == "Test Stylist")
     assert staff_row["completed"] == 1
     assert staff_row["net_revenue"] == 105

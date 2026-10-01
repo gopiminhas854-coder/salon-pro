@@ -1,0 +1,257 @@
+{% extends "base.html" %}
+{% block title %}Colour Lab{% endblock %}
+{% block page_kicker %}Colour Lab{% endblock %}
+{% block content %}
+<div class="cl-wrap">
+  <div class="cl-hero">
+    <div>
+      <span class="cl-eyebrow"><i class="bi bi-palette2"></i> Salon Pro Colour Lab</span>
+      <h1>Diagnose. Formulate. Capture the result.</h1>
+      <p>Build a reusable colour knowledge base with client history, formulas and before/after photos. Student Mode explains the reasoning without pretending one formula fits every brand or starting canvas.</p>
+    </div>
+    <div class="cl-hero-actions">
+      <a href="#new-colour-case" class="btn btn-light rounded-pill px-4"><i class="bi bi-plus-lg me-2"></i>New colour case</a>
+      <a href="#student-mode" class="btn btn-outline-light rounded-pill px-4"><i class="bi bi-mortarboard me-2"></i>Student Mode</a>
+    </div>
+  </div>
+
+  <div class="cl-stats">
+    <div class="cl-stat"><span>Total cases</span><strong>{{ stats.total_cases }}</strong><small>Saved in this salon</small></div>
+    <div class="cl-stat"><span>With before & after</span><strong>{{ stats.completed_cases }}</strong><small>Visual results</small></div>
+    <div class="cl-stat"><span>Formula records</span><strong>{{ stats.formula_count }}</strong><small>Mix history</small></div>
+    <div class="cl-stat"><span>Repeat-ready</span><strong>{{ stats.repeat_ready }}</strong><small>Cases with notes</small></div>
+  </div>
+
+  <div class="row g-4">
+    <div class="col-12 col-xl-8">
+      <section class="cl-card" id="new-colour-case">
+        <div class="cl-card-head">
+          <div><span class="cl-kicker">CASE BUILDER</span><h2>New colour case</h2></div>
+          <span class="cl-soft-pill"><i class="bi bi-shield-check"></i> Private to this salon</span>
+        </div>
+
+        <form method="post" action="{{ url_for('colour_lab_create_case') }}" id="colourCaseForm">
+          <input type="hidden" name="formula_json" id="formulaJson">
+          <input type="hidden" name="before_photo_data" id="beforePhotoData">
+
+          <div class="cl-section-title"><i class="bi bi-person-vcard"></i> Client & diagnosis</div>
+          <div class="row g-3">
+            <div class="col-md-7">
+              <label class="form-label">Case title</label>
+              <input class="form-control" name="title" placeholder="e.g. Honey caramel transformation" required>
+            </div>
+            <div class="col-md-5">
+              <label class="form-label">Client</label>
+              <select class="form-select" name="customer_id">
+                <option value="">Walk-in / no client linked</option>
+                {% for c in customers %}<option value="{{ c.id }}">{{ c.name }}{% if c.phone %} · {{ c.phone }}{% endif %}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Stylist</label>
+              <select class="form-select" name="staff_id">
+                <option value="">Select later</option>
+                {% for s in staff_list %}<option value="{{ s.id }}">{{ s.name }}</option>{% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Current hair</label>
+              <select class="form-select" name="current_hair_type">
+                <option>Virgin</option><option>Previously coloured</option><option>Bleached</option><option>Colour + bleach history</option>
+              </select>
+            </div>
+            <div class="col-md-4">
+              <label class="form-label">Starting level</label>
+              <select class="form-select" name="current_level"><option value="">Choose</option>{% for i in range(1,11) %}<option value="{{ i }}">{{ i }}</option>{% endfor %}</select>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Current tone / visible result</label>
+              <input class="form-control" name="current_tone" placeholder="Golden ash, warm brown, faded copper…">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Hair condition</label>
+              <select class="form-select" name="hair_condition"><option>Good</option><option>Normal</option><option>Dry</option><option>Porous</option><option>Fragile / sensitised</option></select>
+            </div>
+            <div class="col-12">
+              <label class="form-label">Previous colour / bleach history</label>
+              <textarea class="form-control" name="hair_history" rows="2" placeholder="Dates, previous shades, bleach, colour remover, grey coverage, home colour, etc."></textarea>
+            </div>
+          </div>
+
+          <div class="cl-section-title mt-4"><i class="bi bi-stars"></i> Target & technique</div>
+          <div class="row g-3">
+            <div class="col-md-4"><label class="form-label">Target level</label><select class="form-select" name="target_level"><option value="">Choose</option>{% for i in range(1,11) %}<option value="{{ i }}">{{ i }}</option>{% endfor %}</select></div>
+            <div class="col-md-5"><label class="form-label">Target tone</label><input class="form-control" name="target_tone" placeholder="Honey caramel, beige blonde, chocolate…"></div>
+            <div class="col-md-3"><label class="form-label">Technique</label><select class="form-select" name="technique"><option>Global colour</option><option>Root colour</option><option>Toner / gloss</option><option>Highlights</option><option>Balayage</option><option>Colour correction</option></select></div>
+          </div>
+
+          <div class="cl-photo-grid mt-4">
+            <div class="cl-photo-card">
+              <div class="cl-photo-copy"><span>01</span><strong>Before photo</strong><small>Use a clear photo in consistent light.</small></div>
+              <label class="cl-photo-input"><i class="bi bi-camera"></i><span>Take / choose photo</span><input type="file" id="beforePhoto" accept="image/*" capture="environment"></label>
+              <img id="beforePreview" class="cl-photo-preview d-none" alt="Before preview">
+            </div>
+            <div class="cl-photo-card cl-photo-empty">
+              <div class="cl-photo-copy"><span>02</span><strong>After photo</strong><small>Capture after the final result and complete the case.</small></div>
+              <div class="cl-photo-next"><i class="bi bi-arrow-right-circle"></i><span>Saved from the case detail page</span></div>
+            </div>
+          </div>
+
+          <div class="cl-section-title mt-4"><i class="bi bi-beaker"></i> Formula record</div>
+          <div class="table-responsive">
+            <table class="table cl-formula-table align-middle mb-2">
+              <thead><tr><th>Product / tube</th><th>Brand</th><th>Shade</th><th>g</th><th>Developer</th><th></th></tr></thead>
+              <tbody id="formulaRows"></tbody>
+            </table>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mb-3">
+            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill" id="addFormulaRow"><i class="bi bi-plus-lg me-1"></i>Add colour tube</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill" id="addNoteRow"><i class="bi bi-journal-plus me-1"></i>Add note row</button>
+          </div>
+
+          <div class="row g-3">
+            <div class="col-md-3"><label class="form-label">Developer</label><input class="form-control" name="developer" placeholder="e.g. selected line"></div>
+            <div class="col-md-3"><label class="form-label">Strength</label><input class="form-control" name="developer_strength" placeholder="Brand-specific"></div>
+            <div class="col-md-3"><label class="form-label">Mixing ratio</label><input class="form-control" name="mixing_ratio" placeholder="Record manufacturer ratio"></div>
+            <div class="col-md-3"><label class="form-label">Processing minutes</label><input class="form-control" type="number" min="0" max="240" name="processing_minutes"></div>
+            <div class="col-md-4"><label class="form-label">Colour brand</label><input class="form-control" name="brand" placeholder="Brand / colour line"></div>
+            <div class="col-md-8"><label class="form-label">Application notes</label><input class="form-control" name="application_notes" placeholder="Placement, saturation, sections, toning notes…"></div>
+          </div>
+
+          <div class="cl-learning-note mt-4"><i class="bi bi-lightbulb"></i><div><strong>Student Mode principle</strong><p>Diagnose the starting canvas first. Check artificial pigment and the manufacturer's colour chart/instructions before choosing a formulation. Save the exact formula only after recording what was actually used.</p></div></div>
+
+          <div class="d-flex justify-content-end mt-4">
+            <button class="btn cl-primary-btn px-4" type="submit"><i class="bi bi-bookmark-check me-2"></i>Save colour case</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="cl-card mt-4">
+        <div class="cl-card-head">
+          <div><span class="cl-kicker">FORMULA LIBRARY</span><h2>Recent colour cases</h2></div>
+          <form class="cl-search" method="get"><i class="bi bi-search"></i><input name="q" value="{{ q }}" placeholder="Search shade, client, tone…"></form>
+        </div>
+        {% if cases %}
+        <div class="cl-case-list">
+          {% for case in cases %}
+          <a class="cl-case-row" href="{{ url_for('colour_lab_case', id=case.id) }}">
+            <div class="cl-case-thumb">
+              {% if case.after_photo_data %}<img src="{{ case.after_photo_data }}" alt="">
+              {% elif case.before_photo_data %}<img src="{{ case.before_photo_data }}" alt="">
+              {% else %}<span><i class="bi bi-palette2"></i></span>{% endif %}
+            </div>
+            <div class="cl-case-main"><strong>{{ case.title }}</strong><span>{{ case.current_level or '—' }} → {{ case.target_level or '—' }} · {{ case.current_tone or 'Current tone not set' }}</span><small>{{ case.target_tone or 'Target tone not set' }}{% if case.customer %} · {{ case.customer.name }}{% endif %}</small></div>
+            <div class="cl-case-meta">{% if case.after_photo_data %}<span class="cl-badge success">Before + After</span>{% endif %}<span>{{ case.created_at.strftime('%d %b %Y') }}</span><i class="bi bi-chevron-right"></i></div>
+          </a>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="cl-empty"><i class="bi bi-images"></i><h3>No colour cases yet</h3><p>Your first case will become the start of your salon's colour knowledge library.</p></div>
+        {% endif %}
+      </section>
+    </div>
+
+    <div class="col-12 col-xl-4">
+      <section class="cl-card" id="student-mode">
+        <div class="cl-card-head"><div><span class="cl-kicker">STUDENT MODE</span><h2>Colour thinking</h2></div><span class="cl-gold-icon"><i class="bi bi-mortarboard"></i></span></div>
+        <div class="cl-step-list">
+          <div><b>01</b><div><strong>Identify the canvas</strong><p>Virgin vs artificial colour makes a big difference. Record level, visible tone, history and condition.</p></div></div>
+          <div><b>02</b><div><strong>Define the destination</strong><p>Choose target level and tone separately. “Honey caramel” is a visual goal; the route depends on the starting canvas.</p></div></div>
+          <div><b>03</b><div><strong>Plan the correction</strong><p>Decide whether the service needs lift, deposit, neutralisation, pre-lightening or a combination.</p></div></div>
+          <div><b>04</b><div><strong>Verify the brand system</strong><p>Use the selected brand's own shade chart, developer rules and processing instructions. Record the tested formula.</p></div></div>
+          <div><b>05</b><div><strong>Learn from the result</strong><p>Photograph the outcome and write what you would keep or change next time.</p></div></div>
+        </div>
+      </section>
+
+      <section class="cl-card mt-4">
+        <div class="cl-card-head"><div><span class="cl-kicker">LEVEL REFERENCE</span><h2>Hair level map</h2></div></div>
+        <div class="cl-level-grid">
+          {% for level in level_reference %}
+          <div class="cl-level"><span style="--tone: {{ level.swatch }}"></span><div><b>{{ level.level }}</b><strong>{{ level.name }}</strong><small>{{ level.undertone }}</small></div></div>
+          {% endfor %}
+        </div>
+        <p class="cl-disclaimer">Educational reference only. Brand charts and product behaviour can differ; always confirm with the specific colour line and a professional assessment.</p>
+      </section>
+
+      <section class="cl-card mt-4">
+        <div class="cl-card-head"><div><span class="cl-kicker">INVENTORY READY</span><h2>Colour tubes in stock</h2></div><a href="{{ url_for('inventory') }}" class="cl-text-link">Open inventory</a></div>
+        {% if inventory_items %}
+        <div class="cl-mini-stock">{% for item in inventory_items[:8] %}<div><span>{{ item.name }}</span><strong>{{ '%.1f'|format(item.stock_qty or 0) }}</strong></div>{% endfor %}</div>
+        {% else %}<p class="text-secondary mb-0">Add your colour tubes to Inventory to keep formulation records connected to your stock list.</p>{% endif %}
+      </section>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  const form = document.getElementById('colourCaseForm');
+  const formRows = document.getElementById('formulaRows');
+  const formulaJson = document.getElementById('formulaJson');
+  const inventory = {{ inventory_catalog|tojson }};
+  const beforeInput = document.getElementById('beforePhoto');
+  const beforeData = document.getElementById('beforePhotoData');
+  const beforePreview = document.getElementById('beforePreview');
+
+  function addRow(seed){
+    const row=document.createElement('tr');
+    row.innerHTML =
+      '<td><div class="d-flex flex-column gap-1"><select class="form-select form-select-sm formula-inventory"><option value="">Custom product</option>'+
+      inventory.map(i=>'<option value="'+i.id+'" data-name="'+escapeHtml(i.name)+'">'+escapeHtml(i.name)+'</option>').join('')+
+      '</select><input class="form-control form-control-sm formula-product" placeholder="Product / tube"></div></td>'+
+      '<td><input class="form-control form-control-sm formula-brand" placeholder="Brand"></td>'+
+      '<td><input class="form-control form-control-sm formula-shade" placeholder="7.3"></td>'+
+      '<td><input class="form-control form-control-sm formula-grams" type="number" min="0" step="0.1" placeholder="30"></td>'+
+      '<td><input class="form-control form-control-sm formula-dev" placeholder="Record developer"></td>'+
+      '<td><button type="button" class="btn btn-sm btn-light border formula-remove"><i class="bi bi-x-lg"></i></button></td>';
+    formRows.appendChild(row);
+    if(seed){
+      row.querySelector('.formula-product').value=seed.product_name||'';
+      row.querySelector('.formula-brand').value=seed.brand||'';
+      row.querySelector('.formula-shade').value=seed.shade_code||'';
+      row.querySelector('.formula-grams').value=seed.quantity_grams||'';
+      row.querySelector('.formula-dev').value=seed.developer||'';
+    }
+    row.querySelector('.formula-inventory').addEventListener('change',function(){
+      const o=this.options[this.selectedIndex];
+      if(o && o.dataset.name && !row.querySelector('.formula-product').value) row.querySelector('.formula-product').value=o.dataset.name;
+    });
+    row.querySelector('.formula-remove').addEventListener('click',()=>row.remove());
+  }
+  function escapeHtml(v){return String(v||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+  addRow();
+  document.getElementById('addFormulaRow').addEventListener('click',()=>addRow());
+  document.getElementById('addNoteRow').addEventListener('click',()=>addRow({product_name:'Note / additive'}));
+
+  async function compress(file){
+    if(!file) return '';
+    const bitmap=await createImageBitmap(file);
+    const max=1600, scale=Math.min(1,max/Math.max(bitmap.width,bitmap.height));
+    const canvas=document.createElement('canvas');
+    canvas.width=Math.round(bitmap.width*scale); canvas.height=Math.round(bitmap.height*scale);
+    const ctx=canvas.getContext('2d'); ctx.drawImage(bitmap,0,0,canvas.width,canvas.height);
+    return canvas.toDataURL('image/jpeg',0.78);
+  }
+  beforeInput.addEventListener('change', async function(){
+    const data=await compress(this.files[0]);
+    if(!data) return;
+    if(data.length>2600000){alert('Please choose a smaller photo.'); this.value=''; return;}
+    beforeData.value=data; beforePreview.src=data; beforePreview.classList.remove('d-none');
+  });
+
+  form.addEventListener('submit', function(){
+    const rows=[...formRows.querySelectorAll('tr')].map(r=>({
+      inventory_item_id:r.querySelector('.formula-inventory').value||null,
+      product_name:r.querySelector('.formula-product').value.trim(),
+      brand:r.querySelector('.formula-brand').value.trim(),
+      shade_code:r.querySelector('.formula-shade').value.trim(),
+      quantity_grams:r.querySelector('.formula-grams').value||0,
+      developer:r.querySelector('.formula-dev').value.trim()
+    })).filter(x=>x.product_name || x.shade_code);
+    formulaJson.value=JSON.stringify(rows);
+  });
+})();
+</script>
+{% endblock %}
