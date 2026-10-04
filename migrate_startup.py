@@ -66,9 +66,25 @@ with app.app_context():
                 )
         stamp(BASELINE)
 
-    # Apply the schema first. This is the only migration/bootstrap path used by
-    # Render before Gunicorn starts, so there is no concurrent init_db() race.
-    upgrade()
+    # Only run Alembic when the database is not already at the application
+    # migration head. Render can briefly overlap old/new instances during a
+    # deployment; skipping a no-op upgrade on an already-current database
+    # avoids startup lock contention while still applying real migrations.
+    needs_upgrade = True
+    if has_version:
+        current_revision = db.session.execute(
+            db.text("SELECT version_num FROM alembic_version LIMIT 1")
+        ).scalar()
+        if current_revision:
+            from alembic.config import Config as AlembicConfig
+            from alembic.script import ScriptDirectory
+            alembic_config = AlembicConfig()
+            alembic_config.set_main_option("script_location", "migrations")
+            head_revision = ScriptDirectory.from_config(alembic_config).get_current_head()
+            needs_upgrade = current_revision != head_revision
+
+    if needs_upgrade:
+        upgrade()
 
     # Authentication depends on this table on every request after login.
     # Repair it defensively when an older/partially upgraded database has the
