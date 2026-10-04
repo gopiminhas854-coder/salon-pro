@@ -1357,3 +1357,19 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
         ).scalar_one_or_none()
         assert legacy is not None
         assert legacy.account_id == legacy_account_id
+
+
+def test_mobile_command_center_topbar_keeps_title_visible(client):
+    c, _ = client
+    login(c)
+    response = c.get("/")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    assert '<header class="sp-topbar">' in html
+    assert '<div class="sp-top-title">Command Center</div>' in html
+
+    from pathlib import Path
+    css = Path("static/css/style.css").read_text(encoding="utf-8")
+    assert "flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" in css
+    assert ".sp-topbar{gap:8px;overflow:hidden;isolation:isolate}" in css
+    assert "@media(max-width:380px)" in css
