@@ -93,8 +93,8 @@ PRODUCTION_DATABASE_DRIVERS = {
 
 
 def assert_production_database_is_durable():
-    """Refuse to run a production deployment against ephemeral SQLite storage."""
-    if os.environ.get("FLASK_ENV", "").strip().lower() != "production":
+    """Refuse to run production/Render against ephemeral SQLite storage."""
+    if not (os.environ.get("FLASK_ENV", "").strip().lower() == "production" or os.environ.get("RENDER")):
         return
     driver = (db.engine.url.drivername or "").strip().lower()
     if driver not in PRODUCTION_DATABASE_DRIVERS:
