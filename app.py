@@ -44,6 +44,12 @@ app.config['TWILIO_VERIFY_SERVICE_SID'] = os.environ.get('TWILIO_VERIFY_SERVICE_
 # customer, revenue, service and appointment data after restart/spin-down.
 # Keep SQLite available only for explicit local development.
 _database_url = os.environ.get('DATABASE_URL', '').strip()
+# Normalize Render's legacy PostgreSQL URL scheme for SQLAlchemy.
+# This never enables SQLite fallback in production.
+if _database_url.startswith('postgres://'):
+    _database_url = 'postgresql+psycopg://' + _database_url[len('postgres://'):]
+elif _database_url.startswith('postgresql://'):
+    _database_url = 'postgresql+psycopg://' + _database_url[len('postgresql://'):]
 _is_render = bool(os.environ.get('RENDER'))
 _is_production = os.environ.get('FLASK_ENV', '').lower() == 'production' or _is_render
 if _is_production and not _database_url:
