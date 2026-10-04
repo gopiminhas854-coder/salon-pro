@@ -1,5 +1,5 @@
 import os
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 os.environ["DATABASE_URL"] = "sqlite:////tmp/salon_ci_upgrade_audit.db"
 os.environ["SALON_PRO_SECRET_KEY"] = "test-secret"
@@ -754,3 +754,45 @@ def test_configurable_loyalty_rewards():
             setting = salon.SalonSetting.query.first()
             assert setting.loyalty_reward_threshold == 800
             assert setting.loyalty_reward_value == 400
+
+
+def test_quick_sale_paid_bill_is_visible_as_revenue_for_its_calendar_day():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        customer_id, service_id, staff_id, _ = ids()
+        response = client.post(
+            "/quick-sale",
+            data={
+                "customer_id": customer_id,
+                "service_id": service_id,
+                "staff_id": staff_id,
+                "discount": "0",
+                "tip": "0",
+                "payment_method": "UPI",
+                "paid_amount": "105",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+
+        yesterday = date.today() - timedelta(days=1)
+        with salon.app.app_context():
+            invoice = salon.Invoice.query.order_by(salon.Invoice.id.desc()).first()
+            assert invoice is not None
+            assert invoice.payment_status == "Paid"
+            assert round(salon.invoice_net_paid_amount(invoice), 2) == 105
+            invoice.created_at = datetime.combine(yesterday, datetime.min.time()).replace(hour=12)
+            payment = salon.InvoicePayment.query.filter_by(invoice_id=invoice.id).first()
+            assert payment is not None
+            payment.created_at = datetime.combine(yesterday, datetime.min.time()).replace(hour=12)
+            salon.db.session.commit()
+
+        dashboard = client.get("/")
+        assert dashboard.status_code == 200
+        assert b"Yesterday revenue" in dashboard.data
+        assert b"105" in dashboard.data
+
+        money_center = client.get("/money-center")
+        assert money_center.status_code == 200
+        assert b"105" in money_center.data
