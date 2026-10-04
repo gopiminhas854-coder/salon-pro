@@ -925,10 +925,10 @@ def test_android_back_closes_drawer_before_exiting():
 
 def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(client, monkeypatch):
     """Hard acceptance test for the owner journey from account creation to recovery."""
-    c, salon = client
+    legacy_client, salon = client
 
     # 1) Login must work before we start the new-account flow.
-    response = login(c)
+    response = login(legacy_client)
     assert response.status_code == 200
     with salon.app.app_context():
         legacy_user = salon.User.query.filter_by(username="admin").first()
@@ -938,6 +938,10 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
         assert legacy_customer is not None
         legacy_account_id = legacy_account.id
         legacy_customer_id = legacy_customer.id
+
+    # The new signup must happen from a fresh browser session. A logged-in
+    # session is intentionally redirected away from /register.
+    c = salon.app.test_client()
 
     # 2) Signup -> ₹199 subscription -> successful payment verification.
     salon.app.config.update(
