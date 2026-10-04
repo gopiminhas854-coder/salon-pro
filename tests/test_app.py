@@ -922,3 +922,438 @@ def test_android_back_closes_drawer_before_exiting():
     assert "SalonProSidebar" in content
     assert "window.SalonProSidebar && window.SalonProSidebar.isOpen" in content
     assert "window.SalonProSidebar && window.SalonProSidebar.close" in content
+
+def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(client, monkeypatch):
+    """Hard acceptance test for the owner journey from account creation to recovery."""
+    legacy_client, salon = client
+
+    # 1) Login must work before we start the new-account flow.
+    response = login(legacy_client)
+    assert response.status_code == 200
+    with salon.app.app_context():
+        legacy_user = salon.User.query.filter_by(username="admin").first()
+        legacy_account = salon.AccountProfile.query.filter_by(user_id=legacy_user.id).first()
+        legacy_customer = salon.Customer.query.filter_by(name="Test Customer").first()
+        assert legacy_account is not None
+        assert legacy_customer is not None
+        legacy_account_id = legacy_account.id
+        legacy_customer_id = legacy_customer.id
+
+    # The new signup must happen from a fresh browser session. A logged-in
+    # session is intentionally redirected away from /register.
+    c = salon.app.test_client()
+
+    # 2) Signup -> ₹199 subscription -> successful payment verification.
+    salon.app.config.update(
+        RAZORPAY_KEY_ID="rzp_test_key",
+        RAZORPAY_KEY_SECRET="rzp_test_secret",
+        RAZORPAY_WEBHOOK_SECRET="webhook_secret",
+        SALON_PRO_MONTHLY_PRICE_INR=199,
+    )
+
+    signup = c.post("/register", data={
+        "business_name": "Flow Test Salon",
+        "email": "flow-owner@example.com",
+        "phone": "9876543299",
+        "password": "strong-password-123",
+        "confirm_password": "strong-password-123",
+    }, follow_redirects=False)
+    assert signup.status_code == 302
+    assert signup.headers["Location"].endswith("/subscription?reason=new")
+
+    captured = {}
+    class FakeOrderResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {"id": "order_flow_199"}
+
+    def fake_order_post(url, json, auth, timeout):
+        captured.update({"url": url, "json": json, "auth": auth, "timeout": timeout})
+        return FakeOrderResponse()
+
+    monkeypatch.setattr(salon.requests, "post", fake_order_post)
+    order = c.post("/subscription/order")
+    assert order.status_code == 200
+    assert order.get_json()["amount"] == 19900
+    assert captured["json"]["amount"] == 19900
+
+    payment_id = "pay_flow_199"
+    order_id = "order_flow_199"
+    signature = salon.hmac.new(
+        salon.app.config["RAZORPAY_KEY_SECRET"].encode(),
+        f"{order_id}|{payment_id}".encode(),
+        salon.hashlib.sha256,
+    ).hexdigest()
+
+    class FakePaymentResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            return {
+                "id": payment_id,
+                "order_id": order_id,
+                "amount": 19900,
+                "status": "captured",
+            }
+
+    monkeypatch.setattr(salon.requests, "get", lambda *args, **kwargs: FakePaymentResponse())
+    verified = c.post("/subscription/verify", json={
+        "razorpay_order_id": order_id,
+        "razorpay_payment_id": payment_id,
+        "razorpay_signature": signature,
+    })
+    assert verified.status_code == 200
+    assert verified.get_json()["ok"] is True
+
+    with salon.app.app_context():
+        flow_user = salon.User.query.filter_by(username="flow-owner@example.com").first()
+        flow_account = salon.AccountProfile.query.filter_by(user_id=flow_user.id).first()
+        assert flow_account is not None
+        assert salon.Subscription.query.filter_by(
+            user_id=flow_user.id, status="active"
+        ).first() is not None
+        flow_account_id = flow_account.id
+
+        # Seed the new tenant with its own service/staff/product. These records
+        # intentionally share the database with the legacy tenant. Use explicit
+        # SQL inserts here because the fixture preserves a Flask request context;
+        # the application endpoints below are what exercise the tenant write guard.
+        salon.db.session.execute(salon.Service.__table__.insert().values(
+            account_id=flow_account_id,
+            name="Flow Colour Service",
+            duration_minutes=30,
+            price=100,
+            category="Hair",
+            is_active=True,
+        ))
+        salon.db.session.execute(salon.Staff.__table__.insert().values(
+            account_id=flow_account_id,
+            name="Flow Stylist",
+            is_active=True,
+        ))
+        salon.db.session.execute(salon.InventoryItem.__table__.insert().values(
+            account_id=flow_account_id,
+            name="Flow Developer",
+            sku="FLOW-1",
+            stock_qty=5,
+            reorder_level=1,
+            cost_price=20,
+            sale_price=40,
+            is_active=True,
+        ))
+        today_weekday = salon.date.today().weekday()
+        salon.db.session.execute(salon.SalonHours.__table__.insert().values(
+            account_id=flow_account_id,
+            day_of_week=today_weekday,
+            open_time="00:00",
+            close_time="23:59",
+            is_closed=False,
+        ))
+        salon.db.session.commit()
+
+        service_id = salon.db.session.execute(
+            salon.db.select(salon.Service.id).where(
+                salon.Service.account_id == flow_account_id,
+                salon.Service.name == "Flow Colour Service",
+            )
+        ).scalar_one()
+        staff_id = salon.db.session.execute(
+            salon.db.select(salon.Staff.id).where(
+                salon.Staff.account_id == flow_account_id,
+                salon.Staff.name == "Flow Stylist",
+            )
+        ).scalar_one()
+        item_id = salon.db.session.execute(
+            salon.db.select(salon.InventoryItem.id).where(
+                salon.InventoryItem.account_id == flow_account_id,
+                salon.InventoryItem.sku == "FLOW-1",
+            )
+        ).scalar_one()
+
+    # 3) Tenant isolation: the new salon must not see the legacy salon's data.
+    dashboard = c.get("/")
+    assert dashboard.status_code == 200
+    customers_page = c.get("/customers")
+    assert customers_page.status_code == 200
+    assert b"Test Customer" not in customers_page.data
+
+    legacy_customer_page = c.get(f"/customers/edit/{legacy_customer_id}")
+    assert legacy_customer_page.status_code == 404
+
+    # 4) Customer creation.
+    customer_response = c.post("/customers/add", data={
+        "name": "Flow Customer",
+        "phone": "9999998888",
+        "email": "flow-customer@example.com",
+        "gender": "Female",
+        "notes": "Original recovery note",
+    }, follow_redirects=True)
+    assert customer_response.status_code == 200
+    assert b"Customer added successfully" in customer_response.data
+
+    with salon.app.app_context():
+        flow_customer = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.account_id == flow_account_id,
+                salon.Customer.name == "Flow Customer",
+            )
+        ).scalar_one_or_none()
+        assert flow_customer is not None
+        flow_customer_id = flow_customer.id
+
+    # 5) Appointment creation.
+    appointment_response = c.post("/appointments/add", data={
+        "appointment_date": salon.date.today().isoformat(),
+        "appointment_time": "23:00",
+        "customer_id": str(flow_customer_id),
+        "staff_id": str(staff_id),
+        "service_id": str(service_id),
+        "status": "Booked",
+        "recurrence_rule": "None",
+        "notes": "Critical-flow appointment",
+    }, follow_redirects=True)
+    assert appointment_response.status_code == 200
+
+    with salon.app.app_context():
+        appt = salon.db.session.execute(
+            salon.db.select(salon.Appointment).where(
+                salon.Appointment.account_id == flow_account_id,
+                salon.Appointment.customer_id == flow_customer_id,
+                salon.Appointment.staff_id == staff_id,
+            )
+        ).scalar_one_or_none()
+        assert appt is not None
+        appointment_id = appt.id
+
+    # 6) Billing is created exactly once when the appointment is completed.
+    completed = c.post(f"/appointments/status/{appointment_id}/Completed")
+    assert completed.status_code == 302
+
+    with salon.app.app_context():
+        invoice = salon.db.session.execute(
+            salon.db.select(salon.Invoice).where(
+                salon.Invoice.account_id == flow_account_id,
+                salon.Invoice.appointment_id == appointment_id,
+            )
+        ).scalar_one_or_none()
+        assert invoice is not None
+        assert invoice.payment_status == "Pending"
+        invoice_id = invoice.id
+
+    # 7) Stock sale + payment. Both must survive without duplicate rows.
+    stock_sale = c.post(f"/invoices/{invoice_id}/inventory-sale", data={
+        "inventory_item_id": str(item_id),
+        "quantity": "2",
+    }, follow_redirects=True)
+    assert stock_sale.status_code == 200
+
+    with salon.app.app_context():
+        stock_qty = salon.db.session.execute(
+            salon.db.select(salon.InventoryItem.stock_qty).where(
+                salon.InventoryItem.id == item_id,
+                salon.InventoryItem.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        sale_count = salon.db.session.execute(
+            salon.db.select(salon.func.count(salon.InventorySale.id)).where(
+                salon.InventorySale.invoice_id == invoice_id,
+                salon.InventorySale.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        assert stock_qty == 3
+        assert sale_count == 1
+
+    with salon.app.app_context():
+        payable_invoice = salon.db.session.execute(
+            salon.db.select(salon.Invoice).where(
+                salon.Invoice.id == invoice_id,
+                salon.Invoice.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        payable_amount = salon.invoice_balance(payable_invoice)
+        assert payable_amount > 0
+
+    payment = c.post(f"/invoices/pay/{invoice_id}", data={
+        "amount": f"{payable_amount:.2f}",
+        "payment_method": "UPI",
+    }, follow_redirects=True)
+    assert payment.status_code == 200
+
+    with salon.app.app_context():
+        paid_invoice = salon.db.session.execute(
+            salon.db.select(salon.Invoice).where(
+                salon.Invoice.id == invoice_id,
+                salon.Invoice.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        assert paid_invoice.payment_status == "Paid"
+        paid_amount = salon.db.session.execute(
+            salon.db.select(salon.db.func.sum(salon.InvoicePayment.amount)).where(
+                salon.InvoicePayment.invoice_id == invoice_id,
+            )
+        ).scalar_one() or 0
+        payment_count = salon.db.session.execute(
+            salon.db.select(salon.db.func.count(salon.InvoicePayment.id)).where(
+                salon.InvoicePayment.invoice_id == invoice_id,
+            )
+        ).scalar_one()
+        assert round(float(paid_amount), 2) == round(float(payable_amount), 2)
+        assert payment_count == 1
+
+    # 8) Colour Lab: save a case with a real multipart before-photo.
+    from PIL import Image
+
+    def jpeg_bytes():
+        buf = BytesIO()
+        Image.new("RGB", (1200, 900), (96, 84, 72)).save(buf, format="JPEG", quality=90)
+        buf.seek(0)
+        return buf
+
+    colour_page = c.get("/colour-lab")
+    assert colour_page.status_code == 200
+    csrf = None
+    with c.session_transaction() as sess:
+        csrf = sess.get("_csrf_token")
+
+    colour_response = c.post("/colour-lab/cases", data={
+        "_csrf_token": csrf,
+        "title": "Critical Flow Colour Case",
+        "customer_id": str(flow_customer_id),
+        "staff_id": str(staff_id),
+        "current_hair_type": "Coloured",
+        "current_level": "6",
+        "current_tone": "Golden",
+        "hair_condition": "Good",
+        "target_level": "7",
+        "target_tone": "Honey caramel",
+        "technique": "Global colour",
+        "brand": "Flow Brand",
+        "developer": "Flow Developer",
+        "developer_strength": "20 vol",
+        "mixing_ratio": "1:1",
+        "processing_minutes": "30",
+        "application_notes": "Save/reopen acceptance test",
+        "formula_json": salon.json.dumps([{
+            "inventory_item_id": item_id,
+            "product_name": "Flow Developer",
+            "brand": "Flow Brand",
+            "shade_code": "7.3",
+            "quantity_grams": 30,
+            "developer": "20 vol",
+        }]),
+        "before_photo": (jpeg_bytes(), "before.jpg"),
+    }, follow_redirects=False)
+    assert colour_response.status_code == 302
+    colour_location = colour_response.headers["Location"]
+    colour_case_id = int(colour_location.rstrip("/").rsplit("/", 1)[-1])
+
+    # 9) Reopen the case and complete it with the after-photo.
+    reopened = c.get(f"/colour-lab/cases/{colour_case_id}")
+    assert reopened.status_code == 200
+    assert b"Critical Flow Colour Case" in reopened.data
+
+    final_response = c.post(
+        f"/colour-lab/cases/{colour_case_id}/complete",
+        data={
+            "_csrf_token": csrf,
+            "result_rating": "Good match",
+            "next_time_notes": "Repeat same formula next visit.",
+            "result_notes": "Even tone and shine.",
+            "after_photo": (jpeg_bytes(), "after.jpg"),
+        },
+        follow_redirects=False,
+    )
+    assert final_response.status_code == 302
+
+    with salon.app.app_context():
+        colour_case = salon.db.session.execute(
+            salon.db.select(salon.ColourCase).where(
+                salon.ColourCase.id == colour_case_id,
+                salon.ColourCase.account_id == flow_account_id,
+            )
+        ).scalar_one_or_none()
+        assert colour_case is not None
+        assert colour_case.account_id == flow_account_id
+        assert colour_case.customer_id == flow_customer_id
+        assert colour_case.before_photo_data.startswith("data:image/jpeg;base64,")
+        assert colour_case.after_photo_data.startswith("data:image/jpeg;base64,")
+
+    # 10) Backup + recovery: export, mutate, restore, and verify exact recovery.
+    backup = c.get("/backup/download")
+    assert backup.status_code == 200
+    assert backup.mimetype == "application/gzip"
+    backup_bytes = backup.data
+
+    with salon.app.app_context():
+        flow_customer = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.id == flow_customer_id,
+                salon.Customer.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        assert flow_customer.notes == "Original recovery note"
+
+    mutated = c.post(f"/customers/edit/{flow_customer_id}", data={
+        "name": "Flow Customer",
+        "phone": "9999998888",
+        "email": "flow-customer@example.com",
+        "gender": "Female",
+        "notes": "MUTATED AFTER BACKUP",
+    }, follow_redirects=True)
+    assert mutated.status_code == 200
+
+    with salon.app.app_context():
+        mutated_customer = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.id == flow_customer_id,
+                salon.Customer.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        assert mutated_customer.notes == "MUTATED AFTER BACKUP"
+
+    restored = c.post("/backup/restore", data={
+        "restore_confirmation": "RESTORE",
+        "backup_file": (BytesIO(backup_bytes), "salon-pro-backup.json.gz"),
+    }, follow_redirects=True)
+    assert restored.status_code == 200
+    assert b"restore completed successfully" in restored.data.lower()
+
+    with salon.app.app_context():
+        recovered_customer = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.id == flow_customer_id,
+                salon.Customer.account_id == flow_account_id,
+            )
+        ).scalar_one_or_none()
+        assert recovered_customer is not None
+        assert recovered_customer.notes == "Original recovery note"
+        recovered_case = salon.db.session.execute(
+            salon.db.select(salon.ColourCase).where(
+                salon.ColourCase.id == colour_case_id,
+                salon.ColourCase.account_id == flow_account_id,
+            )
+        ).scalar_one_or_none()
+        assert recovered_case is not None
+        assert recovered_case.account_id == flow_account_id
+        assert recovered_case.after_photo_data.startswith("data:image/jpeg;base64,")
+
+    # 11) Logout and ensure the session is actually gone.
+    logout = c.get("/logout", follow_redirects=False)
+    assert logout.status_code == 302
+    assert logout.headers["Location"].startswith("/login")
+    with c.session_transaction() as sess:
+        assert "user_id" not in sess
+        assert "account_id" not in sess
+
+    # The legacy tenant must still retain its original customer.
+    with salon.app.app_context():
+        assert salon.db.session.get(salon.AccountProfile, legacy_account_id) is not None
+        legacy = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.id == legacy_customer_id,
+                salon.Customer.account_id == legacy_account_id,
+            )
+        ).scalar_one_or_none()
+        assert legacy is not None
+        assert legacy.account_id == legacy_account_id
