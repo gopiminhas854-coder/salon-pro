@@ -19,6 +19,7 @@ from urllib.parse import quote, urlsplit
 from sqlalchemy import func, inspect, event, false
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from flask_migrate import Migrate
+from werkzeug.exceptions import RequestEntityTooLarge
 
 def commit_or_rollback():
     """Commit the current unit of work and always clear failed transactions."""
@@ -52,7 +53,9 @@ app.config['SESSION_COOKIE_SECURE'] = (
 app.config['SESSION_PERMANENT'] = True
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 app.config['SESSION_REFRESH_EACH_REQUEST'] = True
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024
+# Allow a little headroom for real phone-camera multipart uploads. Colour Lab
+# still normalises every accepted image down to a compact JPEG before storage.
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 app.config['RAZORPAY_KEY_ID'] = os.environ.get('RAZORPAY_KEY_ID', '').strip()
 app.config['RAZORPAY_KEY_SECRET'] = os.environ.get('RAZORPAY_KEY_SECRET', '').strip()
 app.config['RAZORPAY_WEBHOOK_SECRET'] = os.environ.get('RAZORPAY_WEBHOOK_SECRET', '').strip()
@@ -1097,6 +1100,17 @@ def security_headers(response):
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
     return response
+
+@app.errorhandler(RequestEntityTooLarge)
+def handle_request_entity_too_large(error):
+    if request.endpoint in {'colour_lab_create_case', 'colour_lab_complete_case'}:
+        flash('The photo is too large to upload. Please choose a smaller photo and try again.', 'danger')
+        case_id = (request.view_args or {}).get('id')
+        if request.endpoint == 'colour_lab_complete_case' and case_id:
+            return redirect(url_for('colour_lab_case', id=case_id))
+        return redirect(url_for('colour_lab'))
+    return ('Request too large.', 413)
+
 
 @app.errorhandler(404)
 def handle_not_found(error):
@@ -3011,14 +3025,17 @@ def _normalise_uploaded_colour_photo(upload):
     raw=upload.read()
     if not raw:
         return None
-    if len(raw)>8*1024*1024:
-        raise ValueError('Colour photos must be 8 MB or smaller.')
+    # Keep the request limit below Flask's global ceiling so oversized photos
+    # can be handled by the Colour Lab route with a normal user-facing error.
+    if len(raw)>12*1024*1024:
+        raise ValueError('Colour photos must be 12 MB or smaller.')
     try:
         from PIL import Image, ImageOps
         image=Image.open(io.BytesIO(raw))
         image=ImageOps.exif_transpose(image)
-        if image.format not in {'JPEG','PNG','WEBP'}:
-            raise ValueError('Colour photos must be JPEG, PNG or WebP.')
+        # Do not reject a browser-supported format merely because the source
+        # camera/gallery reports a different container. Pillow validates the
+        # image, and we convert every readable image to JPEG for storage.
         image=image.convert('RGB')
     except ValueError:
         raise

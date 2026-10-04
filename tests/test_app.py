@@ -1,5 +1,6 @@
 import os
 import sys
+from io import BytesIO
 import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -423,6 +424,74 @@ def test_colour_lab_form_has_csrf_and_case_can_be_saved(client):
     with salon.app.app_context():
         case = salon.ColourCase.query.filter_by(title="CSRF Regression Case").first()
         assert case is not None
+
+
+def test_colour_lab_multipart_before_and_after_photos_save(client):
+    c, salon = client
+    login(c)
+
+    from PIL import Image
+
+    def jpeg_bytes():
+        buf = BytesIO()
+        Image.new("RGB", (1600, 1200), (96, 84, 72)).save(buf, format="JPEG", quality=92)
+        buf.seek(0)
+        return buf
+
+    page = c.get("/colour-lab")
+    assert page.status_code == 200
+    with c.session_transaction() as sess:
+        csrf = sess.get("_csrf_token")
+    assert csrf
+
+    response = c.post(
+        "/colour-lab/cases",
+        data={
+            "_csrf_token": csrf,
+            "title": "Multipart photo regression",
+            "customer_id": "",
+            "staff_id": "",
+            "current_hair_type": "Virgin",
+            "current_level": "6",
+            "current_tone": "Golden",
+            "hair_condition": "Good",
+            "target_level": "7",
+            "target_tone": "Honey caramel",
+            "technique": "Global colour",
+            "formula_json": "[]",
+            "before_photo": (jpeg_bytes(), "before.jpg"),
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    location = response.headers["Location"]
+    assert "/colour-lab/cases/" in location
+
+    case_id = int(location.rstrip("/").rsplit("/", 1)[-1])
+    with salon.app.app_context():
+        case = salon.ColourCase.query.get(case_id)
+        assert case is not None
+        assert case.before_photo_data.startswith("data:image/jpeg;base64,")
+        assert len(case.before_photo_data) < 2_500_000
+
+    response = c.post(
+        f"/colour-lab/cases/{case_id}/complete",
+        data={
+            "_csrf_token": csrf,
+            "result_rating": "Good match",
+            "next_time_notes": "Keep the same formula.",
+            "result_notes": "Even tone and shine.",
+            "after_photo": (jpeg_bytes(), "after.jpg"),
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+
+    with salon.app.app_context():
+        case = salon.ColourCase.query.get(case_id)
+        assert case.after_photo_data.startswith("data:image/jpeg;base64,")
+        assert case.result_rating == "Good match"
+        assert case.next_time_notes == "Keep the same formula."
 
 
 def test_core_pages_load(client):
