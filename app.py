@@ -39,7 +39,19 @@ app.config['GOOGLE_CLIENT_ID'] = os.environ.get('GOOGLE_CLIENT_ID', '').strip()
 app.config['TWILIO_ACCOUNT_SID'] = os.environ.get('TWILIO_ACCOUNT_SID', '').strip()
 app.config['TWILIO_AUTH_TOKEN'] = os.environ.get('TWILIO_AUTH_TOKEN', '').strip()
 app.config['TWILIO_VERIFY_SERVICE_SID'] = os.environ.get('TWILIO_VERIFY_SERVICE_SID', '').strip()
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', 'sqlite:///salon.db')
+# Render production must NEVER fall back to local SQLite.
+# Render's service filesystem is ephemeral, so SQLite would silently lose
+# customer, revenue, service and appointment data after restart/spin-down.
+# Keep SQLite available only for explicit local development.
+_database_url = os.environ.get('DATABASE_URL', '').strip()
+_is_render = bool(os.environ.get('RENDER'))
+_is_production = os.environ.get('FLASK_ENV', '').lower() == 'production' or _is_render
+if _is_production and not _database_url:
+    raise RuntimeError(
+        'DATABASE_URL is required for Salon Pro production on Render. '
+        'Refusing to start with ephemeral SQLite storage.'
+    )
+app.config['SQLALCHEMY_DATABASE_URI'] = _database_url or 'sqlite:///salon.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
