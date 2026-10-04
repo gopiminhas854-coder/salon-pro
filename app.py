@@ -705,6 +705,16 @@ def _account_id_for_user(user):
     ).scalar_one_or_none()
     return profile_id
 
+def _set_db_tenant_context(account_id):
+    """Bind the current SQL transaction to the authenticated salon account."""
+    if not account_id or not has_request_context():
+        return
+    db.session.execute(
+        db.text("SELECT set_config('salon_pro.account_id', :account_id, true)"),
+        {"account_id": str(int(account_id))},
+    )
+
+
 def _current_account_id():
     if not has_request_context():
         return None
@@ -725,6 +735,7 @@ def _current_account_id():
             if session.get("account_id") != account_id:
                 session["account_id"] = account_id
             g.salon_account_id = account_id
+            _set_db_tenant_context(account_id)
             return account_id
         session.pop("account_id", None)
         g.salon_account_id = None
@@ -743,6 +754,7 @@ def _current_account_id():
         account_id = _public_account_id()
         if account_id:
             g.salon_account_id = int(account_id)
+            _set_db_tenant_context(account_id)
             return int(account_id)
     return None
 
