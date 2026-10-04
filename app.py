@@ -1817,7 +1817,6 @@ def remember_login():
         "remember_token": issue_remember_token(user),
     })
 
-@app.route('/login', methods=['GET', 'POST'])
 def normalize_login_identifier(value):
     value = (value or '').strip()
     if '@' in value:
