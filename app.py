@@ -5130,7 +5130,12 @@ def change_password():
 
 def init_db():
     with app.app_context():
-        db.create_all()
+        # Production schema changes are handled by migrate_startup.py/Alembic.
+        # Keep db.create_all() only for explicit local bootstrap so migrations
+        # never race or recreate already-created named constraints.
+        auto_create = os.environ.get('SALON_PRO_AUTO_CREATE_DB', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
+        if auto_create:
+            db.create_all()
 
         admin = User.query.filter_by(username='admin').first()
         created_admin = False
