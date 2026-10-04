@@ -91,6 +91,24 @@ app.config['SALON_PRO_LEGACY_TRIAL_DAYS'] = max(
     int(os.environ.get('SALON_PRO_LEGACY_TRIAL_DAYS', '30') or '30')
 )
 
+# Controlled owner-only recovery switch. It is OFF by default and should only
+# be enabled temporarily from the Render service environment.
+app.config['SALON_PRO_ADMIN_RECOVERY_MODE'] = (
+    os.environ.get('SALON_PRO_ADMIN_RECOVERY_MODE', '0').strip().lower()
+    in {'1', 'true', 'yes', 'on'}
+)
+_recovery_token = os.environ.get('SALON_PRO_ADMIN_RECOVERY_TOKEN', '').strip()
+app.config['SALON_PRO_ADMIN_RECOVERY_TOKEN'] = (
+    _recovery_token
+    or (secrets.token_urlsafe(32) if app.config['SALON_PRO_ADMIN_RECOVERY_MODE'] else '')
+)
+app.config['SALON_PRO_ADMIN_RECOVERY_CONSUMED'] = False
+if app.config['SALON_PRO_ADMIN_RECOVERY_MODE']:
+    app.logger.warning(
+        'ADMIN RECOVERY MODE ENABLED. One-time recovery token: %s',
+        app.config['SALON_PRO_ADMIN_RECOVERY_TOKEN'],
+    )
+
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
@@ -1466,6 +1484,8 @@ def subscription_is_exempt():
         return True
     if path in {'/login', '/register', '/logout', '/health', '/subscription', '/subscription/order', '/subscription/verify', '/webhooks/razorpay'}:
         return True
+    if path.startswith('/admin/recovery/'):
+        return True
     if path.startswith('/auth/'):
         return True
     return False
@@ -1798,6 +1818,53 @@ def remember_login():
     })
 
 @app.route('/login', methods=['GET', 'POST'])
+def normalize_login_identifier(value):
+    value = (value or '').strip()
+    if '@' in value:
+        return value.casefold()
+    return value
+
+
+@app.route('/admin/recovery/<token>', methods=['GET', 'POST'])
+def admin_password_recovery(token):
+    """One-time admin password recovery, disabled unless explicitly enabled."""
+    expected = app.config.get('SALON_PRO_ADMIN_RECOVERY_TOKEN', '')
+    if (
+        not app.config.get('SALON_PRO_ADMIN_RECOVERY_MODE')
+        or app.config.get('SALON_PRO_ADMIN_RECOVERY_CONSUMED')
+        or not expected
+        or not secrets.compare_digest(token, expected)
+    ):
+        abort(404)
+
+    admin_count = User.query.filter_by(role='admin').count()
+    if admin_count != 1:
+        return (
+            'Admin recovery is unavailable because the database does not have exactly one owner account.',
+            409,
+        )
+
+    if request.method == 'POST':
+        password = request.form.get('password') or ''
+        confirm = request.form.get('confirm_password') or ''
+        if len(password) < 12:
+            flash('Password must be at least 12 characters.', 'danger')
+        elif password != confirm:
+            flash('Passwords do not match.', 'danger')
+        else:
+            admin = User.query.filter_by(role='admin').order_by(User.id.asc()).first()
+            if not admin:
+                return 'Admin account not found.', 404
+            admin.password_hash = generate_password_hash(password)
+            commit_or_rollback()
+            app.config['SALON_PRO_ADMIN_RECOVERY_CONSUMED'] = True
+            app.logger.warning('ADMIN RECOVERY TOKEN CONSUMED; password reset completed for admin id=%s', admin.id)
+            return render_template('admin_recovery_success.html')
+
+    return render_template('admin_recovery.html')
+
+
+@app.route('/login', methods=['GET', 'POST'])
 def login():
     # Reopening the web app/APK may request /login directly. If a valid
     # persistent session already exists, do not show the login form again.
@@ -1809,16 +1876,25 @@ def login():
             return redirect(url_for('dashboard'))
 
     if request.method == 'POST':
-        identifier = (request.form.get('username') or '').strip()
+        identifier = normalize_login_identifier(request.form.get('username'))
         password = request.form.get('password') or ''
-        user = User.query.filter_by(username=identifier).first()
-        if not user:
-            user = User.query.filter_by(phone_number=normalize_phone_number(identifier)).first() if identifier else None
+        user = User.query.filter(func.lower(User.username) == identifier.casefold()).first() if identifier else None
         if not user and identifier:
-            profile = AccountProfile.query.filter_by(email=identifier.lower()).first()
+            normalized_phone = normalize_phone_number(identifier)
+            user = User.query.filter_by(phone_number=normalized_phone).first() if normalized_phone else None
+        if not user and identifier:
+            profile = AccountProfile.query.filter_by(email=identifier).first()
             user = profile.user if profile else None
+
+        password_ok = False
+        if user:
+            try:
+                password_ok = check_password_hash(user.password_hash, password)
+            except (TypeError, ValueError):
+                app.logger.exception('Password hash verification failed for user id=%s', user.id)
+
         link = _staff_link_for_user(user.id) if user else None
-        if user and (not link or (link.staff and link.staff.is_active)) and check_password_hash(user.password_hash, password):
+        if user and (not link or (link.staff and link.staff.is_active)) and password_ok:
             establish_login_session(user)
             if app.config.get('SALON_PRO_BILLING_REQUIRED', True):
                 if not tenant_profile_for_user(user) and not _staff_link_for_user(user.id):
@@ -1827,7 +1903,7 @@ def login():
                     return redirect(url_for('subscription', reason='required'))
             flash('Welcome back!', 'success')
             return redirect(url_for('dashboard'))
-        flash('Invalid username or password.', 'danger')
+        flash('Invalid email, phone, username, or password.', 'danger')
     return render_template('login.html')
 
 def normalize_phone_number(value):
