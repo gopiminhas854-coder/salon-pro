@@ -219,6 +219,9 @@ def test_customer_acceptance_flow_covers_auth_booking_billing_refund_inventory_a
             salon.db.session.commit()
             persisted_service_id = persisted_service.id
             persisted_invoice_id = persisted_invoice.id
+            persisted_payment = salon.InvoicePayment.query.filter_by(invoice_id=persisted_invoice.id).first()
+            assert persisted_payment is not None
+            assert persisted_payment.account_id == persisted_invoice.account_id
 
         with salon.app.app_context():
             persisted_invoice = salon.Invoice.query.get(persisted_invoice_id)
