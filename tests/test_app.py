@@ -1058,10 +1058,6 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     legacy_customer_page = c.get(f"/customers/edit/{legacy_customer_id}")
     assert legacy_customer_page.status_code == 404
 
-    with salon.app.test_request_context("/customers"):
-        with c.session_transaction() as sess:
-            pass
-
     # 4) Customer creation.
     customer_response = c.post("/customers/add", data={
         "name": "Flow Customer",
@@ -1260,8 +1256,6 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     # The legacy tenant must still retain its original customer.
     with salon.app.app_context():
         assert salon.db.session.get(salon.AccountProfile, legacy_account_id) is not None
-        legacy = salon.Customer.query.execution_options(
-            populate_existing=True
-        ).filter_by(id=legacy_customer_id).first()
+        legacy = salon.db.session.get(salon.Customer, legacy_customer_id)
         assert legacy is not None
         assert legacy.account_id == legacy_account_id
