@@ -1373,3 +1373,6 @@ def test_mobile_command_center_topbar_keeps_title_visible(client):
     assert "flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" in css
     assert ".sp-topbar{gap:8px;overflow:hidden;isolation:isolate}" in css
     assert "@media(max-width:380px)" in css
+    assert "Final mobile top-bar guard" in css
+    assert ".sp-topbar{height:64px!important" in css
+    assert ".sp-mobile-menu{" in css
