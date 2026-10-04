@@ -935,10 +935,15 @@ def get_tax_rate():
     return max(0, min(100, setting.tax_rate if setting else 5))
 
 def invoice_paid_amount(invoice):
-    return round(sum(p.amount for p in InvoicePayment.query.filter_by(invoice_id=invoice.id).all()), 2)
+    # The invoice itself has already been tenant-scoped by the caller. Use its
+    # relationship here so financial totals remain correct even outside an HTTP
+    # request context (for example during startup repair, exports, and tests).
+    return round(sum(p.amount for p in (invoice.payments or [])), 2)
 
 def invoice_refunded_amount(invoice):
-    return round(sum(r.amount for r in InvoiceRefund.query.filter_by(invoice_id=invoice.id).all()), 2)
+    # Same rule for refunds: never let request-scoped tenant filtering make an
+    # already-authorized invoice appear to have zero historical payments.
+    return round(sum(r.amount for r in (invoice.refunds or [])), 2)
 
 def invoice_net_paid_amount(invoice):
     return round(max(invoice_paid_amount(invoice) - invoice_refunded_amount(invoice), 0), 2)
