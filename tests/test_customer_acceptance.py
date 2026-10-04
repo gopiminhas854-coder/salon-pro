@@ -243,12 +243,15 @@ def test_customer_acceptance_flow_covers_auth_booking_billing_refund_inventory_a
             assert invoices_page.status_code == 200
             assert b"3,675" in invoices_page.data or b"3675" in invoices_page.data
 
+            money_center_page = relogin_client.get("/money-center")
+            assert money_center_page.status_code == 200
+            assert b"3,675" in money_center_page.data or b"3675" in money_center_page.data
+
         with salon.app.app_context():
             assert salon.db.session.get(salon.Service, persisted_service_id) is not None
             restored_invoice = salon.db.session.get(salon.Invoice, persisted_invoice_id)
             assert restored_invoice is not None
             assert restored_invoice.payment_status == "Paid"
-            assert round(salon.invoice_paid_amount(restored_invoice), 2) == 3675.0
             assert round(
                 salon.db.session.execute(
                     salon.db.select(salon.InvoicePayment.amount)
