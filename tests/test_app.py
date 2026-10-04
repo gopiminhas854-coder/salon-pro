@@ -925,6 +925,15 @@ def test_android_webview_opens_whatsapp_links_externally():
     assert 'APP_VERSION = "1.0.11"' in content
 
 
+def test_android_webview_opens_whatsapp_bill_links_externally():
+    from pathlib import Path
+    content = Path("android/app/src/main/java/com/salonpro/app/MainActivity.kt").read_text(encoding="utf-8")
+    assert 'override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?)' in content
+    assert 'host == "wa.me"' in content
+    assert 'host == "api.whatsapp.com"' in content
+    assert 'Intent(Intent.ACTION_VIEW, uri)' in content
+
+
 def test_android_back_closes_drawer_before_exiting():
     from pathlib import Path
     path = Path("android/app/src/main/java/com/salonpro/app/MainActivity.kt")
