@@ -4725,6 +4725,8 @@ def normalize_whatsapp_phone(phone):
     return digits
 
 
+app.jinja_env.globals['normalize_whatsapp_phone'] = normalize_whatsapp_phone
+
 def render_whatsapp_template(key, context):
     row = WhatsAppTemplate.query.filter_by(key=key, is_active=True).first()
     body = row.body if row else DEFAULT_WHATSAPP_TEMPLATES.get(key, ('', ''))[1]
