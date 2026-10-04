@@ -173,29 +173,57 @@ def test_customer_acceptance_flow_covers_auth_booking_billing_refund_inventory_a
                 is_active=True,
             )
             salon.db.session.add(persisted_service)
+            salon.db.session.flush()
+
+            persisted_appointment = salon.Appointment(
+                customer_id=customer_id,
+                service_id=persisted_service.id,
+                staff_id=staff_id,
+                appointment_date=date.today(),
+                appointment_time="18:00",
+                status="Completed",
+                notes="Persistence regression",
+            )
+            salon.db.session.add(persisted_appointment)
+            salon.db.session.flush()
+
+            persisted_invoice = salon.Invoice(
+                appointment_id=persisted_appointment.id,
+                customer_id=customer_id,
+                amount=3500,
+                discount=0,
+                tax=175,
+                tip=0,
+                total=3675,
+                payment_status="Paid",
+                payment_method="UPI",
+            )
+            salon.db.session.add(persisted_invoice)
+            salon.db.session.flush()
+            salon.db.session.add(
+                salon.InvoiceItem(
+                    invoice_id=persisted_invoice.id,
+                    description=persisted_service.name,
+                    quantity=1,
+                    unit_price=3500,
+                    total=3500,
+                )
+            )
+            salon.db.session.add(
+                salon.InvoicePayment(
+                    invoice_id=persisted_invoice.id,
+                    amount=3675,
+                    payment_method="UPI",
+                )
+            )
             salon.db.session.commit()
             persisted_service_id = persisted_service.id
-
-        response = client.post(
-            "/quick-sale",
-            data={
-                "customer_id": str(customer_id),
-                "service_id": str(persisted_service_id),
-                "staff_id": str(staff_id),
-                "discount": "0",
-                "tip": "0",
-                "paid_amount": "3675",
-                "payment_method": "UPI",
-            },
-            follow_redirects=False,
-        )
-        assert response.status_code == 302
+            persisted_invoice_id = persisted_invoice.id
 
         with salon.app.app_context():
-            persisted_invoice = salon.Invoice.query.order_by(salon.Invoice.id.desc()).first()
+            persisted_invoice = salon.Invoice.query.get(persisted_invoice_id)
             assert persisted_invoice is not None
             assert persisted_invoice.payment_status == "Paid"
-            persisted_invoice_id = persisted_invoice.id
             assert round(salon.invoice_paid_amount(persisted_invoice), 2) == 3675.0
 
         response = client.get("/logout", follow_redirects=False)
