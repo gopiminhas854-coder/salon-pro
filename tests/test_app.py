@@ -1016,21 +1016,23 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
         flow_account_id = flow_account.id
 
         # Seed the new tenant with its own service/staff/product. These records
-        # intentionally share the database with the legacy tenant.
-        service = salon.Service(
+        # intentionally share the database with the legacy tenant. Use explicit
+        # SQL inserts here because the fixture preserves a Flask request context;
+        # the application endpoints below are what exercise the tenant write guard.
+        salon.db.session.execute(salon.Service.__table__.insert().values(
             account_id=flow_account_id,
             name="Flow Colour Service",
             duration_minutes=30,
             price=100,
             category="Hair",
             is_active=True,
-        )
-        staff = salon.Staff(
+        ))
+        salon.db.session.execute(salon.Staff.__table__.insert().values(
             account_id=flow_account_id,
             name="Flow Stylist",
             is_active=True,
-        )
-        item = salon.InventoryItem(
+        ))
+        salon.db.session.execute(salon.InventoryItem.__table__.insert().values(
             account_id=flow_account_id,
             name="Flow Developer",
             sku="FLOW-1",
@@ -1039,18 +1041,35 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
             cost_price=20,
             sale_price=40,
             is_active=True,
-        )
+        ))
         today_weekday = salon.date.today().weekday()
-        hours = salon.SalonHours(
+        salon.db.session.execute(salon.SalonHours.__table__.insert().values(
             account_id=flow_account_id,
             day_of_week=today_weekday,
             open_time="00:00",
             close_time="23:59",
             is_closed=False,
-        )
-        salon.db.session.add_all([service, staff, item, hours])
+        ))
         salon.db.session.commit()
-        service_id, staff_id, item_id = service.id, staff.id, item.id
+
+        service_id = salon.db.session.execute(
+            salon.db.select(salon.Service.id).where(
+                salon.Service.account_id == flow_account_id,
+                salon.Service.name == "Flow Colour Service",
+            )
+        ).scalar_one()
+        staff_id = salon.db.session.execute(
+            salon.db.select(salon.Staff.id).where(
+                salon.Staff.account_id == flow_account_id,
+                salon.Staff.name == "Flow Stylist",
+            )
+        ).scalar_one()
+        item_id = salon.db.session.execute(
+            salon.db.select(salon.InventoryItem.id).where(
+                salon.InventoryItem.account_id == flow_account_id,
+                salon.InventoryItem.sku == "FLOW-1",
+            )
+        ).scalar_one()
 
     # 3) Tenant isolation: the new salon must not see the legacy salon's data.
     dashboard = c.get("/")
