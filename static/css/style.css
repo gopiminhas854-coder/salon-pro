@@ -282,3 +282,57 @@ html[data-theme="dark"] .sp-command-section[open] .sp-command-chevron{background
   .sp-topbar{gap:6px}
   .sp-top-title{font-size:11px}
 }
+
+
+/* Final mobile top-bar guard: keep the Command Center header stable in Android WebView/PWA. */
+@media(max-width:767.98px){
+  .sp-topbar{
+    height:64px!important;
+    min-height:64px!important;
+    padding:0 14px!important;
+    gap:8px!important;
+    display:flex!important;
+    align-items:center!important;
+    overflow:visible!important;
+    isolation:isolate;
+    position:sticky;
+    top:0;
+    z-index:1200!important;
+  }
+  .sp-mobile-menu{
+    display:grid!important;
+    flex:0 0 40px!important;
+    width:40px!important;
+    height:40px!important;
+    margin:0!important;
+    place-items:center!important;
+  }
+  .sp-top-title{
+    display:block!important;
+    flex:1 1 auto!important;
+    min-width:0!important;
+    max-width:none!important;
+    margin:0!important;
+    overflow:hidden!important;
+    text-overflow:ellipsis!important;
+    white-space:nowrap!important;
+    line-height:1.2!important;
+  }
+  .sp-top-actions{
+    display:flex!important;
+    flex:0 0 auto!important;
+    min-width:38px!important;
+    margin-left:0!important;
+    gap:0!important;
+    align-items:center!important;
+  }
+  .sp-top-actions .sp-top-icon{
+    flex:0 0 38px!important;
+    width:38px!important;
+    height:38px!important;
+  }
+}
+@media(max-width:380px){
+  .sp-topbar{padding:0 10px!important;gap:6px!important}
+  .sp-top-title{font-size:11px!important}
+}
