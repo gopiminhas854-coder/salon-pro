@@ -652,17 +652,31 @@ def _current_account_id():
     cached = getattr(g, "salon_account_id", None)
     if cached:
         return cached
-    session_account_id = session.get("account_id")
-    if session_account_id:
-        g.salon_account_id = int(session_account_id)
-        return int(session_account_id)
+
+    # The authenticated user's account is the source of truth. Never trust a
+    # cached/session account_id on its own: a stale session value can survive
+    # an account switch and would otherwise scope reads/writes to the wrong
+    # salon tenant. Reconcile the session value with the server-side identity.
     user_id = session.get("user_id")
     if user_id:
         user = db.session.get(User, user_id)
+        if not user:
+            session.clear()
+            return None
         account_id = _account_id_for_user(user)
         if account_id:
-            g.salon_account_id = int(account_id)
-            return int(account_id)
+            account_id = int(account_id)
+            if session.get("account_id") != account_id:
+                session["account_id"] = account_id
+            g.salon_account_id = account_id
+            return account_id
+        session.pop("account_id", None)
+        return None
+
+    # Logged-out requests never inherit an authenticated tenant from a stale
+    # session value.
+    session.pop("account_id", None)
+
     # The public booking endpoint is intentionally bound to one configured
     # salon account. This keeps logged-out booking lookups tenant-scoped too.
     if request.endpoint == "public_booking":
