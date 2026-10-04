@@ -1,3 +1,5 @@
+# Salon Pro production infrastructure: keep DATABASE_URL linked to the managed Postgres database.
+# This comment is intentionally retained so the Blueprint can be re-synced without changing runtime settings.
 services:
   - type: web
     name: salon-pro
