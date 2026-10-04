@@ -1140,7 +1140,6 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
         assert invoice is not None
         assert invoice.payment_status == "Pending"
         invoice_id = invoice.id
-        invoice_total = invoice.total
 
     # 7) Stock sale + payment. Both must survive without duplicate rows.
     stock_sale = c.post(f"/invoices/{invoice_id}/inventory-sale", data={
@@ -1165,8 +1164,18 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
         assert stock_qty == 3
         assert sale_count == 1
 
+    with salon.app.app_context():
+        payable_invoice = salon.db.session.execute(
+            salon.db.select(salon.Invoice).where(
+                salon.Invoice.id == invoice_id,
+                salon.Invoice.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        payable_amount = salon.invoice_balance(payable_invoice)
+        assert payable_amount > 0
+
     payment = c.post(f"/invoices/pay/{invoice_id}", data={
-        "amount": str(invoice_total),
+        "amount": f"{payable_amount:.2f}",
         "payment_method": "UPI",
     }, follow_redirects=True)
     assert payment.status_code == 200
