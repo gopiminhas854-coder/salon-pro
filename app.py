@@ -1068,7 +1068,6 @@ def ensure_tenant_bootstrap():
         if inspector.has_table("user") and inspector.has_table("account_profile"):
             if db.session.execute(db.select(AccountProfile.id).limit(1)).scalar_one_or_none() is None:
                 _ensure_legacy_owner_profile()
-            _repair_orphaned_tenant_rows()
 
             user_id = session.get("user_id")
             if user_id:
@@ -5149,6 +5148,10 @@ def init_db():
                     total=svc.price,
                     account_id=inv.account_id,
                 ))
+
+        # Repair any older child records whose tenant can be derived safely
+        # from their invoice/parent record before the transaction is committed.
+        _repair_orphaned_tenant_rows()
 
         # Ensure the original salon has its complete seven-day schedule.
         for day in range(7):
