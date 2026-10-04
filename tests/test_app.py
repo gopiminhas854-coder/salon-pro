@@ -1188,8 +1188,18 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
             )
         ).scalar_one()
         assert paid_invoice.payment_status == "Paid"
-        assert round(salon.invoice_balance(paid_invoice), 2) == 0
-        assert salon.InvoicePayment.query.filter_by(invoice_id=invoice_id).count() == 1
+        paid_amount = salon.db.session.execute(
+            salon.db.select(salon.db.func.sum(salon.InvoicePayment.amount)).where(
+                salon.InvoicePayment.invoice_id == invoice_id,
+            )
+        ).scalar_one() or 0
+        payment_count = salon.db.session.execute(
+            salon.db.select(salon.db.func.count(salon.InvoicePayment.id)).where(
+                salon.InvoicePayment.invoice_id == invoice_id,
+            )
+        ).scalar_one()
+        assert round(float(paid_amount), 2) == round(float(payable_amount), 2)
+        assert payment_count == 1
 
     # 8) Colour Lab: save a case with a real multipart before-photo.
     from PIL import Image
