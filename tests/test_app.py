@@ -1093,9 +1093,12 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     assert b"Customer added successfully" in customer_response.data
 
     with salon.app.app_context():
-        flow_customer = salon.Customer.query.filter_by(
-            account_id=flow_account_id, name="Flow Customer"
-        ).first()
+        flow_customer = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.account_id == flow_account_id,
+                salon.Customer.name == "Flow Customer",
+            )
+        ).scalar_one_or_none()
         assert flow_customer is not None
         flow_customer_id = flow_customer.id
 
@@ -1113,11 +1116,13 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     assert appointment_response.status_code == 200
 
     with salon.app.app_context():
-        appt = salon.Appointment.query.filter_by(
-            account_id=flow_account_id,
-            customer_id=flow_customer_id,
-            staff_id=staff_id,
-        ).first()
+        appt = salon.db.session.execute(
+            salon.db.select(salon.Appointment).where(
+                salon.Appointment.account_id == flow_account_id,
+                salon.Appointment.customer_id == flow_customer_id,
+                salon.Appointment.staff_id == staff_id,
+            )
+        ).scalar_one_or_none()
         assert appt is not None
         appointment_id = appt.id
 
@@ -1126,9 +1131,12 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     assert completed.status_code == 302
 
     with salon.app.app_context():
-        invoice = salon.Invoice.query.filter_by(
-            account_id=flow_account_id, appointment_id=appointment_id
-        ).first()
+        invoice = salon.db.session.execute(
+            salon.db.select(salon.Invoice).where(
+                salon.Invoice.account_id == flow_account_id,
+                salon.Invoice.appointment_id == appointment_id,
+            )
+        ).scalar_one_or_none()
         assert invoice is not None
         assert invoice.payment_status == "Pending"
         invoice_id = invoice.id
@@ -1142,8 +1150,20 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     assert stock_sale.status_code == 200
 
     with salon.app.app_context():
-        assert salon.InventoryItem.query.get(item_id).stock_qty == 3
-        assert salon.InventorySale.query.filter_by(invoice_id=invoice_id).count() == 1
+        stock_qty = salon.db.session.execute(
+            salon.db.select(salon.InventoryItem.stock_qty).where(
+                salon.InventoryItem.id == item_id,
+                salon.InventoryItem.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        sale_count = salon.db.session.execute(
+            salon.db.select(salon.func.count(salon.InventorySale.id)).where(
+                salon.InventorySale.invoice_id == invoice_id,
+                salon.InventorySale.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        assert stock_qty == 3
+        assert sale_count == 1
 
     payment = c.post(f"/invoices/pay/{invoice_id}", data={
         "amount": str(invoice_total),
@@ -1152,7 +1172,12 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     assert payment.status_code == 200
 
     with salon.app.app_context():
-        paid_invoice = salon.Invoice.query.get(invoice_id)
+        paid_invoice = salon.db.session.execute(
+            salon.db.select(salon.Invoice).where(
+                salon.Invoice.id == invoice_id,
+                salon.Invoice.account_id == flow_account_id,
+            )
+        ).scalar_one()
         assert paid_invoice.payment_status == "Paid"
         assert round(salon.invoice_balance(paid_invoice), 2) == 0
         assert salon.InvoicePayment.query.filter_by(invoice_id=invoice_id).count() == 1
@@ -1223,7 +1248,12 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     assert final_response.status_code == 302
 
     with salon.app.app_context():
-        colour_case = salon.ColourCase.query.get(colour_case_id)
+        colour_case = salon.db.session.execute(
+            salon.db.select(salon.ColourCase).where(
+                salon.ColourCase.id == colour_case_id,
+                salon.ColourCase.account_id == flow_account_id,
+            )
+        ).scalar_one_or_none()
         assert colour_case is not None
         assert colour_case.account_id == flow_account_id
         assert colour_case.customer_id == flow_customer_id
@@ -1237,7 +1267,12 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     backup_bytes = backup.data
 
     with salon.app.app_context():
-        flow_customer = salon.Customer.query.get(flow_customer_id)
+        flow_customer = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.id == flow_customer_id,
+                salon.Customer.account_id == flow_account_id,
+            )
+        ).scalar_one()
         assert flow_customer.notes == "Original recovery note"
 
     mutated = c.post(f"/customers/edit/{flow_customer_id}", data={
@@ -1250,7 +1285,13 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     assert mutated.status_code == 200
 
     with salon.app.app_context():
-        assert salon.Customer.query.get(flow_customer_id).notes == "MUTATED AFTER BACKUP"
+        mutated_customer = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.id == flow_customer_id,
+                salon.Customer.account_id == flow_account_id,
+            )
+        ).scalar_one()
+        assert mutated_customer.notes == "MUTATED AFTER BACKUP"
 
     restored = c.post("/backup/restore", data={
         "restore_confirmation": "RESTORE",
@@ -1260,10 +1301,20 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     assert b"restore completed successfully" in restored.data.lower()
 
     with salon.app.app_context():
-        recovered_customer = salon.Customer.query.get(flow_customer_id)
+        recovered_customer = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.id == flow_customer_id,
+                salon.Customer.account_id == flow_account_id,
+            )
+        ).scalar_one_or_none()
         assert recovered_customer is not None
         assert recovered_customer.notes == "Original recovery note"
-        recovered_case = salon.ColourCase.query.get(colour_case_id)
+        recovered_case = salon.db.session.execute(
+            salon.db.select(salon.ColourCase).where(
+                salon.ColourCase.id == colour_case_id,
+                salon.ColourCase.account_id == flow_account_id,
+            )
+        ).scalar_one_or_none()
         assert recovered_case is not None
         assert recovered_case.account_id == flow_account_id
         assert recovered_case.after_photo_data.startswith("data:image/jpeg;base64,")
@@ -1279,6 +1330,11 @@ def test_critical_customer_journey_login_signup_tenant_data_colour_and_recovery(
     # The legacy tenant must still retain its original customer.
     with salon.app.app_context():
         assert salon.db.session.get(salon.AccountProfile, legacy_account_id) is not None
-        legacy = salon.db.session.get(salon.Customer, legacy_customer_id)
+        legacy = salon.db.session.execute(
+            salon.db.select(salon.Customer).where(
+                salon.Customer.id == legacy_customer_id,
+                salon.Customer.account_id == legacy_account_id,
+            )
+        ).scalar_one_or_none()
         assert legacy is not None
         assert legacy.account_id == legacy_account_id
