@@ -7,7 +7,7 @@ The application bootstrap runs only after migrations complete.
 """
 from sqlalchemy import inspect
 from flask_migrate import stamp, upgrade
-from app import app, db, init_db, UserStaffLink, TENANT_SCOPED_TABLES
+from app import app, db, init_db, UserStaffLink, TENANT_SCOPED_TABLES, assert_production_database_is_durable
 
 BASELINE = "0001_initial_schema"
 EXPECTED_TABLES = {
@@ -20,6 +20,7 @@ EXPECTED_TABLES = {
 }
 
 with app.app_context():
+    assert_production_database_is_durable()
     inspector = inspect(db.engine)
     tables = set(inspector.get_table_names())
     missing = EXPECTED_TABLES - tables
