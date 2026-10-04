@@ -337,84 +337,50 @@ html[data-theme="dark"] .sp-command-section[open] .sp-command-chevron{background
   .sp-top-title{font-size:11px!important}
 }
 
-/* ===== FINAL TOP BAR FIX ===== */
-/* Keeps the authenticated header stable on Android WebView/PWA and small screens. */
+/* ===== FINAL TOP BAR FIX v2 ===== */
+/* One stable header model for browser, PWA and Android WebView edge-to-edge mode. */
 .sp-topbar{
   width:100%;
   min-width:0;
   flex:0 0 auto;
   overflow:hidden;
+  box-sizing:border-box;
 }
-.sp-top-title{
-  min-width:0;
-  flex:1 1 auto;
-}
-.sp-top-actions{
-  min-width:0;
-  flex:0 0 auto;
-  margin-left:auto;
-}
-.sp-top-actions .sp-top-btn,
-.sp-top-actions .sp-top-icon{
-  flex-shrink:0;
-}
+.sp-top-title{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sp-top-actions{min-width:0;flex:0 0 auto;margin-left:auto;display:flex;align-items:center}
+.sp-top-actions .sp-top-btn,.sp-top-actions .sp-top-icon{flex-shrink:0}
 @media(max-width:767.98px){
   .sp-topbar{
-    height:64px!important;
-    min-height:64px!important;
+    height:calc(64px + env(safe-area-inset-top))!important;
+    min-height:calc(64px + env(safe-area-inset-top))!important;
     width:100%!important;
-    padding:0 12px!important;
+    padding:env(safe-area-inset-top) 12px 0!important;
     gap:8px!important;
     overflow:hidden!important;
     display:flex!important;
     align-items:center!important;
     box-sizing:border-box!important;
+    position:sticky!important;
+    top:0!important;
+    z-index:1000!important;
   }
   .sp-mobile-menu{
-    display:grid!important;
-    flex:0 0 40px!important;
-    width:40px!important;
-    height:40px!important;
-    margin:0!important;
-    padding:0!important;
-    place-items:center!important;
-    visibility:visible!important;
-    opacity:1!important;
+    display:grid!important;flex:0 0 40px!important;width:40px!important;height:40px!important;
+    margin:0!important;padding:0!important;place-items:center!important;visibility:visible!important;opacity:1!important;
   }
-  .sp-top-title{
-    display:block!important;
-    flex:1 1 auto!important;
-    width:auto!important;
-    min-width:0!important;
-    max-width:none!important;
-    margin:0!important;
-    padding:0!important;
-    overflow:hidden!important;
-    white-space:nowrap!important;
-    text-overflow:ellipsis!important;
-    line-height:1.25!important;
-  }
-  .sp-top-actions{
-    display:flex!important;
-    align-items:center!important;
-    justify-content:flex-end!important;
-    flex:0 0 auto!important;
-    width:auto!important;
-    min-width:38px!important;
-    margin:0!important;
-    gap:0!important;
-  }
-  .sp-top-actions .sp-top-icon{
-    display:grid!important;
-    flex:0 0 38px!important;
-    width:38px!important;
-    height:38px!important;
-    place-items:center!important;
-  }
+  .sp-top-title{display:block!important;flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;line-height:1.25!important}
+  .sp-top-actions{display:flex!important;align-items:center!important;justify-content:flex-end!important;flex:0 0 auto!important;width:auto!important;min-width:38px!important;margin:0!important;gap:0!important}
+  .sp-top-actions .sp-top-icon{display:grid!important;flex:0 0 38px!important;width:38px!important;height:38px!important;place-items:center!important}
 }
 @media(max-width:380px){
-  .sp-topbar{padding:0 9px!important;gap:5px!important}
+  .sp-topbar{padding:env(safe-area-inset-top) 9px 0!important;gap:5px!important}
   .sp-mobile-menu{flex-basis:38px!important;width:38px!important}
   .sp-top-actions .sp-top-icon{flex-basis:36px!important;width:36px!important;height:36px!important}
   .sp-top-title{font-size:11px!important}
+}
+/* Drawer must sit above the header; the header must never cover the drawer close area. */
+@media(max-width:991.98px){
+  .sp-topbar{z-index:1000!important}
+  .sp-sidebar{z-index:1101!important}
+  .sp-sidebar-backdrop{z-index:1100!important}
 }
