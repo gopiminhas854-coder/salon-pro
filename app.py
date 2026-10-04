@@ -4713,6 +4713,20 @@ def seed_default_whatsapp_templates():
     if changed:
         db.session.commit()
 
+def normalize_whatsapp_phone(phone):
+    """Return an international WhatsApp number; India is the salon's default locale."""
+    digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
+    if digits.startswith('00'):
+        digits = digits[2:]
+    if len(digits) == 10:
+        return '91' + digits
+    if len(digits) == 11 and digits.startswith('0'):
+        return '91' + digits[1:]
+    return digits
+
+
+app.jinja_env.globals['normalize_whatsapp_phone'] = normalize_whatsapp_phone
+
 def render_whatsapp_template(key, context):
     row = WhatsAppTemplate.query.filter_by(key=key, is_active=True).first()
     body = row.body if row else DEFAULT_WHATSAPP_TEMPLATES.get(key, ('', ''))[1]
@@ -4810,7 +4824,8 @@ def whatsapp_send(customer_id,key):
              'package':expiring.package.name if expiring and expiring.package else 'package',
              'expiry':expiring.expires_at.strftime('%d %b %Y') if expiring else '',
              'salon_name':setting.salon_name if setting else 'Salon Pro'}
-    message=render_whatsapp_template(key,context); phone=''.join(ch for ch in (customer.phone or '') if ch.isdigit())
+    message=render_whatsapp_template(key,context); phone=normalize_whatsapp_phone(customer.phone)
+    if not phone: raise ValueError('Customer does not have a valid phone number for WhatsApp.')
     return redirect(f"https://wa.me/{phone}?text={quote(message)}")
 
 @app.route('/gift-cards', methods=['GET','POST'])

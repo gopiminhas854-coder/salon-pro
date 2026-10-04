@@ -31,8 +31,8 @@ import androidx.core.view.WindowInsetsCompat
 import java.io.File
 
 private const val SALON_PRO_URL = "https://salon-pro-pl4h.onrender.com/"
-private const val APP_VERSION = "1.0.10"
-private const val APP_VERSION_CODE = 11
+private const val APP_VERSION = "1.0.11"
+private const val APP_VERSION_CODE = 12
 private const val SESSION_PREFS = "salon_pro_auth"
 private const val SESSION_COOKIE_KEY = "session_cookie"
 private const val FILE_CHOOSER_REQUEST_CODE = 4201
@@ -111,6 +111,20 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val uri = request?.url ?: return false
+                    val host = uri.host?.lowercase().orEmpty()
+                    if (host == "wa.me" || host == "api.whatsapp.com" || host == "web.whatsapp.com") {
+                        return try {
+                            startActivity(Intent(Intent.ACTION_VIEW, uri))
+                            true
+                        } catch (_: Exception) {
+                            false
+                        }
+                    }
+                    return false
+                }
+
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     super.onPageStarted(view, url, favicon)
                 }

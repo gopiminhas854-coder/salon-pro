@@ -147,6 +147,59 @@ def test_upgrade_routes_render_and_fast_checkout_is_atomic():
             assert loyalty.points > 0
 
 
+def test_invoice_share_whatsapp_uses_indian_country_code():
+    setup_database()
+    with salon.app.test_client() as client:
+        login(client)
+        customer_id, service_id, staff_id, _ = ids()
+        with salon.app.app_context():
+            appointment = salon.Appointment(
+                customer_id=customer_id,
+                staff_id=staff_id,
+                service_id=service_id,
+                appointment_date=date.today(),
+                appointment_time="12:00",
+                status="Completed",
+            )
+            salon.db.session.add(appointment)
+            salon.db.session.flush()
+            invoice = salon.Invoice(
+                appointment_id=appointment.id,
+                customer_id=customer_id,
+                amount=100,
+                discount=0,
+                tax=5,
+                tip=0,
+                total=105,
+                payment_status="Paid",
+                payment_method="UPI",
+            )
+            salon.db.session.add(invoice)
+            salon.db.session.flush()
+            salon.db.session.add(
+                salon.InvoiceItem(
+                    invoice_id=invoice.id,
+                    description="Audit Haircut",
+                    quantity=1,
+                    unit_price=100,
+                    total=100,
+                )
+            )
+            salon.db.session.add(
+                salon.InvoicePayment(
+                    invoice_id=invoice.id,
+                    amount=105,
+                    payment_method="UPI",
+                )
+            )
+            salon.db.session.commit()
+            invoice_id = invoice.id
+
+        response = client.get(f"/invoices/{invoice_id}")
+        assert response.status_code == 200
+        assert b"https://wa.me/919999999999" in response.data
+
+
 def test_invoice_template_helper_and_payment_refund_lifecycle():
     setup_database()
     with salon.app.test_client() as client:
