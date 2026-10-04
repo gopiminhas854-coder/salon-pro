@@ -92,7 +92,7 @@ def test_session_tenant_is_reconciled_from_authenticated_user():
         assert foreign.status_code == 404
 
         with client.session_transaction() as sess:
-            assert sess["account_id"] == 1
+            assert sess["account_id"] == account1_id
 
 
 def test_customers_are_isolated_by_salon_account():
