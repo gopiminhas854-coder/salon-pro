@@ -232,11 +232,17 @@ def test_customer_acceptance_flow_covers_auth_booking_billing_refund_inventory_a
         with salon.app.test_client() as relogin_client:
             acceptance_login(relogin_client)
             assert relogin_client.get("/").status_code == 200
-            assert relogin_client.get("/services").status_code == 200
+            services_page = relogin_client.get("/services")
+            assert services_page.status_code == 200
+            assert b"Smoothing Treatment" in services_page.data
+
+            invoices_page = relogin_client.get("/invoices")
+            assert invoices_page.status_code == 200
+            assert b"3,675" in invoices_page.data or b"3675" in invoices_page.data
 
         with salon.app.app_context():
-            assert salon.Service.query.get(persisted_service_id) is not None
-            restored_invoice = salon.Invoice.query.get(persisted_invoice_id)
+            assert salon.db.session.get(salon.Service, persisted_service_id) is not None
+            restored_invoice = salon.db.session.get(salon.Invoice, persisted_invoice_id)
             assert restored_invoice is not None
             assert restored_invoice.payment_status == "Paid"
             assert round(salon.invoice_paid_amount(restored_invoice), 2) == 3675.0
