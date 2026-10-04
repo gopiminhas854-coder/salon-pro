@@ -1,5 +1,6 @@
-# Salon Pro production infrastructure: keep DATABASE_URL linked to the managed Postgres database.
-# This comment is intentionally retained so the Blueprint can be re-synced without changing runtime settings.
+# Salon Pro production infrastructure.
+# DATABASE_URL is supplied by the Render service environment and points to Supabase PostgreSQL.
+# It is intentionally not stored in GitHub or linked to the temporary Render Postgres instance.
 services:
   - type: web
     name: salon-pro
@@ -32,8 +33,4 @@ services:
       - key: SALON_PRO_LEGACY_TRIAL_DAYS
         value: "30"
       - key: DATABASE_URL
-        fromDatabase:
-          name: salon-pro-db
-          property: connectionString
-databases:
-  - name: salon-pro-db
+        sync: false
