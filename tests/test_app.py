@@ -915,6 +915,16 @@ def test_mobile_main_menu_has_outside_tap_close_behavior(client):
     assert "if(isInsideSidebar(event.target)) return;" in html
 
 
+def test_android_webview_opens_whatsapp_links_externally():
+    from pathlib import Path
+    path = Path("android/app/src/main/java/com/salonpro/app/MainActivity.kt")
+    content = path.read_text(encoding="utf-8")
+    assert 'override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?)' in content
+    assert 'host == "wa.me"' in content
+    assert 'Intent(Intent.ACTION_VIEW, uri)' in content
+    assert 'APP_VERSION = "1.0.11"' in content
+
+
 def test_android_back_closes_drawer_before_exiting():
     from pathlib import Path
     path = Path("android/app/src/main/java/com/salonpro/app/MainActivity.kt")
