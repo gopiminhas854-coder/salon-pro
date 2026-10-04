@@ -71,6 +71,30 @@ def login(client, username, password):
     return response
 
 
+def test_session_tenant_is_reconciled_from_authenticated_user():
+    owner1_id, owner2_id, customer1_id, customer2_id = setup_database()
+    with salon.app.app_context():
+        account1_id = salon.AccountProfile.query.filter_by(user_id=owner1_id).first().id
+        account2_id = salon.AccountProfile.query.filter_by(user_id=owner2_id).first().id
+
+    with salon.app.test_client() as client:
+        login(client, "owner1", "password-1")
+        with client.session_transaction() as sess:
+            assert sess["account_id"] == account1_id
+            # Simulate a stale tenant value left behind by an account switch.
+            sess["account_id"] = account2_id
+
+        response = client.get(f"/customers/{customer1_id}")
+        assert response.status_code == 200
+        assert b"Customer One" in response.data
+
+        foreign = client.get(f"/customers/{customer2_id}")
+        assert foreign.status_code == 404
+
+        with client.session_transaction() as sess:
+            assert sess["account_id"] == account1_id
+
+
 def test_customers_are_isolated_by_salon_account():
     owner1_id, owner2_id, customer1_id, customer2_id = setup_database()
 
