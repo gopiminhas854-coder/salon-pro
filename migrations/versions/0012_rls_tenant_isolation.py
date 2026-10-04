@@ -28,9 +28,11 @@ def upgrade():
             predicate = _tenant_predicate()
         else:
             predicate = "true"
-        op.execute(`CREATE POLICY "salon_pro_render_access" ON public."{table}"
-            AS PERMISSIVE FOR ALL TO salon_pro_render
-            USING ({predicate}) WITH CHECK ({predicate})`)
+        op.execute(
+            f'''CREATE POLICY "salon_pro_render_access" ON public."{table}"
+                AS PERMISSIVE FOR ALL TO salon_pro_render
+                USING ({predicate}) WITH CHECK ({predicate})'''
+        )
         op.execute(f'REVOKE ALL ON public."{table}" FROM anon, authenticated')
 
 def downgrade():
