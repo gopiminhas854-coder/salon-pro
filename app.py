@@ -2318,6 +2318,9 @@ def dashboard():
     weekly_profit = round(weekly_revenue-weekly_expenses,2)
     today_invoices = Invoice.query.filter(func.date(Invoice.created_at)==today).all()
     today_revenue = round(sum(invoice_net_paid_amount(i) for i in today_invoices),2)
+    yesterday = today - timedelta(days=1)
+    yesterday_invoices = Invoice.query.filter(func.date(Invoice.created_at)==yesterday).all()
+    yesterday_revenue = round(sum(invoice_net_paid_amount(i) for i in yesterday_invoices),2)
     today_expenses = round(sum(e.amount for e in Expense.query.filter_by(expense_date=today).all()),2)
     today_profit = round(today_revenue-today_expenses,2)
     pending = Invoice.query.filter(Invoice.payment_status.in_(['Pending','Partial'])).all()
@@ -2413,7 +2416,7 @@ def dashboard():
         low_stock_count=len(low_stock),low_stock_items=low_stock[:5],potential_inventory_profit=potential_inventory_profit,
         upcoming=upcoming,top_services=top_services,next_customers=next_customers,working_staff=working_staff,
         birthday_today=birthday_today,anniversary_today=anniversary_today,retention_due=retention_due[:8],retention_at_risk=retention_at_risk[:8],
-        ai_priority=ai_priority[:6])
+        ai_priority=ai_priority[:6], yesterday_revenue=yesterday_revenue)
 @app.route('/payments')
 @login_required
 def payments():
