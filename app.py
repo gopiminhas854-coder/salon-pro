@@ -5133,7 +5133,17 @@ def init_db():
         # Production schema changes are handled by migrate_startup.py/Alembic.
         # Keep db.create_all() only for explicit local bootstrap so migrations
         # never race or recreate already-created named constraints.
-        auto_create = os.environ.get('SALON_PRO_AUTO_CREATE_DB', '1').strip().lower() not in {'0', 'false', 'no', 'off'}
+        # Never create schema objects at runtime in Render/production.
+        # Alembic (migrate_startup.py) is the only production schema path.
+        _runtime_is_production = (
+            os.environ.get('FLASK_ENV', '').strip().lower() == 'production'
+            or bool(os.environ.get('RENDER'))
+        )
+        auto_create = (
+            not _runtime_is_production
+            and os.environ.get('SALON_PRO_AUTO_CREATE_DB', '1').strip().lower()
+                not in {'0', 'false', 'no', 'off'}
+        )
         if auto_create:
             db.create_all()
 
