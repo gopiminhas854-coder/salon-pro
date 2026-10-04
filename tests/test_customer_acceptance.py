@@ -161,6 +161,116 @@ def test_customer_acceptance_flow_covers_auth_booking_billing_refund_inventory_a
         acceptance_login(client)
         assert client.get("/").status_code == 200
 
+        # Data must survive a full logout/login cycle. Logout clears only the
+        # authentication session; it must never remove salon records, services,
+        # invoices, payments, or revenue history.
+        with salon.app.app_context():
+            persisted_service = salon.Service(
+                name="Smoothing Treatment",
+                duration_minutes=120,
+                price=3500,
+                category="Hair",
+                is_active=True,
+            )
+            salon.db.session.add(persisted_service)
+            salon.db.session.flush()
+
+            persisted_appointment = salon.Appointment(
+                customer_id=customer_id,
+                service_id=persisted_service.id,
+                staff_id=staff_id,
+                appointment_date=date.today(),
+                appointment_time="18:00",
+                status="Completed",
+                notes="Persistence regression",
+            )
+            salon.db.session.add(persisted_appointment)
+            salon.db.session.flush()
+
+            persisted_invoice = salon.Invoice(
+                appointment_id=persisted_appointment.id,
+                customer_id=customer_id,
+                amount=3500,
+                discount=0,
+                tax=175,
+                tip=0,
+                total=3675,
+                payment_status="Paid",
+                payment_method="UPI",
+            )
+            salon.db.session.add(persisted_invoice)
+            salon.db.session.flush()
+            salon.db.session.add(
+                salon.InvoiceItem(
+                    invoice_id=persisted_invoice.id,
+                    description=persisted_service.name,
+                    quantity=1,
+                    unit_price=3500,
+                    total=3500,
+                )
+            )
+            salon.db.session.add(
+                salon.InvoicePayment(
+                    invoice_id=persisted_invoice.id,
+                    amount=3675,
+                    payment_method="UPI",
+                )
+            )
+            salon.db.session.commit()
+            persisted_service_id = persisted_service.id
+            persisted_invoice_id = persisted_invoice.id
+            persisted_payment = salon.InvoicePayment.query.filter_by(invoice_id=persisted_invoice.id).first()
+            assert persisted_payment is not None
+            assert persisted_payment.account_id == persisted_invoice.account_id
+
+        with salon.app.app_context():
+            persisted_invoice = salon.Invoice.query.get(persisted_invoice_id)
+            assert persisted_invoice is not None
+            assert persisted_invoice.payment_status == "Paid"
+            assert round(salon.invoice_paid_amount(persisted_invoice), 2) == 3675.0
+
+        response = client.get("/logout", follow_redirects=False)
+        assert response.status_code == 302
+
+        with salon.app.test_client() as relogin_client:
+            acceptance_login(relogin_client)
+            assert relogin_client.get("/").status_code == 200
+            services_page = relogin_client.get("/services")
+            assert services_page.status_code == 200
+            assert b"Smoothing Treatment" in services_page.data
+
+            invoices_page = relogin_client.get("/invoices")
+            assert invoices_page.status_code == 200
+            assert b"3,675" in invoices_page.data or b"3675" in invoices_page.data
+
+            money_center_page = relogin_client.get("/money-center")
+            assert money_center_page.status_code == 200
+            assert b"3,675" in money_center_page.data or b"3675" in money_center_page.data
+
+        with salon.app.app_context():
+            assert salon.db.session.get(salon.Service, persisted_service_id) is not None
+            restored_invoice = salon.db.session.get(salon.Invoice, persisted_invoice_id)
+            assert restored_invoice is not None
+            assert restored_invoice.payment_status == "Paid"
+            assert round(
+                salon.db.session.execute(
+                    salon.db.select(salon.InvoicePayment.amount)
+                    .where(salon.InvoicePayment.invoice_id == persisted_invoice_id)
+                ).scalar_one(),
+                2,
+            ) == 3675.0
+
+
+def test_production_requires_durable_postgresql_database(monkeypatch):
+    monkeypatch.setenv("FLASK_ENV", "production")
+    with salon.app.app_context():
+        try:
+            salon.assert_production_database_is_durable()
+        except RuntimeError as exc:
+            assert "durable PostgreSQL" in str(exc)
+        else:
+            raise AssertionError("Production SQLite must be rejected as non-durable")
+
 
 def test_android_webview_has_explicit_main_frame_network_error_handling():
     with open("android/app/src/main/java/com/salonpro/app/MainActivity.kt", encoding="utf-8") as handle:

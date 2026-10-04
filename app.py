@@ -72,6 +72,25 @@ app.config['SALON_PRO_LEGACY_TRIAL_DAYS'] = max(
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+PRODUCTION_DATABASE_DRIVERS = {
+    "postgresql",
+    "postgresql+psycopg2",
+    "postgresql+psycopg",
+    "postgresql+pg8000",
+}
+
+
+def assert_production_database_is_durable():
+    """Refuse to run a production deployment against ephemeral SQLite storage."""
+    if os.environ.get("FLASK_ENV", "").strip().lower() != "production":
+        return
+    driver = (db.engine.url.drivername or "").strip().lower()
+    if driver not in PRODUCTION_DATABASE_DRIVERS:
+        raise RuntimeError(
+            "Production requires a durable PostgreSQL DATABASE_URL. "
+            f"Refusing to run with database driver '{driver or 'unknown'}'."
+        )
+
 TENANT_SCOPED_TABLES = {
     "backup_log", "customer", "service", "staff", "appointment", "waitlist_entry",
     "expense", "inventory_item", "invoice", "staff_commission", "staff_attendance",
@@ -687,6 +706,53 @@ def _current_account_id():
             return int(account_id)
     return None
 
+def _parent_tenant_account_id(obj):
+    """Derive ownership from a tenant-scoped parent when available."""
+    table = getattr(getattr(obj, "__table__", None), "name", None)
+    parent_ref = {
+        "invoice_payment": (Invoice, "invoice_id"),
+        "invoice_refund": (Invoice, "invoice_id"),
+        "invoice_item": (Invoice, "invoice_id"),
+        "inventory_sale": (Invoice, "invoice_id"),
+        "inventory_sale_line": (InventorySale, "inventory_sale_id"),
+        "gift_card_transaction": (GiftCard, "gift_card_id"),
+        "loyalty_transaction": (Customer, "customer_id"),
+        "customer_package": (Customer, "customer_id"),
+    }.get(table)
+    if not parent_ref:
+        return None
+    parent_model, foreign_key = parent_ref
+    parent_id = getattr(obj, foreign_key, None)
+    if not parent_id:
+        return None
+    parent = db.session.get(parent_model, parent_id)
+    return getattr(parent, "account_id", None) if parent else None
+
+
+def _repair_orphaned_tenant_rows():
+    """Recover safe child records whose ownership can be derived from a parent."""
+    repair_specs = (
+        (InvoicePayment, Invoice, InvoicePayment.invoice_id, Invoice.id),
+        (InvoiceRefund, Invoice, InvoiceRefund.invoice_id, Invoice.id),
+        (InvoiceItem, Invoice, InvoiceItem.invoice_id, Invoice.id),
+    )
+    for child_model, parent_model, child_fk, parent_pk in repair_specs:
+        db.session.execute(
+            child_model.__table__.update()
+            .where(child_model.account_id.is_(None))
+            .where(
+                child_fk.in_(
+                    db.select(parent_pk).where(parent_model.account_id.is_not(None))
+                )
+            )
+            .values(
+                account_id=db.select(parent_model.account_id)
+                .where(parent_pk == child_fk)
+                .scalar_subquery()
+            )
+        )
+
+
 def _public_account_id():
     configured = (os.environ.get("SALON_PRO_PUBLIC_ACCOUNT_ID") or "").strip()
     if configured.isdigit():
@@ -764,6 +830,13 @@ def enforce_tenant_ownership(session_obj, flush_context, instances):
             continue
 
         current_owner = getattr(obj, "account_id", None)
+        parent_owner = _parent_tenant_account_id(obj)
+        if parent_owner is not None:
+            if current_owner is None:
+                obj.account_id = parent_owner
+                current_owner = parent_owner
+            elif int(current_owner) != int(parent_owner):
+                raise PermissionError("Child record ownership does not match its parent.")
         if current_owner is None:
             obj.account_id = tenant_id
             current_owner = tenant_id
@@ -862,10 +935,21 @@ def get_tax_rate():
     return max(0, min(100, setting.tax_rate if setting else 5))
 
 def invoice_paid_amount(invoice):
-    return round(sum(p.amount for p in InvoicePayment.query.filter_by(invoice_id=invoice.id).all()), 2)
+    # The invoice itself is tenant-authorized by the caller. Query payments by
+    # invoice_id directly so newly-added payments are visible before commit and
+    # totals remain correct outside an HTTP request context.
+    amount = db.session.execute(
+        db.select(func.coalesce(func.sum(InvoicePayment.amount), 0))
+        .where(InvoicePayment.invoice_id == invoice.id)
+    ).scalar_one()
+    return round(float(amount or 0), 2)
 
 def invoice_refunded_amount(invoice):
-    return round(sum(r.amount for r in InvoiceRefund.query.filter_by(invoice_id=invoice.id).all()), 2)
+    amount = db.session.execute(
+        db.select(func.coalesce(func.sum(InvoiceRefund.amount), 0))
+        .where(InvoiceRefund.invoice_id == invoice.id)
+    ).scalar_one()
+    return round(float(amount or 0), 2)
 
 def invoice_net_paid_amount(invoice):
     return round(max(invoice_paid_amount(invoice) - invoice_refunded_amount(invoice), 0), 2)
@@ -1009,6 +1093,7 @@ def ensure_tenant_bootstrap():
 
 @app.before_request
 def ensure_database():
+    assert_production_database_is_durable()
     # Keep the legacy bootstrap path available, while always ensuring the
     # billing tables exist so the new subscription layer can run on an
     # already-initialized production database without requiring a migration file.
@@ -1170,8 +1255,16 @@ def health():
     # Health must verify database connectivity; otherwise Render can report
     # a healthy web process while the application database is unavailable.
     try:
+        assert_production_database_is_durable()
         db.session.execute(db.text('SELECT 1'))
-        return jsonify({'status': 'ok', 'service': 'Salon Pro', 'database': 'ok'}), 200
+        return jsonify({
+            'status': 'ok',
+            'service': 'Salon Pro',
+            'database': 'ok',
+            'durable_database': db.engine.url.drivername in PRODUCTION_DATABASE_DRIVERS
+                if os.environ.get("FLASK_ENV", "").strip().lower() == "production"
+                else True,
+        }), 200
     except Exception:
         db.session.rollback()
         return jsonify({'status': 'degraded', 'service': 'Salon Pro', 'database': 'unavailable'}), 503
@@ -2469,7 +2562,7 @@ def quick_sale():
             inv=Invoice(appointment_id=appt.id,customer_id=customer.id,amount=service.price,discount=discount,tax=tax,tip=tip,total=total,payment_status='Pending',commission_rate=comm.commission_rate if comm else 0,payment_method=method)
             db.session.add(inv); db.session.flush(); db.session.add(InvoiceItem(invoice_id=inv.id,description=service.name,quantity=1,unit_price=service.price,total=service.price))
             if paid>0:
-                db.session.add(InvoicePayment(invoice_id=inv.id,amount=round(paid,2),payment_method=method,notes='Quick checkout')); inv.payment_status='Paid' if paid>=total-0.01 else 'Partial'
+                db.session.add(InvoicePayment(invoice_id=inv.id,account_id=inv.account_id,amount=round(paid,2),payment_method=method,notes='Quick checkout')); inv.payment_status='Paid' if paid>=total-0.01 else 'Partial'
             db.session.commit()
             if inv.payment_status=='Paid': award_loyalty_for_invoice(inv); db.session.commit()
             return redirect(url_for('view_invoice',id=inv.id))
@@ -3714,7 +3807,7 @@ def mark_paid(id):
                 raise ValueError('This gift card has expired.')
             if amount > (gift_card.balance or 0) + 0.01:
                 raise ValueError(f'Gift card balance is only ₹{(gift_card.balance or 0):.2f}.')
-        db.session.add(InvoicePayment(invoice_id=invoice.id, amount=amount,
+        db.session.add(InvoicePayment(invoice_id=invoice.id, account_id=invoice.account_id, amount=amount,
                                       payment_method=method, notes=request.form.get('notes') or (f'Gift card {gift_card.code}' if gift_card else None)))
         if gift_card:
             gift_card.balance = round(max((gift_card.balance or 0) - amount, 0), 2)
@@ -3761,7 +3854,7 @@ def refund_invoice(id):
     method = request.form.get('refund_method', invoice.payment_method or 'Cash')
     reason = request.form.get('reason', '').strip()
     try:
-        db.session.add(InvoiceRefund(invoice_id=invoice.id, amount=amount, refund_method=method, reason=reason))
+        db.session.add(InvoiceRefund(invoice_id=invoice.id, account_id=invoice.account_id, amount=amount, refund_method=method, reason=reason))
         if invoice.customer_id:
             setting = SalonSetting.query.first()
             rate = setting.loyalty_rate if setting else 1
@@ -4521,7 +4614,7 @@ def sell_package():
             quantity=1, unit_price=package.price or 0, total=package.price or 0
         ))
         db.session.add(InvoicePayment(
-            invoice_id=invoice.id, amount=package.price or 0,
+            invoice_id=invoice.id, account_id=invoice.account_id, amount=package.price or 0,
             payment_method=payment_method, notes='Package / membership purchase'
         ))
         invoice.payment_status = 'Paid'
@@ -5066,6 +5159,10 @@ def init_db():
                     total=svc.price,
                     account_id=inv.account_id,
                 ))
+
+        # Repair any older child records whose tenant can be derived safely
+        # from their invoice/parent record before the transaction is committed.
+        _repair_orphaned_tenant_rows()
 
         # Ensure the original salon has its complete seven-day schedule.
         for day in range(7):
