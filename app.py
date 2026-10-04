@@ -72,6 +72,25 @@ app.config['SALON_PRO_LEGACY_TRIAL_DAYS'] = max(
 db = SQLAlchemy(app)
 migrate = Migrate(app, db)
 
+PRODUCTION_DATABASE_DRIVERS = {
+    "postgresql",
+    "postgresql+psycopg2",
+    "postgresql+psycopg",
+    "postgresql+pg8000",
+}
+
+
+def assert_production_database_is_durable():
+    """Refuse to run a production deployment against ephemeral SQLite storage."""
+    if os.environ.get("FLASK_ENV", "").strip().lower() != "production":
+        return
+    driver = (db.engine.url.drivername or "").strip().lower()
+    if driver not in PRODUCTION_DATABASE_DRIVERS:
+        raise RuntimeError(
+            "Production requires a durable PostgreSQL DATABASE_URL. "
+            f"Refusing to run with database driver '{driver or 'unknown'}'."
+        )
+
 TENANT_SCOPED_TABLES = {
     "backup_log", "customer", "service", "staff", "appointment", "waitlist_entry",
     "expense", "inventory_item", "invoice", "staff_commission", "staff_attendance",
@@ -1009,6 +1028,7 @@ def ensure_tenant_bootstrap():
 
 @app.before_request
 def ensure_database():
+    assert_production_database_is_durable()
     # Keep the legacy bootstrap path available, while always ensuring the
     # billing tables exist so the new subscription layer can run on an
     # already-initialized production database without requiring a migration file.
@@ -1170,8 +1190,16 @@ def health():
     # Health must verify database connectivity; otherwise Render can report
     # a healthy web process while the application database is unavailable.
     try:
+        assert_production_database_is_durable()
         db.session.execute(db.text('SELECT 1'))
-        return jsonify({'status': 'ok', 'service': 'Salon Pro', 'database': 'ok'}), 200
+        return jsonify({
+            'status': 'ok',
+            'service': 'Salon Pro',
+            'database': 'ok',
+            'durable_database': db.engine.url.drivername in PRODUCTION_DATABASE_DRIVERS
+                if os.environ.get("FLASK_ENV", "").strip().lower() == "production"
+                else True,
+        }), 200
     except Exception:
         db.session.rollback()
         return jsonify({'status': 'degraded', 'service': 'Salon Pro', 'database': 'unavailable'}), 503
