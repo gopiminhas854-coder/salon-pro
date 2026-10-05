@@ -1442,10 +1442,11 @@ def subscription_plans():
             'emoji': '🚀',
             'paid_months': 3,
             'free_days': 7,
+            'amount_inr': 549,
             'badge': '7 DAYS FREE',
             'highlight': '',
             'description': 'Three months of Salon Pro access.',
-            'benefit': 'Extra 7 days included.',
+            'benefit': 'Save ₹48 + get 7 extra days.',
         },
         {
             'key': '6_month',
@@ -1453,10 +1454,11 @@ def subscription_plans():
             'emoji': '🔥',
             'paid_months': 6,
             'free_days': 15,
+            'amount_inr': 999,
             'badge': '15 DAYS FREE',
             'highlight': 'Popular',
             'description': 'Six months with extra free time.',
-            'benefit': 'Extra 15 days included.',
+            'benefit': 'Save ₹195 + get 15 extra days.',
         },
         {
             'key': 'annual',
@@ -1464,6 +1466,7 @@ def subscription_plans():
             'emoji': '👑',
             'paid_months': 11,
             'free_days': 30,
+            'amount_inr': 2189,
             'badge': '1 MONTH FREE',
             'highlight': 'Best Value',
             'description': 'Pay for 11 months and use Salon Pro for 12 months.',
@@ -1471,7 +1474,7 @@ def subscription_plans():
         },
     ]
     for plan in plans:
-        plan['amount_inr'] = monthly * plan['paid_months']
+        plan.setdefault('amount_inr', monthly * plan['paid_months'])
         plan['duration_days'] = (plan['paid_months'] * 30) + plan['free_days']
     return plans
 
