@@ -294,6 +294,37 @@ def test_subscription_order_supports_all_plan_terms_and_free_periods(client, mon
     assert "🏆 BEST VALUE" in html
 
 
+def test_paid_plan_starts_after_active_trial(client):
+    c, salon = client
+    c.post("/register", data={
+        "business_name": "Trial Stack Salon",
+        "email": "stack@example.com",
+        "phone": "9876543214",
+        "password": "strong-password-123",
+        "confirm_password": "strong-password-123",
+    }, follow_redirects=False)
+
+    with salon.app.app_context():
+        user = salon.current_user()
+        trial = salon.latest_subscription(user)
+        trial.expires_at = salon.utc_now() + salon.timedelta(days=2)
+        paid = salon.Subscription(
+            user_id=user.id,
+            plan_key="annual",
+            status="pending",
+            amount_paise=218900,
+            currency="INR",
+            razorpay_order_id="order_stack_annual",
+        )
+        salon.db.session.add(paid)
+        salon.db.session.commit()
+
+        payment_ok = salon.activate_paid_subscription(paid, "pay_stack_annual")
+        assert payment_ok is True
+        assert paid.start_at == trial.expires_at
+        assert paid.expires_at == trial.expires_at + salon.timedelta(days=360)
+
+
 def test_subscription_payment_verification_and_webhook_are_idempotent(client, monkeypatch):
     c, salon = client
     c.post("/register", data={
