@@ -3570,13 +3570,22 @@ def add_staff():
 def edit_staff(id):
     member = Staff.query.get_or_404(id)
     if request.method == 'POST':
-        member.name = request.form['name']
-        member.phone = request.form.get('phone')
-        member.email = request.form.get('email')
-        member.specialty = request.form.get('specialty')
+        name = (request.form.get('name') or '').strip()
+        if not name:
+            flash('Staff name is required.', 'danger')
+            return render_template('staff_form.html', staff=member), 400
+        member.name = name[:100]
+        member.phone = (request.form.get('phone') or '').strip()[:20] or None
+        member.email = (request.form.get('email') or '').strip()[:100] or None
+        member.specialty = (request.form.get('specialty') or '').strip()[:100] or None
         member.is_active = 'is_active' in request.form
-        db.session.commit()
-        flash('Staff updated!', 'success')
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            flash('Staff could not be updated. No changes were made.', 'danger')
+            return render_template('staff_form.html', staff=member), 500
+        flash(f'{member.name} updated successfully.', 'success')
         return redirect(url_for('staff'))
     return render_template('staff_form.html', staff=member)
 
