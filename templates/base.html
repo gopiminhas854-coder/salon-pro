@@ -43,6 +43,56 @@
       @media(min-width:992px){
         .sp-sidebar-close{display:none!important}
       }
+
+      /* Critical top-bar fallback: do not rely on external CSS for Android WebView/PWA. */
+      .sp-shell{display:block!important}
+      .sp-shell>.sp-topbar{
+        margin-left:232px;
+        width:calc(100% - 232px);
+      }
+      @media(max-width:991.98px){
+        .sp-shell>.sp-topbar{
+          margin-left:0;
+          width:100%;
+          position:sticky;
+          top:0;
+          z-index:2000;
+        }
+      }
+      @media(max-width:767.98px){
+        .sp-shell>.sp-topbar{
+          position:fixed!important;
+          top:0!important;
+          left:0!important;
+          right:0!important;
+          width:100vw!important;
+          max-width:100vw!important;
+          margin:0!important;
+          height:calc(64px + env(safe-area-inset-top))!important;
+          min-height:calc(64px + env(safe-area-inset-top))!important;
+          padding:env(safe-area-inset-top) 12px 0!important;
+          display:flex!important;
+          align-items:center!important;
+          visibility:visible!important;
+          opacity:1!important;
+          z-index:2000!important;
+          transform:translateZ(0)!important;
+          -webkit-transform:translateZ(0)!important;
+          backface-visibility:hidden!important;
+          -webkit-backface-visibility:hidden!important;
+          overflow:visible!important;
+          box-sizing:border-box!important;
+        }
+        .sp-main{padding-top:calc(64px + env(safe-area-inset-top))!important}
+      }
+      @media(max-width:380px){
+        .sp-shell>.sp-topbar{
+          height:calc(60px + env(safe-area-inset-top))!important;
+          min-height:calc(60px + env(safe-area-inset-top))!important;
+          padding:env(safe-area-inset-top) 9px 0!important;
+        }
+        .sp-main{padding-top:calc(60px + env(safe-area-inset-top))!important}
+      }
     </style>
 </head>
 <body class="sp-app">
@@ -120,7 +170,6 @@
     </aside>
     <button class="sp-sidebar-backdrop" type="button" aria-label="Close navigation" tabindex="-1"></button>
 
-    <div class="sp-main">
         <header class="sp-topbar">
             <button class="sp-mobile-menu" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="spSidebar"><i class="bi bi-list"></i></button>
             <div class="sp-top-title">{% block page_kicker %}Salon workspace{% endblock %}</div>
@@ -130,6 +179,7 @@
                 <div class="sp-top-date d-none d-md-block">{{ today.strftime('%d %b %Y') if today is defined else '' }}</div>
             </div>
         </header>
+    <div class="sp-main">
         {% if subscription_expiry_notice %}
         <div class="alert alert-warning border-0 rounded-0 mb-0 text-center py-2 px-3">
           <i class="bi bi-clock-history me-1"></i>
