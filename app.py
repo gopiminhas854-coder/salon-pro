@@ -1835,7 +1835,12 @@ def activate_paid_subscription(sub, payment_id, signature=None, webhook_received
             commit_or_rollback()
         return True
     now = utc_now()
-    current = active_subscription(sub.user)
+    current = Subscription.query.filter(
+        Subscription.user_id == sub.user_id,
+        Subscription.status.in_(['active', 'trial']),
+        Subscription.expires_at.isnot(None),
+        Subscription.expires_at > now,
+    ).order_by(Subscription.expires_at.desc(), Subscription.id.desc()).first()
     base = current.expires_at if current and current.expires_at and current.expires_at > now else now
     plan = get_subscription_plan(sub.plan_key)
     duration_days = int(plan['duration_days']) if plan else 30
