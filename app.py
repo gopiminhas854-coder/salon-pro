@@ -271,6 +271,8 @@ class Subscription(db.Model):
     razorpay_payment_id = db.Column(db.String(120), unique=True)
     razorpay_signature = db.Column(db.String(255))
     webhook_received = db.Column(db.Boolean, default=False)
+    cancel_at_period_end = db.Column(db.Boolean, default=False, nullable=False)
+    canceled_at = db.Column(db.DateTime)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     user = db.relationship('User', backref=db.backref('subscriptions', lazy=True))
@@ -1538,6 +1540,7 @@ def current_subscription_payload(user):
         'monthly_price': monthly_price_inr(),
         'trial': bool(sub and sub.status == 'trial'),
         'trial_days_left': subscription_days_left(sub) if sub and sub.status == 'trial' else 0,
+        'cancel_at_period_end': bool(sub and sub.cancel_at_period_end),
     }
 
 
@@ -1652,6 +1655,37 @@ def subscription():
         **payload,
         reason=request.args.get('reason', ''),
     )
+
+
+@app.route('/subscription/cancel', methods=['POST'])
+@login_required
+def subscription_cancel():
+    user = current_user()
+    owner = billing_owner_user(user) if user else None
+    if not owner or owner.id != user.id:
+        return jsonify({'ok': False, 'error': 'Only the salon owner can cancel the subscription.'}), 403
+
+    sub = active_subscription(owner)
+    if not sub:
+        return jsonify({'ok': False, 'error': 'There is no active Salon Pro plan to cancel.'}), 409
+
+    # Salon Pro currently charges one month at a time through Razorpay Orders,
+    # rather than creating an auto-renewing Razorpay Subscription. Cancellation
+    # therefore records the customer's request and preserves access until the
+    # already-paid/trial period expires; there is no future automatic charge.
+    sub.cancel_at_period_end = True
+    sub.canceled_at = utc_now()
+    db.session.add(sub)
+    commit_or_rollback()
+
+    return jsonify({
+        'ok': True,
+        'message': (
+            'Cancellation recorded. You will keep Salon Pro access until '
+            f'{sub.expires_at.strftime("%d %b %Y")}. No automatic renewal will be charged.'
+        ),
+        'expires_at': sub.expires_at.isoformat() if sub.expires_at else None,
+    })
 
 
 @app.route('/subscription/order', methods=['POST'])
