@@ -265,9 +265,12 @@ def test_mobile_topbar_is_present_and_has_stable_mobile_css(client):
     assert '<div class="sp-top-title">' in html
     assert '<div class="sp-top-actions">' in html
     assert "height:calc(64px + env(safe-area-inset-top))" in css
-    assert "z-index:1200!important" in css
+    assert "position:fixed!important" in css
+    assert "z-index:2000!important" in css
+    assert "width:100vw!important" in css
     assert "visibility:visible!important" in css
     assert "html[data-theme=\"dark\"] .sp-mobile-menu" in css
+    assert "style.css', v='20261005-topbar2'" in html
 
 
 def test_mobile_bottom_nav_keeps_all_icons_and_active_state(client):
