@@ -251,6 +251,25 @@ def test_device_remember_token_restores_session(client):
     with c.session_transaction() as sess:
         assert sess.get("user_id") is not None
 
+def test_mobile_topbar_is_present_and_has_stable_mobile_css(client):
+    c, _ = client
+    login(c)
+    response = c.get("/")
+    assert response.status_code == 200
+    html = response.data.decode("utf-8")
+    css_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "css", "style.css")
+    css = open(css_path, encoding="utf-8").read()
+
+    assert '<header class="sp-topbar">' in html
+    assert '<button class="sp-mobile-menu"' in html
+    assert '<div class="sp-top-title">' in html
+    assert '<div class="sp-top-actions">' in html
+    assert "height:calc(64px + env(safe-area-inset-top))" in css
+    assert "z-index:1200!important" in css
+    assert "visibility:visible!important" in css
+    assert "html[data-theme=\"dark\"] .sp-mobile-menu" in css
+
+
 def test_mobile_bottom_nav_keeps_all_icons_and_active_state(client):
     c, _ = client
     login(c)
