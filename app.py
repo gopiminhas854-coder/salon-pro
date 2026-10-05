@@ -1418,7 +1418,67 @@ def utc_now():
 
 
 def monthly_price_inr():
-    return int(app.config.get('SALON_PRO_MONTHLY_PRICE_INR', 499))
+    return int(app.config.get('SALON_PRO_MONTHLY_PRICE_INR', 199))
+
+
+def subscription_plans():
+    """Server-authoritative Salon Pro prepaid plan catalog."""
+    monthly = monthly_price_inr()
+    plans = [
+        {
+            'key': 'monthly',
+            'name': 'Monthly',
+            'emoji': '🌱',
+            'paid_months': 1,
+            'free_days': 0,
+            'badge': '3-DAY FREE TRIAL',
+            'highlight': '',
+            'description': 'Flexible month-to-month access.',
+            'benefit': 'Start small and upgrade anytime.',
+        },
+        {
+            'key': '3_month',
+            'name': '3 Months',
+            'emoji': '🚀',
+            'paid_months': 3,
+            'free_days': 7,
+            'badge': '7 DAYS FREE',
+            'highlight': '',
+            'description': 'Three months of Salon Pro access.',
+            'benefit': 'Extra 7 days included.',
+        },
+        {
+            'key': '6_month',
+            'name': '6 Months',
+            'emoji': '🔥',
+            'paid_months': 6,
+            'free_days': 15,
+            'badge': '15 DAYS FREE',
+            'highlight': 'Popular',
+            'description': 'Six months with extra free time.',
+            'benefit': 'Extra 15 days included.',
+        },
+        {
+            'key': 'annual',
+            'name': '12 Months',
+            'emoji': '👑',
+            'paid_months': 11,
+            'free_days': 30,
+            'badge': '1 MONTH FREE',
+            'highlight': 'Best Value',
+            'description': 'Pay for 11 months and use Salon Pro for 12 months.',
+            'benefit': 'One full month is free.',
+        },
+    ]
+    for plan in plans:
+        plan['amount_inr'] = monthly * plan['paid_months']
+        plan['duration_days'] = (plan['paid_months'] * 30) + plan['free_days']
+    return plans
+
+
+def get_subscription_plan(plan_key):
+    plan_key = (plan_key or '').strip().lower()
+    return next((plan for plan in subscription_plans() if plan['key'] == plan_key), None)
 
 
 def _backfill_null_tenant_rows(account_id):
@@ -1538,6 +1598,8 @@ def current_subscription_payload(user):
         'subscription': sub,
         'latest': latest,
         'monthly_price': monthly_price_inr(),
+        'plans': subscription_plans(),
+        'current_plan': get_subscription_plan(sub.plan_key) if sub and sub.status == 'active' else None,
         'trial': bool(sub and sub.status == 'trial'),
         'trial_days_left': subscription_days_left(sub) if sub and sub.status == 'trial' else 0,
         'cancel_at_period_end': bool(sub and sub.cancel_at_period_end),
@@ -1704,14 +1766,22 @@ def subscription_create_order():
     if not owner or owner.id != user.id:
         return jsonify({'ok': False, 'error': 'Only the salon owner can manage the subscription.'}), 403
 
-    amount_paise = monthly_price_inr() * 100
+    data = request.get_json(silent=True) or {}
+    plan_key = (data.get('plan_key') or request.form.get('plan_key') or 'monthly').strip().lower()
+    plan = get_subscription_plan(plan_key)
+    if not plan:
+        return jsonify({'ok': False, 'error': 'Please choose a valid Salon Pro plan.'}), 400
+
+    amount_paise = int(plan['amount_inr']) * 100
     payload = {
         'amount': amount_paise,
         'currency': 'INR',
-        'receipt': f'sp_{user.id}_{int(utc_now().timestamp())}',
+        'receipt': f'sp_{user.id}_{plan["key"]}_{int(utc_now().timestamp())}',
         'notes': {
             'salon_pro_user_id': str(user.id),
-            'plan': 'monthly',
+            'plan': plan['key'],
+            'plan_name': plan['name'],
+            'duration_days': str(plan['duration_days']),
         },
     }
     try:
@@ -1729,7 +1799,7 @@ def subscription_create_order():
 
     sub = Subscription(
         user_id=owner.id,
-        plan_key='monthly',
+        plan_key=plan['key'],
         status='pending',
         amount_paise=amount_paise,
         currency='INR',
@@ -1744,6 +1814,11 @@ def subscription_create_order():
         'order_id': order.get('id'),
         'amount': amount_paise,
         'currency': 'INR',
+        'plan_key': plan['key'],
+        'plan_name': plan['name'],
+        'duration_days': plan['duration_days'],
+        'free_days': plan['free_days'],
+        'description': f'{plan["name"]} Salon Pro plan',
         'name': tenant_profile_for_user(user).business_name if tenant_profile_for_user(user) else user.username,
         'email': tenant_profile_for_user(user).email if tenant_profile_for_user(user) else '',
         'phone': user.phone_number or '',
@@ -1762,8 +1837,10 @@ def activate_paid_subscription(sub, payment_id, signature=None, webhook_received
     now = utc_now()
     current = active_subscription(sub.user)
     base = current.expires_at if current and current.expires_at and current.expires_at > now else now
+    plan = get_subscription_plan(sub.plan_key)
+    duration_days = int(plan['duration_days']) if plan else 30
     sub.start_at = base
-    sub.expires_at = base + timedelta(days=30)
+    sub.expires_at = base + timedelta(days=duration_days)
     sub.status = 'active'
     sub.razorpay_payment_id = payment_id
     if signature:
