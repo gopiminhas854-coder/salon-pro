@@ -65,8 +65,13 @@ def test_health_and_login(client):
     assert b"Overview" in response.data
 
 
-def test_new_signup_routes_to_199_subscription(client):
+def test_new_signup_starts_three_day_full_access_trial(client):
     c, salon = client
+    salon.app.config.update(
+        SALON_PRO_MONTHLY_PRICE_INR=199,
+        SALON_PRO_TRIAL_DAYS=3,
+        SALON_PRO_BILLING_REQUIRED=True,
+    )
     response = c.post("/register", data={
         "business_name": "New Salon",
         "email": "owner@example.com",
@@ -75,14 +80,36 @@ def test_new_signup_routes_to_199_subscription(client):
         "confirm_password": "strong-password-123",
     }, follow_redirects=False)
     assert response.status_code == 302
-    assert response.headers["Location"].endswith("/subscription?reason=new")
+    assert response.headers["Location"].endswith("/")
 
-    salon.app.config.update(SALON_PRO_MONTHLY_PRICE_INR=199)
+    dashboard = c.get("/")
+    assert dashboard.status_code == 200
+    assert b"Overview" in dashboard.data
+
+    with salon.app.app_context():
+        user = salon.current_user()
+        sub = salon.latest_subscription(user)
+        assert sub is not None
+        assert sub.status == "trial"
+        assert sub.plan_key == "trial"
+        assert sub.amount_paise == 0
+        assert sub.expires_at is not None
+        assert sub.expires_at - sub.start_at == salon.timedelta(days=3)
+
     page = c.get("/subscription")
     assert page.status_code == 200
-    assert "₹199".encode() in page.data
-    assert b"/month" in page.data
-    assert "Subscribe &amp; Pay ₹199".encode() in page.data
+    assert b"3-day free trial" in page.data
+    assert "Upgrade to ₹199/month".encode() in page.data
+
+    with salon.app.app_context():
+        sub = salon.latest_subscription(salon.current_user())
+        sub.expires_at = salon.utc_now() - salon.timedelta(seconds=1)
+        salon.db.session.commit()
+        assert salon.active_subscription(salon.current_user()) is None
+
+    expired_page = c.get("/subscription")
+    assert expired_page.status_code == 200
+    assert "Subscribe &amp; Pay ₹199".encode() in expired_page.data
 
 def test_subscription_order_uses_19900_paise_and_owner_data(client, monkeypatch):
     c, salon = client
