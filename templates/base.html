@@ -46,12 +46,12 @@
 
       /* Critical top-bar fallback: do not rely on external CSS for Android WebView/PWA. */
       .sp-shell{display:block!important}
-      .sp-shell>.sp-topbar{
-        margin-left:232px;
-        width:calc(100% - 232px);
+      .sp-topbar{
+        margin-left:248px;
+        width:calc(100% - 248px);
       }
       @media(max-width:991.98px){
-        .sp-shell>.sp-topbar{
+        .sp-topbar{
           margin-left:0;
           width:100%;
           position:sticky;
@@ -60,7 +60,7 @@
         }
       }
       @media(max-width:767.98px){
-        .sp-shell>.sp-topbar{
+        .sp-topbar{
           position:fixed!important;
           top:0!important;
           left:0!important;
@@ -86,7 +86,7 @@
         .sp-main{padding-top:calc(64px + env(safe-area-inset-top))!important}
       }
       @media(max-width:380px){
-        .sp-shell>.sp-topbar{
+        .sp-topbar{
           height:calc(60px + env(safe-area-inset-top))!important;
           min-height:calc(60px + env(safe-area-inset-top))!important;
           padding:env(safe-area-inset-top) 9px 0!important;
