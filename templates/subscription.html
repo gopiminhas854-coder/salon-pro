@@ -86,7 +86,7 @@
                             Your Salon Pro plan is active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
                         {% endif %}
                     {% else %}
-                        Start with a 3-day free trial, then choose monthly, 3-month, 6-month or annual access.
+                        Start with a 3-day free trial, then choose monthly, 3-month, 6-month or annual access. Save more when you prepay.
                     {% endif %}
                 </p>
                 <div class="d-flex flex-wrap gap-2 mt-3">
@@ -173,6 +173,13 @@
                             🎁 1 MONTH FREE
                         {% endif %}
                     </div>
+                    {% if plan.key == '3_month' %}
+                    <div class="small fw-bold mt-2" style="color:#8b6f35;">💰 Save ₹48 vs monthly</div>
+                    {% elif plan.key == '6_month' %}
+                    <div class="small fw-bold mt-2" style="color:#8b6f35;">💰 Save ₹195 vs monthly</div>
+                    {% elif plan.key == 'annual' %}
+                    <div class="small fw-bold mt-2" style="color:#8b6f35;">💰 Save ₹199 — 12th month FREE</div>
+                    {% endif %}
                 </div>
 
                 <div class="mt-3 mb-3">
@@ -221,7 +228,7 @@
             <div>💡</div>
             <div>
                 <strong>Simple prepaid billing.</strong>
-                <div class="small muted mt-1">Choose your term, pay once through Razorpay, and keep access for the full paid + free period. There is no automatic renewal charge.</div>
+                <div class="small muted mt-1">Choose your term, pay once through Razorpay, and keep access for the full paid + free period. Prepaid plans are discounted, and there is no automatic renewal charge.</div>
             </div>
         </div>
     </div>
