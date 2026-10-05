@@ -95,6 +95,50 @@ def test_subscription_cancel_records_cancellation_and_preserves_access(client):
         assert sub.expires_at > salon.utc_now()
 
 
+
+def test_staff_name_can_be_edited_and_is_used_in_team_page(client):
+    c, salon = client
+    login(c)
+    with salon.app.app_context():
+        member = salon.Staff.query.filter_by(name="Test Stylist").first()
+        assert member is not None
+        staff_id = member.id
+
+    page = c.get(f"/staff/edit/{staff_id}")
+    assert page.status_code == 200
+    assert b"Edit staff member" in page.data
+    assert b"Test Stylist" in page.data
+    assert b"Staff Name" in page.data
+
+    response = c.post(f"/staff/edit/{staff_id}", data={
+        "_csrf_token": salon.csrf_token(),
+        "name": "Gurpreet",
+        "phone": "9876543210",
+        "email": "gurpreet@example.com",
+        "specialty": "Hair Stylist",
+        "is_active": "on",
+    }, follow_redirects=True)
+    assert response.status_code == 200
+    assert b"Gurpreet" in response.data
+    assert b"Test Stylist" not in response.data
+
+    with salon.app.app_context():
+        member = salon.Staff.query.get(staff_id)
+        assert member.name == "Gurpreet"
+        assert member.phone == "9876543210"
+        assert member.email == "gurpreet@example.com"
+        assert member.specialty == "Hair Stylist"
+        assert member.is_active is True
+
+    blank = c.post(f"/staff/edit/{staff_id}", data={
+        "_csrf_token": salon.csrf_token(),
+        "name": "   ",
+    })
+    assert blank.status_code == 400
+    with salon.app.app_context():
+        assert salon.Staff.query.get(staff_id).name == "Gurpreet"
+
+
 def test_new_signup_starts_three_day_full_access_trial(client):
     c, salon = client
     salon.app.config.update(
