@@ -7,7 +7,7 @@ from alembic import op
 import sqlalchemy as sa
 
 revision = "0013_subscription_cancellation"
-down_revision = "0012_rls_tenant_isolation"
+down_revision = "0012b_subscription_base"
 branch_labels = None
 depends_on = None
 
