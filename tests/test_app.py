@@ -1416,5 +1416,5 @@ def test_mobile_command_center_topbar_keeps_title_visible(client):
     assert "@media(max-width:380px)" in css
     assert "Final mobile top-bar guard" in css
     assert ".sp-topbar{height:calc(64px + env(safe-area-inset-top))" in css
-    assert ".sp-shell>.sp-topbar" in css
+    assert ".sp-topbar{margin-left:248px!important" in css
     assert ".sp-mobile-menu{" in css
