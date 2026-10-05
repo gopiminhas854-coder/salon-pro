@@ -285,18 +285,85 @@ html[data-theme="dark"] .sp-command-section[open] .sp-command-chevron{background
 
 
 /* Final mobile top-bar guard: keep the Command Center header stable in Android WebView/PWA. */
+.sp-topbar{
+  width:100%;
+  min-width:0;
+  flex:0 0 auto;
+  box-sizing:border-box;
+  position:sticky;
+  top:0;
+  z-index:1200;
+  display:flex;
+  align-items:center;
+  min-height:68px;
+  height:calc(68px + env(safe-area-inset-top));
+  padding:env(safe-area-inset-top) 30px 0;
+  gap:10px;
+  overflow:visible;
+  isolation:isolate;
+}
+.sp-top-title{
+  display:block;
+  min-width:0;
+  flex:1 1 auto;
+  width:auto;
+  max-width:none;
+  margin:0;
+  padding:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  line-height:1.25;
+}
+.sp-top-actions{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  min-width:0;
+  flex:0 0 auto;
+  margin-left:auto;
+  gap:10px;
+}
+.sp-top-actions .sp-top-btn,
+.sp-top-actions .sp-top-icon{
+  flex-shrink:0;
+}
+.sp-mobile-menu{
+  display:grid;
+  flex:0 0 40px;
+  width:40px;
+  height:40px;
+  margin:0;
+  padding:0;
+  place-items:center;
+  position:relative;
+  z-index:1201;
+  color:#555b6d;
+  line-height:1;
+}
+.sp-mobile-menu:focus-visible,
+.sp-top-icon:focus-visible,
+.sp-top-btn:focus-visible{
+  outline:3px solid rgba(88,86,214,.28);
+  outline-offset:2px;
+}
+@media(max-width:991.98px){
+  .sp-topbar{z-index:1200!important}
+  .sp-sidebar{z-index:1301!important}
+  .sp-sidebar-backdrop{z-index:1300!important}
+}
 @media(max-width:767.98px){
   .sp-topbar{
-    height:64px!important;
-    min-height:64px!important;
-    padding:0 14px!important;
-    gap:8px!important;
+    height:calc(64px + env(safe-area-inset-top));
+    min-height:calc(64px + env(safe-area-inset-top));
+    padding:env(safe-area-inset-top) 12px 0;
+    gap:8px;
     display:flex!important;
     align-items:center!important;
-    overflow:visible!important;
-    isolation:isolate;
-    position:sticky;
-    top:0;
+    width:100%!important;
+    box-sizing:border-box!important;
+    position:sticky!important;
+    top:0!important;
     z-index:1200!important;
   }
   .sp-mobile-menu{
@@ -305,82 +372,66 @@ html[data-theme="dark"] .sp-command-section[open] .sp-command-chevron{background
     width:40px!important;
     height:40px!important;
     margin:0!important;
+    padding:0!important;
     place-items:center!important;
+    visibility:visible!important;
+    opacity:1!important;
+    color:#555b6d!important;
   }
   .sp-top-title{
     display:block!important;
     flex:1 1 auto!important;
     min-width:0!important;
+    width:auto!important;
     max-width:none!important;
     margin:0!important;
+    padding:0!important;
     overflow:hidden!important;
     text-overflow:ellipsis!important;
     white-space:nowrap!important;
-    line-height:1.2!important;
+    line-height:1.25!important;
+    font-size:12px;
   }
   .sp-top-actions{
     display:flex!important;
-    flex:0 0 auto!important;
-    min-width:38px!important;
-    margin-left:0!important;
-    gap:0!important;
     align-items:center!important;
+    justify-content:flex-end!important;
+    flex:0 0 auto!important;
+    width:auto!important;
+    min-width:38px!important;
+    margin:0!important;
+    gap:0!important;
   }
   .sp-top-actions .sp-top-icon{
+    display:grid!important;
     flex:0 0 38px!important;
     width:38px!important;
     height:38px!important;
+    place-items:center!important;
   }
 }
 @media(max-width:380px){
-  .sp-topbar{padding:0 10px!important;gap:6px!important}
-  .sp-top-title{font-size:11px!important}
-}
-
-/* ===== FINAL TOP BAR FIX v2 ===== */
-/* One stable header model for browser, PWA and Android WebView edge-to-edge mode. */
-.sp-topbar{
-  width:100%;
-  min-width:0;
-  flex:0 0 auto;
-  overflow:hidden;
-  box-sizing:border-box;
-}
-.sp-top-title{min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.sp-top-actions{min-width:0;flex:0 0 auto;margin-left:auto;display:flex;align-items:center}
-.sp-top-actions .sp-top-btn,.sp-top-actions .sp-top-icon{flex-shrink:0}
-@media(max-width:767.98px){
   .sp-topbar{
-    height:calc(64px + env(safe-area-inset-top))!important;
-    min-height:calc(64px + env(safe-area-inset-top))!important;
-    width:100%!important;
-    padding:env(safe-area-inset-top) 12px 0!important;
-    gap:8px!important;
-    overflow:hidden!important;
-    display:flex!important;
-    align-items:center!important;
-    box-sizing:border-box!important;
-    position:sticky!important;
-    top:0!important;
-    z-index:1000!important;
+    padding:env(safe-area-inset-top) 9px 0;
+    gap:5px;
   }
   .sp-mobile-menu{
-    display:grid!important;flex:0 0 40px!important;width:40px!important;height:40px!important;
-    margin:0!important;padding:0!important;place-items:center!important;visibility:visible!important;opacity:1!important;
+    flex-basis:38px!important;
+    width:38px!important;
   }
-  .sp-top-title{display:block!important;flex:1 1 auto!important;width:auto!important;min-width:0!important;max-width:none!important;margin:0!important;padding:0!important;line-height:1.25!important}
-  .sp-top-actions{display:flex!important;align-items:center!important;justify-content:flex-end!important;flex:0 0 auto!important;width:auto!important;min-width:38px!important;margin:0!important;gap:0!important}
-  .sp-top-actions .sp-top-icon{display:grid!important;flex:0 0 38px!important;width:38px!important;height:38px!important;place-items:center!important}
-}
-@media(max-width:380px){
-  .sp-topbar{padding:env(safe-area-inset-top) 9px 0!important;gap:5px!important}
-  .sp-mobile-menu{flex-basis:38px!important;width:38px!important}
-  .sp-top-actions .sp-top-icon{flex-basis:36px!important;width:36px!important;height:36px!important}
+  .sp-top-actions .sp-top-icon{
+    flex-basis:36px!important;
+    width:36px!important;
+    height:36px!important;
+  }
   .sp-top-title{font-size:11px!important}
 }
-/* Drawer must sit above the header; the header must never cover the drawer close area. */
-@media(max-width:991.98px){
-  .sp-topbar{z-index:1000!important}
-  .sp-sidebar{z-index:1101!important}
-  .sp-sidebar-backdrop{z-index:1100!important}
+html[data-theme="dark"] .sp-topbar{
+  background:rgba(24,26,29,.96);
+  border-color:#2b2e33;
+}
+html[data-theme="dark"] .sp-top-title,
+html[data-theme="dark"] .sp-top-date,
+html[data-theme="dark"] .sp-mobile-menu{
+  color:#f2f2f0!important;
 }
