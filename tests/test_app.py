@@ -270,7 +270,7 @@ def test_mobile_topbar_is_present_and_has_stable_mobile_css(client):
     assert "width:100vw!important" in css
     assert "visibility:visible!important" in css
     assert "html[data-theme=\"dark\"] .sp-mobile-menu" in css
-    assert "style.css', v='20261005-topbar2'" in html
+    assert "style.css?v=20261005-topbar2" in html
 
 
 def test_mobile_bottom_nav_keeps_all_icons_and_active_state(client):
@@ -1415,5 +1415,6 @@ def test_mobile_command_center_topbar_keeps_title_visible(client):
     assert ".sp-topbar{gap:8px;overflow:hidden;isolation:isolate}" in css
     assert "@media(max-width:380px)" in css
     assert "Final mobile top-bar guard" in css
-    assert ".sp-topbar{\n    height:64px!important" in css
+    assert ".sp-topbar{height:calc(64px + env(safe-area-inset-top))" in css
+    assert ".sp-shell>.sp-topbar" in css
     assert ".sp-mobile-menu{" in css
