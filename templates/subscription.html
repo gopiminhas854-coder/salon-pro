@@ -8,22 +8,44 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <style>
-        body { margin:0; min-height:100vh; background:#f7f5f0; color:#171717; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-        .wrap { max-width:1020px; margin:0 auto; padding:28px 16px 48px; }
+        body {
+            margin: 0;
+            min-height: 100vh;
+            background: #f7f5f0;
+            color: #171717;
+            font-family: Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+        }
+        .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 16px 48px; }
         .header { display:flex; gap:16px; justify-content:space-between; align-items:center; margin-bottom:24px; }
         .brand { display:flex; gap:12px; align-items:center; }
         .mark { width:48px;height:48px;border-radius:14px;background:#171717;color:#fff;display:grid;place-items:center;font-size:21px; }
         .hero,.plan { background:#fff;border:1px solid #e9e6df;border-radius:22px;box-shadow:0 12px 40px rgba(25,22,18,.06); }
-        .hero { padding:26px; margin-bottom:20px; }
-        .plan { padding:28px; position:relative; overflow:hidden; }
-        .price { font-size:42px; line-height:1; font-weight:800; letter-spacing:-.04em; }
-        .price small { font-size:16px; font-weight:600; color:#6f6a62; }
-        .feature { display:flex; gap:10px; align-items:flex-start; margin:11px 0; color:#413d37; }
+        .hero { padding:26px; margin-bottom:22px; }
+        .plan { padding:24px; position:relative; overflow:hidden; height:100%; display:flex; flex-direction:column; }
+        .plan.featured { border:1.5px solid #8b6f35; box-shadow:0 16px 44px rgba(139,111,53,.13); transform:translateY(-4px); }
+        .plan.annual { background:linear-gradient(180deg,#fffdf8 0%,#fff 100%); }
+        .emoji-icon { font-size:28px; line-height:1; }
+        .price { font-size:38px; line-height:1; font-weight:800; letter-spacing:-.04em; }
+        .price small { font-size:15px; font-weight:600; color:#6f6a62; }
+        .feature { display:flex; gap:10px; align-items:flex-start; margin:9px 0; color:#413d37; }
         .feature i { color:#8b6f35; margin-top:2px; }
-        .pay-btn { min-height:52px; border:0; border-radius:12px; background:#171717; color:#fff; font-weight:800; }
+        .pay-btn { min-height:50px; border:0; border-radius:12px; background:#171717; color:#fff; font-weight:800; }
         .pay-btn:hover { background:#000; color:#fff; }
         .muted { color:#6f6a62; }
         .status { border-radius:12px; padding:12px 14px; background:#f6f3eb; border:1px solid #e6e0d4; }
+        .plan-badge {
+            display:inline-flex; align-items:center; gap:6px; width:max-content;
+            border-radius:999px; padding:6px 10px; font-size:11px; font-weight:800;
+            letter-spacing:.05em; background:#f6f3eb; color:#6a552a; border:1px solid #e5dcc8;
+        }
+        .popular-badge { background:#171717; color:#fff; border-color:#171717; }
+        .value-badge { background:#8b6f35; color:#fff; border-color:#8b6f35; }
+        .plan-price-note { min-height:22px; }
+        .selection-note { border-radius:14px; padding:12px 14px; background:#171717; color:#fff; }
+        .no-renewal { border-radius:14px; padding:12px 14px; background:#f6f3eb; border:1px solid #e6e0d4; }
+        @media (max-width: 991.98px) {
+            .plan.featured { transform:none; }
+        }
     </style>
 </head>
 <body>
@@ -45,23 +67,33 @@
                 <div class="text-uppercase small fw-bold text-secondary" style="letter-spacing:.08em;">{{ business.business_name if business else 'Your salon' }}</div>
                 <h1 class="h3 fw-bold mt-2 mb-2">
                     {% if active and trial %}
-                        Your 3-day free trial is active
+                        ✨ Your 3-day free trial is active
                     {% elif active %}
-                        Your Salon Pro subscription is active
+                        ✅ Your Salon Pro subscription is active
                     {% else %}
-                        Activate Salon Pro to continue
+                        🚀 Choose your Salon Pro plan
                     {% endif %}
                 </h1>
                 <p class="muted mb-0">
                     {% if active and trial %}
                         Full Salon Pro access is active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
                         {% if trial_days_left == 1 %}1 day remains in your free trial.{% else %}{{ trial_days_left }} days remain in your free trial.{% endif %}
+                        Your paid plan will begin after the current trial ends.
                     {% elif active %}
-                        Your plan is active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+                        {% if current_plan %}
+                            Your {{ current_plan.name }} plan is active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+                        {% else %}
+                            Your Salon Pro plan is active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+                        {% endif %}
                     {% else %}
-                        Choose the monthly plan below. Payment is verified by the Salon Pro server before access is activated.
+                        Start with a 3-day free trial, then choose monthly, 3-month, 6-month or annual access.
                     {% endif %}
                 </p>
+                <div class="d-flex flex-wrap gap-2 mt-3">
+                    <span class="plan-badge">🔒 Secure Razorpay checkout</span>
+                    <span class="plan-badge">🔄 Cancel anytime</span>
+                    <span class="plan-badge">💳 No card details stored by Salon Pro</span>
+                </div>
             </div>
             {% if latest %}
             <div class="status align-self-start">
@@ -73,135 +105,218 @@
         </div>
     </section>
 
-    <div class="row g-4 justify-content-center">
-        <div class="col-lg-6">
-            <section class="plan">
-                <div class="badge text-bg-dark mb-3">{% if trial %}FREE TRIAL + MONTHLY{% else %}MONTHLY{% endif %}</div>
-                <h2 class="h4 fw-bold">Salon Pro</h2>
-                <div class="price mt-3 mb-1">₹{{ monthly_price }}<small>/month</small></div>
-                <div class="muted mb-4">
-                    {% if trial %}
-                    Your free trial includes the full Salon Pro workspace. Continue at ₹{{ monthly_price }}/month when the trial ends.
-                    {% else %}
-                    One subscription unlocks the full Salon Pro workspace for your salon.
+    {% if active and not trial %}
+    <section class="plan mb-4">
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+            <div>
+                <div class="small text-uppercase fw-bold text-secondary">Current plan</div>
+                <div class="d-flex align-items-center gap-2 mt-2">
+                    <span class="emoji-icon">{{ current_plan.emoji if current_plan else '✅' }}</span>
+                    <h2 class="h4 fw-bold mb-0">{{ current_plan.name if current_plan else 'Salon Pro' }}</h2>
+                    {% if cancel_at_period_end %}<span class="plan-badge">Cancellation scheduled</span>{% endif %}
+                </div>
+                <div class="muted small mt-2">
+                    Access remains active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+                    No automatic renewal will be charged.
+                </div>
+            </div>
+            <div class="text-end">
+                {% if current_plan %}
+                <div class="price">₹{{ current_plan.amount_inr }}<small> paid</small></div>
+                {% endif %}
+            </div>
+        </div>
+        <a href="{{ url_for('dashboard') }}" class="btn pay-btn w-100 mt-4">Back to Salon Pro</a>
+        {% if not cancel_at_period_end %}
+        <button id="cancel-btn" type="button" class="btn btn-outline-danger w-100 mt-3">
+            <i class="bi bi-x-circle me-1"></i> Cancel Subscription
+        </button>
+        <div id="cancel-message" class="small muted text-center mt-2"></div>
+        <div class="small muted text-center mt-2">Your access stays active until the current paid/free period ends.</div>
+        {% else %}
+        <div class="alert alert-warning mt-3 mb-0">
+            <i class="bi bi-calendar-check me-1"></i>
+            Cancellation scheduled. Your access remains active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+        </div>
+        {% endif %}
+    </section>
+    {% else %}
+
+    <div class="row g-4">
+        {% for plan in plans %}
+        <div class="col-md-6 col-xl-3">
+            <section class="plan {% if plan.key == '6_month' %}featured{% elif plan.key == 'annual' %}annual{% endif %}">
+                <div class="d-flex align-items-start justify-content-between gap-2">
+                    <div class="emoji-icon" aria-hidden="true">{{ plan.emoji }}</div>
+                    {% if plan.highlight == 'Popular' %}
+                        <span class="plan-badge popular-badge">⭐ POPULAR</span>
+                    {% elif plan.highlight == 'Best Value' %}
+                        <span class="plan-badge value-badge">🏆 BEST VALUE</span>
                     {% endif %}
                 </div>
 
-                <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Dashboard, appointments and calendar</span></div>
-                <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Customers, CRM and retention reminders</span></div>
-                <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Billing, invoices, payments and refunds</span></div>
-                <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Inventory, staff and business insights</span></div>
-                <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Web + Android access</span></div>
-                <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Secure server-side payment verification</span></div>
+                <div class="mt-3">
+                    <h2 class="h5 fw-bold mb-1">{{ plan.name }}</h2>
+                    <div class="muted small plan-price-note">{{ plan.description }}</div>
+                </div>
 
-                {% if active and trial %}
-                <div class="alert alert-success mt-4 mb-0">
-                    <i class="bi bi-gift-fill me-1"></i>
-                    <strong>3-day free trial</strong> — full Salon Pro access is active.
-                    {% if trial_days_left == 1 %}You have 1 day left.{% else %}You have {{ trial_days_left }} days left.{% endif %}
+                <div class="mt-4">
+                    <div class="price">₹{{ plan.amount_inr }}<small> {% if plan.key == 'monthly' %}/month{% else %}one-time{% endif %}</small></div>
+                    <div class="small fw-bold mt-2" style="color:#8b6f35;">
+                        {% if plan.key == 'monthly' %}
+                            ✨ 3-day free trial
+                        {% elif plan.free_days == 7 %}
+                            🎁 7 days FREE
+                        {% elif plan.free_days == 15 %}
+                            🎁 15 days FREE
+                        {% else %}
+                            🎁 1 MONTH FREE
+                        {% endif %}
+                    </div>
                 </div>
-                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-dark w-100 mt-3">Continue using Salon Pro</a>
-                <button id="subscribe-btn" type="button" class="btn pay-btn w-100 mt-3">
-                    <i class="bi bi-credit-card-2-front me-1"></i> Upgrade to ₹{{ monthly_price }}/month
-                </button>
-                <div class="small muted text-center mt-3">Your paid plan starts from the end of your current trial.</div>
-                {% elif active %}
-                <div class="alert alert-success mt-4 mb-0">
-                    <i class="bi bi-check-circle-fill me-1"></i>
-                    Active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+
+                <div class="mt-3 mb-3">
+                    <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Dashboard, bookings &amp; calendar</span></div>
+                    <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Customers, CRM &amp; reminders</span></div>
+                    <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Billing, payments &amp; invoices</span></div>
+                    <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Inventory, staff &amp; insights</span></div>
+                    <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Web + Android access</span></div>
                 </div>
-                <a href="{{ url_for('dashboard') }}" class="btn pay-btn w-100 mt-3">Back to Salon Pro</a>
-                {% if not cancel_at_period_end %}
-                <button id="cancel-btn" type="button" class="btn btn-outline-danger w-100 mt-3">
-                    <i class="bi bi-x-circle me-1"></i> Cancel Subscription
-                </button>
-                <div id="cancel-message" class="small muted text-center mt-2"></div>
-                <div class="small muted text-center mt-2">You keep access until the end of your current paid period. No automatic renewal will be charged.</div>
-                {% else %}
-                <div class="alert alert-warning mt-3 mb-0">
-                    <i class="bi bi-calendar-check me-1"></i>
-                    Cancellation scheduled. Your access remains active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+
+                <div class="mt-auto">
+                    <div class="muted small mb-2">{{ plan.benefit }}</div>
+                    <button
+                        type="button"
+                        class="btn pay-btn w-100 plan-pay-btn"
+                        data-plan-key="{{ plan.key }}"
+                        data-plan-name="{{ plan.name }}"
+                    >
+                        {% if active and trial %}
+                            Choose {{ plan.name }}
+                        {% elif plan.key == 'monthly' %}
+                            Subscribe ₹{{ plan.amount_inr }}
+                        {% else %}
+                            Choose {{ plan.name }}
+                        {% endif %}
+                    </button>
                 </div>
-                {% endif %}
-                {% else %}
-                <button id="subscribe-btn" type="button" class="btn pay-btn w-100 mt-4">
-                    <i class="bi bi-credit-card-2-front me-1"></i> Subscribe &amp; Pay ₹{{ monthly_price }}
-                </button>
-                <div id="payment-message" class="small muted text-center mt-3"></div>
-                <div class="small muted text-center mt-3">Payment is processed by Razorpay. Salon Pro does not store your card details.</div>
-                {% endif %}
             </section>
         </div>
+        {% endfor %}
     </div>
+
+    {% if active and trial %}
+    <div class="selection-note mt-4">
+        <div class="d-flex align-items-start gap-2">
+            <div>🎁</div>
+            <div>
+                <strong>Your 3-day free trial is active.</strong>
+                <div class="small opacity-75 mt-1">Pick a paid plan now and it will start automatically after your current trial ends.</div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <div class="no-renewal mt-4">
+        <div class="d-flex align-items-start gap-2">
+            <div>💡</div>
+            <div>
+                <strong>Simple prepaid billing.</strong>
+                <div class="small muted mt-1">Choose your term, pay once through Razorpay, and keep access for the full paid + free period. There is no automatic renewal charge.</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <div id="payment-message" class="small text-center mt-3"></div>
+    <div class="small muted text-center mt-3">Payment is processed by Razorpay. Salon Pro does not store your card details.</div>
+    {% endif %}
 </div>
 
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-{% if not active or trial or (active and not trial and not cancel_at_period_end) %}
+{% if not active or trial %}
 <script>
 (() => {
-    const button = document.getElementById('subscribe-btn');
+    const buttons = Array.from(document.querySelectorAll('.plan-pay-btn'));
     const message = document.getElementById('payment-message');
     const csrf = {{ csrf_token()|tojson }};
 
     function setMessage(text, isError=false) {
+        if (!message) return;
         message.textContent = text;
         message.className = 'small text-center mt-3 ' + (isError ? 'text-danger' : 'muted');
     }
 
-    button.addEventListener('click', async () => {
-        button.disabled = true;
-        setMessage('Preparing secure checkout…');
-        try {
-            const orderResponse = await fetch('{{ url_for("subscription_create_order") }}', {
-                method: 'POST',
-                headers: {'X-CSRF-Token': csrf, 'Accept': 'application/json'}
-            });
-            const order = await orderResponse.json();
-            if (!order.ok) throw new Error(order.error || 'Could not start payment.');
+    buttons.forEach(button => {
+        button.addEventListener('click', async () => {
+            const planKey = button.dataset.planKey;
+            const planName = button.dataset.planName;
+            buttons.forEach(item => item.disabled = true);
+            setMessage('Preparing secure checkout for ' + planName + '…');
 
-            const options = {
-                key: order.key_id,
-                amount: order.amount,
-                currency: order.currency,
-                name: 'Salon Pro',
-                description: 'Monthly Salon Pro subscription',
-                order_id: order.order_id,
-                prefill: {
-                    name: order.name || '',
-                    email: order.email || '',
-                    contact: order.phone || ''
-                },
-                theme: {color: '#171717'},
-                handler: async function (response) {
-                    setMessage('Verifying your payment…');
-                    const verifyResponse = await fetch('{{ url_for("subscription_verify_payment") }}', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json', 'X-CSRF-Token': csrf, 'Accept': 'application/json'},
-                        body: JSON.stringify(response)
-                    });
-                    const result = await verifyResponse.json();
-                    if (!result.ok) throw new Error(result.error || 'Payment could not be verified.');
-                    window.location.href = '{{ url_for("dashboard") }}';
-                }
-            };
+            try {
+                const orderResponse = await fetch('{{ url_for("subscription_create_order") }}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrf,
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({plan_key: planKey})
+                });
+                const order = await orderResponse.json();
+                if (!order.ok) throw new Error(order.error || 'Could not start payment.');
 
-            options.modal = {
-                ondismiss: function () {
-                    button.disabled = false;
-                    setMessage('Payment window closed. You can try again.');
-                }
-            };
+                const options = {
+                    key: order.key_id,
+                    amount: order.amount,
+                    currency: order.currency,
+                    name: 'Salon Pro',
+                    description: order.description || (order.plan_name + ' Salon Pro plan'),
+                    order_id: order.order_id,
+                    prefill: {
+                        name: order.name || '',
+                        email: order.email || '',
+                        contact: order.phone || ''
+                    },
+                    theme: {color: '#171717'},
+                    handler: async function (response) {
+                        setMessage('Verifying your payment…');
+                        const verifyResponse = await fetch('{{ url_for("subscription_verify_payment") }}', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-CSRF-Token': csrf,
+                                'Accept': 'application/json'
+                            },
+                            body: JSON.stringify(response)
+                        });
+                        const result = await verifyResponse.json();
+                        if (!result.ok) throw new Error(result.error || 'Payment could not be verified.');
+                        window.location.href = '{{ url_for("dashboard") }}';
+                    }
+                };
 
-            const checkout = new Razorpay(options);
-            checkout.on('payment.failed', function (response) {
-                button.disabled = false;
-                setMessage((response.error && response.error.description) || 'Payment failed. Please try again.', true);
-            });
-            checkout.open();
-        } catch (error) {
-            button.disabled = false;
-            setMessage(error.message || 'Could not start payment.', true);
-        }
+                options.modal = {
+                    ondismiss: function () {
+                        buttons.forEach(item => item.disabled = false);
+                        setMessage('Payment window closed. You can choose another plan.');
+                    }
+                };
+
+                const checkout = new Razorpay(options);
+                checkout.on('payment.failed', function (response) {
+                    buttons.forEach(item => item.disabled = false);
+                    setMessage(
+                        (response.error && response.error.description) || 'Payment failed. Please try again.',
+                        true
+                    );
+                });
+                checkout.open();
+            } catch (error) {
+                buttons.forEach(item => item.disabled = false);
+                setMessage(error.message || 'Could not start payment.', true);
+            }
+        });
     });
 })();
 </script>
@@ -214,10 +329,12 @@
     const cancelMessage = document.getElementById('cancel-message');
     const csrf = {{ csrf_token()|tojson }};
     if (!cancelButton) return;
+
     cancelButton.addEventListener('click', async () => {
-        if (!confirm('Cancel your Salon Pro subscription? You will keep access until the end of your current paid period.')) return;
+        if (!confirm('Cancel your Salon Pro subscription? You will keep access until the end of your current paid/free period. No refund is created by this action.')) return;
         cancelButton.disabled = true;
         cancelMessage.textContent = 'Processing cancellation…';
+
         try {
             const response = await fetch('{{ url_for("subscription_cancel") }}', {
                 method: 'POST',
