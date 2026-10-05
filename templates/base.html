@@ -11,7 +11,7 @@
     <title>{% block title %}Salon Pro{% endblock %} | Salon Management</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin><link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
-    <link href="{{ url_for('static', filename='css/style.css', v='20261005-topbar2') }}" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/style.css', v='20261005-topbar3') }}" rel="stylesheet">
     <link href="{{ url_for('static', filename='css/colour_lab.css') }}" rel="stylesheet">
     <style>
       @media(max-width:991.98px){
@@ -62,15 +62,15 @@
       @media(max-width:767.98px){
         .sp-topbar{
           position:fixed!important;
-          top:0!important;
+          top:max(12px, env(safe-area-inset-top))!important;
           left:0!important;
           right:0!important;
           width:100vw!important;
           max-width:100vw!important;
           margin:0!important;
-          height:calc(64px + env(safe-area-inset-top))!important;
-          min-height:calc(64px + env(safe-area-inset-top))!important;
-          padding:env(safe-area-inset-top) 12px 0!important;
+          height:64px!important;
+          min-height:64px!important;
+          padding:0 12px!important;
           display:flex!important;
           align-items:center!important;
           visibility:visible!important;
@@ -83,15 +83,16 @@
           overflow:visible!important;
           box-sizing:border-box!important;
         }
-        .sp-main{padding-top:calc(64px + env(safe-area-inset-top))!important}
+        .sp-main{padding-top:calc(64px + max(12px, env(safe-area-inset-top)))!important}
       }
       @media(max-width:380px){
         .sp-topbar{
-          height:calc(60px + env(safe-area-inset-top))!important;
-          min-height:calc(60px + env(safe-area-inset-top))!important;
-          padding:env(safe-area-inset-top) 9px 0!important;
+          top:max(10px, env(safe-area-inset-top))!important;
+          height:60px!important;
+          min-height:60px!important;
+          padding:0 9px!important;
         }
-        .sp-main{padding-top:calc(60px + env(safe-area-inset-top))!important}
+        .sp-main{padding-top:calc(60px + max(10px, env(safe-area-inset-top)))!important}
       }
     </style>
 </head>
