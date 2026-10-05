@@ -111,6 +111,18 @@
                     Active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
                 </div>
                 <a href="{{ url_for('dashboard') }}" class="btn pay-btn w-100 mt-3">Back to Salon Pro</a>
+                {% if not cancel_at_period_end %}
+                <button id="cancel-btn" type="button" class="btn btn-outline-danger w-100 mt-3">
+                    <i class="bi bi-x-circle me-1"></i> Cancel Subscription
+                </button>
+                <div id="cancel-message" class="small muted text-center mt-2"></div>
+                <div class="small muted text-center mt-2">You keep access until the end of your current paid period. No automatic renewal will be charged.</div>
+                {% else %}
+                <div class="alert alert-warning mt-3 mb-0">
+                    <i class="bi bi-calendar-check me-1"></i>
+                    Cancellation scheduled. Your access remains active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+                </div>
+                {% endif %}
                 {% else %}
                 <button id="subscribe-btn" type="button" class="btn pay-btn w-100 mt-4">
                     <i class="bi bi-credit-card-2-front me-1"></i> Subscribe &amp; Pay ₹{{ monthly_price }}
@@ -124,7 +136,7 @@
 </div>
 
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-{% if not active or trial %}
+{% if not active or trial or (active and not trial and not cancel_at_period_end) %}
 <script>
 (() => {
     const button = document.getElementById('subscribe-btn');
@@ -189,6 +201,35 @@
         } catch (error) {
             button.disabled = false;
             setMessage(error.message || 'Could not start payment.', true);
+        }
+    });
+})();
+</script>
+{% endif %}
+
+{% if active and not trial and not cancel_at_period_end %}
+<script>
+(() => {
+    const cancelButton = document.getElementById('cancel-btn');
+    const cancelMessage = document.getElementById('cancel-message');
+    const csrf = {{ csrf_token()|tojson }};
+    if (!cancelButton) return;
+    cancelButton.addEventListener('click', async () => {
+        if (!confirm('Cancel your Salon Pro subscription? You will keep access until the end of your current paid period.')) return;
+        cancelButton.disabled = true;
+        cancelMessage.textContent = 'Processing cancellation…';
+        try {
+            const response = await fetch('{{ url_for("subscription_cancel") }}', {
+                method: 'POST',
+                headers: {'X-CSRF-Token': csrf, 'Accept': 'application/json'}
+            });
+            const result = await response.json();
+            if (!result.ok) throw new Error(result.error || 'Could not cancel subscription.');
+            window.location.reload();
+        } catch (error) {
+            cancelButton.disabled = false;
+            cancelMessage.textContent = error.message || 'Could not cancel subscription.';
+            cancelMessage.className = 'small text-danger text-center mt-2';
         }
     });
 })();
