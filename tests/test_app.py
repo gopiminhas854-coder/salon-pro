@@ -1411,6 +1411,7 @@ def test_mobile_command_center_topbar_keeps_title_visible(client):
 
     from pathlib import Path
     css = Path("static/css/style.css").read_text(encoding="utf-8")
+    base = Path("templates/base.html").read_text(encoding="utf-8")
     assert "flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" in css
     assert ".sp-topbar{gap:8px;overflow:hidden;isolation:isolate}" in css
     assert "@media(max-width:380px)" in css
@@ -1418,3 +1419,5 @@ def test_mobile_command_center_topbar_keeps_title_visible(client):
     assert ".sp-topbar{height:calc(64px + env(safe-area-inset-top))" in css
     assert ".sp-topbar{margin-left:248px!important" in css
     assert ".sp-mobile-menu{" in css
+    assert "body.sp-menu-open .sp-topbar{z-index:1000!important}" in base
+    assert "v='20261005-topbar4'" in base
