@@ -263,8 +263,8 @@ def test_subscription_order_supports_all_plan_terms_and_free_periods(client, mon
 
     expected = {
         "monthly": (19900, 30, 0),
-        "3_month": (59700, 97, 7),
-        "6_month": (119400, 195, 15),
+        "3_month": (54900, 97, 7),
+        "6_month": (99900, 195, 15),
         "annual": (218900, 360, 30),
     }
 
