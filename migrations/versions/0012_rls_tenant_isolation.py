@@ -21,6 +21,11 @@ def _tenant_predicate():
     )
 
 def upgrade():
+    # Row-level security and PostgreSQL policies are not supported by SQLite.
+    # The local/test database uses SQLite, so leave the schema unchanged there
+    # while still applying the complete policy migration in production.
+    if op.get_bind().dialect.name != "postgresql":
+        return
     for table in APP_TABLES:
         op.execute(f'ALTER TABLE public."{table}" ENABLE ROW LEVEL SECURITY')
         op.execute(f'DROP POLICY IF EXISTS "salon_pro_render_access" ON public."{table}"')
@@ -36,6 +41,8 @@ def upgrade():
         op.execute(f'REVOKE ALL ON public."{table}" FROM anon, authenticated')
 
 def downgrade():
+    if op.get_bind().dialect.name != "postgresql":
+        return
     for table in APP_TABLES:
         op.execute(f'DROP POLICY IF EXISTS "salon_pro_render_access" ON public."{table}"')
         op.execute(f'ALTER TABLE public."{table}" DISABLE ROW LEVEL SECURITY')

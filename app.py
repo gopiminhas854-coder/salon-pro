@@ -707,7 +707,11 @@ def _account_id_for_user(user):
 
 def _set_db_tenant_context(account_id):
     """Bind the current SQL transaction to the authenticated salon account."""
-    if not account_id or not has_request_context():
+    if (
+        not account_id
+        or not has_request_context()
+        or db.engine.dialect.name != 'postgresql'
+    ):
         return
     db.session.execute(
         db.text("SELECT set_config('salon_pro.account_id', :account_id, true)"),
@@ -5220,9 +5224,10 @@ def init_db():
         # Startup runs outside a user request. RLS therefore needs an explicit
         # maintenance context while Alembic/init repairs and backfills the
         # existing production owner account.
-        db.session.execute(
-            db.text("SELECT set_config('salon_pro.maintenance_mode', '1', true)")
-        )
+        if db.engine.dialect.name == 'postgresql':
+            db.session.execute(
+                db.text("SELECT set_config('salon_pro.maintenance_mode', '1', true)")
+            )
         # Production schema changes are handled by migrate_startup.py/Alembic.
         # Keep db.create_all() only for explicit local bootstrap so migrations
         # never race or recreate already-created named constraints.
