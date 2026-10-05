@@ -32,5 +32,7 @@ services:
         value: "1"
       - key: SALON_PRO_LEGACY_TRIAL_DAYS
         value: "30"
+      - key: SALON_PRO_TRIAL_DAYS
+        value: "3"
       - key: DATABASE_URL
         sync: false
