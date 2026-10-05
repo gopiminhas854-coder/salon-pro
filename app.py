@@ -90,6 +90,10 @@ app.config['SALON_PRO_LEGACY_TRIAL_DAYS'] = max(
     0,
     int(os.environ.get('SALON_PRO_LEGACY_TRIAL_DAYS', '30') or '30')
 )
+app.config['SALON_PRO_TRIAL_DAYS'] = max(
+    0,
+    int(os.environ.get('SALON_PRO_TRIAL_DAYS', '3') or '3')
+)
 
 # Controlled owner-only recovery switch. It is OFF by default and should only
 # be enabled temporarily from the Render service environment.
@@ -1508,11 +1512,17 @@ def subscription_is_exempt():
 
 
 
+def subscription_days_left(sub):
+    if not sub or not sub.expires_at:
+        return 0
+    remaining_seconds = (sub.expires_at - utc_now()).total_seconds()
+    return max(0, int((remaining_seconds + 86399) // 86400))
+
 def subscription_expiry_notice(user):
     sub = active_subscription(user)
     if not sub or not sub.expires_at:
         return None
-    days_left = max(0, (sub.expires_at - utc_now()).days)
+    days_left = subscription_days_left(sub)
     if days_left <= 7:
         return {'days_left': days_left, 'expires_at': sub.expires_at}
     return None
@@ -1526,6 +1536,8 @@ def current_subscription_payload(user):
         'subscription': sub,
         'latest': latest,
         'monthly_price': monthly_price_inr(),
+        'trial': bool(sub and sub.status == 'trial'),
+        'trial_days_left': subscription_days_left(sub) if sub and sub.status == 'trial' else 0,
     }
 
 
@@ -1605,11 +1617,24 @@ def register():
             business_name=business_name,
             email=email or None,
         ))
+        if app.config.get('SALON_PRO_BILLING_REQUIRED', True):
+            trial_days = int(app.config.get('SALON_PRO_TRIAL_DAYS', 3) or 0)
+            if trial_days > 0:
+                now = utc_now()
+                db.session.add(Subscription(
+                    user_id=user.id,
+                    plan_key='trial',
+                    status='trial',
+                    amount_paise=0,
+                    currency='INR',
+                    start_at=now,
+                    expires_at=now + timedelta(days=trial_days),
+                ))
         commit_or_rollback()
 
         establish_login_session(user)
-        flash('Account created. Choose your monthly Salon Pro plan to continue.', 'success')
-        return redirect(url_for('subscription', reason='new'))
+        flash('Account created. Your 3-day free trial is active with full Salon Pro access.', 'success')
+        return redirect(url_for('dashboard'))
 
     return render_template('register.html')
 
