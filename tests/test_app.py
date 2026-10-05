@@ -65,6 +65,36 @@ def test_health_and_login(client):
     assert b"Overview" in response.data
 
 
+def test_subscription_cancel_records_cancellation_and_preserves_access(client):
+    c, salon = client
+    salon.app.config.update(SALON_PRO_BILLING_REQUIRED=True)
+    c.post("/register", data={
+        "business_name": "Cancel Salon",
+        "email": "cancel@example.com",
+        "phone": "9876543211",
+        "password": "strong-password-123",
+        "confirm_password": "strong-password-123",
+    }, follow_redirects=False)
+    with salon.app.app_context():
+        sub = salon.latest_subscription(salon.current_user())
+        sub.status = "active"
+        sub.start_at = salon.utc_now()
+        sub.expires_at = salon.utc_now() + salon.timedelta(days=20)
+        salon.db.session.commit()
+
+    response = c.post("/subscription/cancel", headers={"X-CSRF-Token": salon.csrf_token()})
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["ok"] is True
+
+    with salon.app.app_context():
+        sub = salon.latest_subscription(salon.current_user())
+        assert sub.cancel_at_period_end is True
+        assert sub.canceled_at is not None
+        assert sub.status == "active"
+        assert sub.expires_at > salon.utc_now()
+
+
 def test_new_signup_starts_three_day_full_access_trial(client):
     c, salon = client
     salon.app.config.update(
