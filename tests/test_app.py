@@ -173,7 +173,13 @@ def test_new_signup_starts_three_day_full_access_trial(client):
     page = c.get("/subscription")
     assert page.status_code == 200
     assert b"3-day free trial" in page.data
-    assert "Upgrade to ₹199/month".encode() in page.data
+    assert "₹199/month".encode() in page.data
+    assert "₹597".encode() in page.data
+    assert "₹1194".encode() in page.data
+    assert "₹2189".encode() in page.data
+    assert b"7 DAYS FREE" in page.data
+    assert b"15 DAYS FREE" in page.data
+    assert b"1 MONTH FREE" in page.data
 
     with salon.app.app_context():
         sub = salon.latest_subscription(salon.current_user())
@@ -227,6 +233,66 @@ def test_subscription_order_uses_19900_paise_and_owner_data(client, monkeypatch)
         sub = salon.Subscription.query.filter_by(razorpay_order_id="order_test_199").first()
         assert sub is not None
         assert sub.amount_paise == 19900
+
+def test_subscription_order_supports_all_plan_terms_and_free_periods(client, monkeypatch):
+    c, salon = client
+    response = c.post("/register", data={
+        "business_name": "Plan Salon",
+        "email": "plans@example.com",
+        "phone": "9876543213",
+        "password": "strong-password-123",
+        "confirm_password": "strong-password-123",
+    }, follow_redirects=False)
+    assert response.status_code == 302
+
+    salon.app.config.update(
+        RAZORPAY_KEY_ID="rzp_test_key",
+        RAZORPAY_KEY_SECRET="rzp_test_secret",
+        SALON_PRO_MONTHLY_PRICE_INR=199,
+    )
+
+    counter = {"n": 0}
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+        def json(self):
+            counter["n"] += 1
+            return {"id": f"order_plan_{counter['n']}"}
+
+    monkeypatch.setattr(salon.requests, "post", lambda *args, **kwargs: FakeResponse())
+
+    expected = {
+        "monthly": (19900, 30, 0),
+        "3_month": (59700, 97, 7),
+        "6_month": (119400, 195, 15),
+        "annual": (218900, 360, 30),
+    }
+
+    for plan_key, (amount_paise, duration_days, free_days) in expected.items():
+        order = c.post("/subscription/order", json={"plan_key": plan_key})
+        assert order.status_code == 200
+        payload = order.get_json()
+        assert payload["ok"] is True
+        assert payload["plan_key"] == plan_key
+        assert payload["amount"] == amount_paise
+        assert payload["duration_days"] == duration_days
+        assert payload["free_days"] == free_days
+
+        with salon.app.app_context():
+            sub = salon.Subscription.query.filter_by(
+                razorpay_order_id=payload["order_id"],
+                plan_key=plan_key,
+            ).first()
+            assert sub is not None
+            assert sub.amount_paise == amount_paise
+
+    page = c.get("/subscription")
+    assert page.status_code == 200
+    html = page.data.decode("utf-8")
+    assert html.count("class=\"plan-pay-btn\"") == 4
+    assert "⭐ POPULAR" in html
+    assert "🏆 BEST VALUE" in html
+
 
 def test_subscription_payment_verification_and_webhook_are_idempotent(client, monkeypatch):
     c, salon = client
