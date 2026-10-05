@@ -44,14 +44,19 @@
             <div>
                 <div class="text-uppercase small fw-bold text-secondary" style="letter-spacing:.08em;">{{ business.business_name if business else 'Your salon' }}</div>
                 <h1 class="h3 fw-bold mt-2 mb-2">
-                    {% if active %}
+                    {% if active and trial %}
+                        Your 3-day free trial is active
+                    {% elif active %}
                         Your Salon Pro subscription is active
                     {% else %}
                         Activate Salon Pro to continue
                     {% endif %}
                 </h1>
                 <p class="muted mb-0">
-                    {% if active %}
+                    {% if active and trial %}
+                        Full Salon Pro access is active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
+                        {% if trial_days_left == 1 %}1 day remains in your free trial.{% else %}{{ trial_days_left }} days remain in your free trial.{% endif %}
+                    {% elif active %}
                         Your plan is active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
                     {% else %}
                         Choose the monthly plan below. Payment is verified by the Salon Pro server before access is activated.
@@ -71,10 +76,16 @@
     <div class="row g-4 justify-content-center">
         <div class="col-lg-6">
             <section class="plan">
-                <div class="badge text-bg-dark mb-3">MONTHLY</div>
+                <div class="badge text-bg-dark mb-3">{% if trial %}FREE TRIAL + MONTHLY{% else %}MONTHLY{% endif %}</div>
                 <h2 class="h4 fw-bold">Salon Pro</h2>
                 <div class="price mt-3 mb-1">₹{{ monthly_price }}<small>/month</small></div>
-                <div class="muted mb-4">One subscription unlocks the full Salon Pro workspace for your salon.</div>
+                <div class="muted mb-4">
+                    {% if trial %}
+                    Your free trial includes the full Salon Pro workspace. Continue at ₹{{ monthly_price }}/month when the trial ends.
+                    {% else %}
+                    One subscription unlocks the full Salon Pro workspace for your salon.
+                    {% endif %}
+                </div>
 
                 <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Dashboard, appointments and calendar</span></div>
                 <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Customers, CRM and retention reminders</span></div>
@@ -83,7 +94,18 @@
                 <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Web + Android access</span></div>
                 <div class="feature"><i class="bi bi-check-circle-fill"></i><span>Secure server-side payment verification</span></div>
 
-                {% if active %}
+                {% if active and trial %}
+                <div class="alert alert-success mt-4 mb-0">
+                    <i class="bi bi-gift-fill me-1"></i>
+                    <strong>3-day free trial</strong> — full Salon Pro access is active.
+                    {% if trial_days_left == 1 %}You have 1 day left.{% else %}You have {{ trial_days_left }} days left.{% endif %}
+                </div>
+                <a href="{{ url_for('dashboard') }}" class="btn btn-outline-dark w-100 mt-3">Continue using Salon Pro</a>
+                <button id="subscribe-btn" type="button" class="btn pay-btn w-100 mt-3">
+                    <i class="bi bi-credit-card-2-front me-1"></i> Upgrade to ₹{{ monthly_price }}/month
+                </button>
+                <div class="small muted text-center mt-3">Your paid plan starts from the end of your current trial.</div>
+                {% elif active %}
                 <div class="alert alert-success mt-4 mb-0">
                     <i class="bi bi-check-circle-fill me-1"></i>
                     Active until {{ subscription.expires_at.strftime('%d %b %Y') }}.
@@ -102,7 +124,7 @@
 </div>
 
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-{% if not active %}
+{% if not active or trial %}
 <script>
 (() => {
     const button = document.getElementById('subscribe-btn');
